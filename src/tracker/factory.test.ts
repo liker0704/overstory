@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { cleanupTempDir } from "../test-helpers.ts";
 import { createTrackerClient, resolveBackend, trackerCliName } from "./factory.ts";
 
 describe("createTrackerClient", () => {
@@ -47,7 +48,7 @@ describe("resolveBackend", () => {
 		try {
 			expect(await resolveBackend("auto", tempDir)).toBe("seeds");
 		} finally {
-			await rm(tempDir, { recursive: true });
+			await cleanupTempDir(tempDir);
 		}
 	});
 	test("returns seeds for auto when .seeds/ exists", async () => {
@@ -56,7 +57,7 @@ describe("resolveBackend", () => {
 			await mkdir(join(tempDir, ".seeds"));
 			expect(await resolveBackend("auto", tempDir)).toBe("seeds");
 		} finally {
-			await rm(tempDir, { recursive: true });
+			await cleanupTempDir(tempDir);
 		}
 	});
 	test("returns beads for auto when .beads/ exists", async () => {
@@ -65,7 +66,7 @@ describe("resolveBackend", () => {
 			await mkdir(join(tempDir, ".beads"));
 			expect(await resolveBackend("auto", tempDir)).toBe("beads");
 		} finally {
-			await rm(tempDir, { recursive: true });
+			await cleanupTempDir(tempDir);
 		}
 	});
 });

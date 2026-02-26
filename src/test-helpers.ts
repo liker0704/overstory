@@ -114,7 +114,7 @@ export async function cleanupTempDir(dir: string): Promise<void> {
 				continue;
 			}
 			// Non-EBUSY or final attempt: swallow (temp dirs are cleaned by OS anyway)
-			if (code !== "ENOENT") return;
+			return;
 		}
 	}
 }
