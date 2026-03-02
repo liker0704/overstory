@@ -673,6 +673,10 @@ function validateConfig(config: OverstoryConfig): void {
 				`[overstory] WARNING: runtime.shellInitDelayMs must be a non-negative number. Got: ${delay}. Using default (0).\n`,
 			);
 			config.runtime.shellInitDelayMs = 0;
+		} else if (delay > 30_000) {
+			process.stderr.write(
+				`[overstory] WARNING: runtime.shellInitDelayMs is ${delay}ms (>${30}s). This adds delay before every agent spawn. Consider a lower value.\n`,
+			);
 		}
 	}
 

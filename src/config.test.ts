@@ -775,6 +775,74 @@ project:
 		await expect(loadConfig(tempDir)).rejects.toThrow(ValidationError);
 	});
 
+	test("resets negative shellInitDelayMs to 0 with warning", async () => {
+		await writeConfig("runtime:\n  shellInitDelayMs: -100\n");
+		const origWrite = process.stderr.write;
+		let capturedStderr = "";
+		process.stderr.write = ((s: string | Uint8Array) => {
+			if (typeof s === "string") capturedStderr += s;
+			return true;
+		}) as typeof process.stderr.write;
+		try {
+			const config = await loadConfig(tempDir);
+			expect(config.runtime?.shellInitDelayMs).toBe(0);
+		} finally {
+			process.stderr.write = origWrite;
+		}
+		expect(capturedStderr).toContain("WARNING: runtime.shellInitDelayMs");
+	});
+
+	test("resets Infinity shellInitDelayMs to 0 with warning", async () => {
+		await writeConfig("runtime:\n  shellInitDelayMs: .inf\n");
+		const origWrite = process.stderr.write;
+		let capturedStderr = "";
+		process.stderr.write = ((s: string | Uint8Array) => {
+			if (typeof s === "string") capturedStderr += s;
+			return true;
+		}) as typeof process.stderr.write;
+		try {
+			const config = await loadConfig(tempDir);
+			expect(config.runtime?.shellInitDelayMs).toBe(0);
+		} finally {
+			process.stderr.write = origWrite;
+		}
+		expect(capturedStderr).toContain("WARNING: runtime.shellInitDelayMs");
+	});
+
+	test("warns when shellInitDelayMs exceeds 30s", async () => {
+		await writeConfig("runtime:\n  shellInitDelayMs: 60000\n");
+		const origWrite = process.stderr.write;
+		let capturedStderr = "";
+		process.stderr.write = ((s: string | Uint8Array) => {
+			if (typeof s === "string") capturedStderr += s;
+			return true;
+		}) as typeof process.stderr.write;
+		try {
+			const config = await loadConfig(tempDir);
+			expect(config.runtime?.shellInitDelayMs).toBe(60000);
+		} finally {
+			process.stderr.write = origWrite;
+		}
+		expect(capturedStderr).toContain("WARNING: runtime.shellInitDelayMs is 60000ms");
+	});
+
+	test("accepts valid shellInitDelayMs without warning", async () => {
+		await writeConfig("runtime:\n  shellInitDelayMs: 2000\n");
+		const origWrite = process.stderr.write;
+		let capturedStderr = "";
+		process.stderr.write = ((s: string | Uint8Array) => {
+			if (typeof s === "string") capturedStderr += s;
+			return true;
+		}) as typeof process.stderr.write;
+		try {
+			const config = await loadConfig(tempDir);
+			expect(config.runtime?.shellInitDelayMs).toBe(2000);
+		} finally {
+			process.stderr.write = origWrite;
+		}
+		expect(capturedStderr).not.toContain("shellInitDelayMs");
+	});
+
 	test("rejects qualityGate with empty description", async () => {
 		await writeConfig(`
 project:

@@ -657,10 +657,10 @@ describe("startCoordinator", () => {
 	});
 
 	test("respects shellInitDelayMs config before polling TUI readiness", async () => {
-		// Set shellInitDelayMs in config via config.yaml
+		// Append shellInitDelayMs to existing config (preserve tier2Enabled etc.)
 		const configPath = join(tempDir, ".overstory", "config.yaml");
-		const yamlContent = "runtime:\n  shellInitDelayMs: 500\n";
-		await Bun.write(configPath, yamlContent);
+		const existing = await Bun.file(configPath).text();
+		await Bun.write(configPath, `${existing}\nruntime:\n  shellInitDelayMs: 500\n`);
 
 		const { deps } = makeDeps();
 
