@@ -21,6 +21,7 @@ import { createRunStore } from "../sessions/store.ts";
 import { cleanupTempDir, createTempGitRepo } from "../test-helpers.ts";
 import type { AgentSession } from "../types.ts";
 import {
+	askCoordinator,
 	buildCoordinatorBeacon,
 	type CoordinatorDeps,
 	coordinatorCommand,
@@ -1916,5 +1917,190 @@ describe("outputCoordinator", () => {
 
 		await captureStdout(() => coordinatorCommand(["output", "--lines", "100"], deps));
 		expect(capturedLines).toBe(100);
+	});
+});
+
+describe("askCoordinator", () => {
+	test("sends mail and returns reply body on stdout", async () => {
+		const session = makeCoordinatorSession({ state: "working" });
+		saveSessionsToDb([session]);
+
+		const { deps } = makeDeps({ "overstory-test-project-coordinator": true });
+		deps._nudge = async () => ({ delivered: true });
+		deps._pollIntervalMs = 50; // Fast polling for test
+
+		const mailDbPath = join(overstoryDir, "mail.db");
+		const outputChunks: string[] = [];
+		const originalWrite = process.stdout.write;
+		process.stdout.write = ((chunk: string) => {
+			outputChunks.push(chunk);
+			return true;
+		}) as typeof process.stdout.write;
+
+		try {
+			// Start ask without awaiting — lets us insert the reply concurrently
+			const askPromise = askCoordinator(
+				"what is the status",
+				{ subject: "status check", timeout: 10, json: false },
+				deps,
+			);
+
+			// Wait for the ask to complete setup and send mail, then insert a reply
+			await Bun.sleep(300);
+			const replyStore = createMailStore(mailDbPath);
+			try {
+				const messages = replyStore.getAll({ from: "operator", to: "coordinator" });
+				const sent = messages[0];
+				if (sent) {
+					replyStore.insert({
+						id: "",
+						from: "coordinator",
+						to: "operator",
+						subject: `Re: ${sent.subject}`,
+						body: "Here is your answer",
+						type: "status",
+						priority: "normal",
+						threadId: sent.id,
+						payload: JSON.stringify({
+							correlationId: JSON.parse(sent.payload ?? "{}").correlationId,
+						}),
+					});
+				}
+			} finally {
+				replyStore.close();
+			}
+
+			await askPromise;
+		} finally {
+			process.stdout.write = originalWrite;
+		}
+
+		expect(outputChunks.join("")).toBe("Here is your answer\n");
+	});
+
+	test("times out when no reply arrives", async () => {
+		const session = makeCoordinatorSession({ state: "working" });
+		saveSessionsToDb([session]);
+
+		const { deps } = makeDeps({ "overstory-test-project-coordinator": true });
+		deps._nudge = async () => ({ delivered: false });
+		deps._pollIntervalMs = 50; // Fast polling so the 1s timeout exhausts quickly
+
+		let caughtError: unknown;
+		try {
+			await askCoordinator(
+				"will you answer?",
+				{ subject: "timeout test", timeout: 1, json: false },
+				deps,
+			);
+		} catch (err) {
+			caughtError = err;
+		}
+
+		expect(caughtError).toBeInstanceOf(AgentError);
+		const ae = caughtError as AgentError;
+		expect(ae.message).toContain("Timed out");
+	});
+
+	test("throws when coordinator is not running", async () => {
+		// No session in DB
+		const { deps } = makeDeps();
+
+		let caughtError: unknown;
+		try {
+			await askCoordinator("hello", { subject: "test", timeout: 5, json: false }, deps);
+		} catch (err) {
+			caughtError = err;
+		}
+
+		expect(caughtError).toBeInstanceOf(AgentError);
+		const ae = caughtError as AgentError;
+		expect(ae.message).toContain("No active coordinator");
+	});
+
+	test("throws when coordinator tmux session is dead", async () => {
+		const session = makeCoordinatorSession({ state: "working" });
+		saveSessionsToDb([session]);
+
+		// Tmux reports session as dead
+		const { deps } = makeDeps({ "overstory-test-project-coordinator": false });
+
+		let caughtError: unknown;
+		try {
+			await askCoordinator("hello", { subject: "test", timeout: 5, json: false }, deps);
+		} catch (err) {
+			caughtError = err;
+		}
+
+		expect(caughtError).toBeInstanceOf(AgentError);
+		const ae = caughtError as AgentError;
+		expect(ae.message).toContain("not alive");
+
+		// Session state should be updated to zombie
+		const sessions = loadSessionsFromDb();
+		expect(sessions[0]?.state).toBe("zombie");
+	});
+
+	test("JSON output includes correlationId and reply details", async () => {
+		const session = makeCoordinatorSession({ state: "working" });
+		saveSessionsToDb([session]);
+
+		const { deps } = makeDeps({ "overstory-test-project-coordinator": true });
+		deps._nudge = async () => ({ delivered: true });
+		deps._pollIntervalMs = 50;
+
+		const mailDbPath = join(overstoryDir, "mail.db");
+		let output = "";
+
+		const askPromise = captureStdout(async () => {
+			const innerAskPromise = askCoordinator(
+				"report status",
+				{ subject: "status", timeout: 10, json: true },
+				deps,
+			);
+
+			// Insert reply while ask is polling
+			await Bun.sleep(300);
+			const replyStore = createMailStore(mailDbPath);
+			try {
+				const messages = replyStore.getAll({ from: "operator", to: "coordinator" });
+				const sent = messages[0];
+				if (sent) {
+					replyStore.insert({
+						id: "",
+						from: "coordinator",
+						to: "operator",
+						subject: `Re: ${sent.subject}`,
+						body: "Status: all good",
+						type: "status",
+						priority: "normal",
+						threadId: sent.id,
+						payload: JSON.stringify({
+							correlationId: JSON.parse(sent.payload ?? "{}").correlationId,
+						}),
+					});
+				}
+			} finally {
+				replyStore.close();
+			}
+
+			await innerAskPromise;
+		});
+
+		output = await askPromise;
+
+		const parsed = JSON.parse(output) as Record<string, unknown>;
+		expect(parsed.success).toBe(true);
+		expect(parsed.command).toBe("coordinator ask");
+		expect(typeof parsed.correlationId).toBe("string");
+		expect(typeof parsed.sentId).toBe("string");
+		expect(typeof parsed.replyId).toBe("string");
+		expect(parsed.body).toBe("Status: all good");
+	});
+
+	test("command registration — createCoordinatorCommand has ask subcommand", () => {
+		const cmd = createCoordinatorCommand({});
+		const subcommandNames = cmd.commands.map((c) => c.name());
+		expect(subcommandNames).toContain("ask");
 	});
 });

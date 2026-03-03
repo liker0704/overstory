@@ -46,6 +46,12 @@ import { isRunningAsRoot } from "./sling.ts";
 /** Default coordinator agent name. */
 const COORDINATOR_NAME = "coordinator";
 
+/** Poll interval for the ask subcommand reply loop. */
+const ASK_POLL_INTERVAL_MS = 2_000;
+
+/** Default timeout in seconds for the ask subcommand. */
+const ASK_DEFAULT_TIMEOUT_S = 120;
+
 /**
  * Build the tmux session name for the coordinator.
  * Includes the project name to prevent cross-project collisions (overstory-pcef).
@@ -92,6 +98,8 @@ export interface CoordinatorDeps {
 		force: boolean,
 	) => Promise<{ delivered: boolean; reason?: string }>;
 	_capturePaneContent?: (name: string, lines?: number) => Promise<string | null>;
+	/** Override poll interval for ask subcommand (default: ASK_POLL_INTERVAL_MS). Used in tests. */
+	_pollIntervalMs?: number;
 }
 
 /**
@@ -840,6 +848,130 @@ async function sendToCoordinator(
 }
 
 /**
+ * Send a synchronous request to the coordinator and wait for a reply.
+ *
+ * Sends a mail message (from: operator, type: dispatch) with a correlationId,
+ * auto-nudges the coordinator via tmux, then polls mail.db for a reply in the
+ * same thread. Prints the reply body (or structured JSON) and exits.
+ * Throws AgentError if no reply arrives before the timeout.
+ */
+export async function askCoordinator(
+	body: string,
+	opts: { subject: string; timeout: number; json: boolean },
+	deps: CoordinatorDeps = {},
+): Promise<void> {
+	const tmux = deps._tmux ?? {
+		createSession,
+		isSessionAlive,
+		checkSessionState,
+		killSession,
+		sendKeys,
+		waitForTuiReady,
+		ensureTmuxAvailable,
+	};
+	const nudge = deps._nudge ?? nudgeAgent;
+	const pollIntervalMs = deps._pollIntervalMs ?? ASK_POLL_INTERVAL_MS;
+
+	const { subject, timeout, json } = opts;
+	const cwd = process.cwd();
+	const config = await loadConfig(cwd);
+	const projectRoot = config.project.root;
+
+	const overstoryDir = join(projectRoot, ".overstory");
+	const { store } = openSessionStore(overstoryDir);
+	try {
+		const session = store.getByName(COORDINATOR_NAME);
+
+		if (
+			!session ||
+			session.capability !== "coordinator" ||
+			session.state === "completed" ||
+			session.state === "zombie"
+		) {
+			throw new AgentError("No active coordinator session found", {
+				agentName: COORDINATOR_NAME,
+			});
+		}
+
+		const alive = await tmux.isSessionAlive(session.tmuxSession);
+		if (!alive) {
+			store.updateState(COORDINATOR_NAME, "zombie");
+			store.updateLastActivity(COORDINATOR_NAME);
+			throw new AgentError(`Coordinator tmux session "${session.tmuxSession}" is not alive`, {
+				agentName: COORDINATOR_NAME,
+			});
+		}
+
+		// Generate correlation ID for tracking this request/response pair
+		const correlationId = crypto.randomUUID();
+
+		// Send mail with correlationId in payload
+		const mailDbPath = join(overstoryDir, "mail.db");
+		const mailStore = createMailStore(mailDbPath);
+		const mailClient = createMailClient(mailStore);
+		let sentId: string;
+		try {
+			sentId = mailClient.send({
+				from: "operator",
+				to: COORDINATOR_NAME,
+				subject,
+				body,
+				type: "dispatch",
+				priority: "normal",
+				payload: JSON.stringify({ correlationId }),
+			});
+		} finally {
+			mailClient.close();
+		}
+
+		// Auto-nudge (fire-and-forget)
+		const nudgeMessage = `[ASK] ${subject}: ${body.slice(0, 500)}`;
+		try {
+			await nudge(projectRoot, COORDINATOR_NAME, nudgeMessage, true);
+		} catch {
+			// Nudge is fire-and-forget — silently ignore errors
+		}
+
+		// Poll for a reply in the same thread
+		const deadline = Date.now() + timeout * 1000;
+		while (Date.now() < deadline) {
+			await Bun.sleep(pollIntervalMs);
+			// Open a fresh store connection each cycle so we see the latest committed writes
+			const pollStore = createMailStore(mailDbPath);
+			let reply: import("../types.ts").MailMessage | undefined;
+			try {
+				const replies = pollStore.getByThread(sentId);
+				reply = replies.find((m) => m.from === COORDINATOR_NAME && m.to === "operator");
+			} finally {
+				pollStore.close();
+			}
+			if (reply) {
+				if (json) {
+					jsonOutput("coordinator ask", {
+						correlationId,
+						sentId,
+						replyId: reply.id,
+						subject: reply.subject,
+						body: reply.body,
+						payload: reply.payload,
+					});
+				} else {
+					process.stdout.write(`${reply.body}\n`);
+				}
+				return;
+			}
+		}
+
+		throw new AgentError(
+			`Timed out after ${timeout}s waiting for coordinator reply (correlationId: ${correlationId})`,
+			{ agentName: COORDINATOR_NAME },
+		);
+	} finally {
+		store.close();
+	}
+}
+
+/**
  * Show recent coordinator tmux pane content without attaching.
  *
  * Wraps capturePaneContent() from tmux.ts. Supports --follow for continuous polling.
@@ -976,6 +1108,25 @@ export function createCoordinatorCommand(deps: CoordinatorDeps = {}): Command {
 		.option("--json", "Output as JSON")
 		.action(async (opts: { body: string; subject: string; json?: boolean }) => {
 			await sendToCoordinator(opts.body, { subject: opts.subject, json: opts.json ?? false }, deps);
+		});
+
+	cmd
+		.command("ask")
+		.description("Send a request to the coordinator and wait for a reply")
+		.requiredOption("--body <text>", "Message body")
+		.option("--subject <text>", "Message subject", "operator request")
+		.option("--timeout <seconds>", "Timeout in seconds", String(ASK_DEFAULT_TIMEOUT_S))
+		.option("--json", "Output as JSON")
+		.action(async (opts: { body: string; subject: string; timeout?: string; json?: boolean }) => {
+			await askCoordinator(
+				opts.body,
+				{
+					subject: opts.subject,
+					timeout: Number.parseInt(opts.timeout ?? String(ASK_DEFAULT_TIMEOUT_S), 10),
+					json: opts.json ?? false,
+				},
+				deps,
+			);
 		});
 
 	cmd
