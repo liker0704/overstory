@@ -110,6 +110,30 @@ export interface RuntimeConnection {
 	close(): void;
 }
 
+// === Headless Spawn ===
+
+/** Options for spawning a headless (non-tmux) agent subprocess directly. */
+export interface DirectSpawnOpts {
+	/** Working directory for the spawned process. */
+	cwd: string;
+	/** Environment variables for the subprocess. */
+	env: Record<string, string>;
+	/** Model ref (alias or provider-qualified). */
+	model: string;
+	/** Path to the instruction/overlay file for this agent. */
+	instructionPath: string;
+}
+
+/** Structured event emitted by a headless agent on stdout (NDJSON). */
+export interface AgentEvent {
+	/** Event type (e.g. 'tool_start', 'tool_end', 'result', 'error', 'ready'). */
+	type: string;
+	/** ISO 8601 timestamp. */
+	timestamp: string;
+	/** Event-specific payload. */
+	[key: string]: unknown;
+}
+
 // === Runtime Interface ===
 
 /**
@@ -187,4 +211,25 @@ export interface AgentRuntime {
 	 * Orchestrator checks `if (runtime.connect)` before calling, falls back to tmux when absent.
 	 */
 	connect?(process: RpcProcessHandle): RuntimeConnection;
+
+	/**
+	 * Whether this runtime is headless (no tmux, direct subprocess).
+	 * Headless runtimes bypass all tmux session management and use Bun.spawn directly.
+	 * Default: false (absent means interactive/tmux-based).
+	 */
+	readonly headless?: boolean;
+
+	/**
+	 * Build the argv array for Bun.spawn() to launch a headless agent subprocess.
+	 * Only headless runtimes implement this method.
+	 * The returned array is passed directly to Bun.spawn() — no shell interpolation.
+	 */
+	buildDirectSpawn?(opts: DirectSpawnOpts): string[];
+
+	/**
+	 * Parse NDJSON stdout from a headless agent subprocess into typed AgentEvent objects.
+	 * Only headless runtimes implement this method.
+	 * The caller provides the raw stdout ReadableStream from Bun.spawn().
+	 */
+	parseEvents?(stream: ReadableStream<Uint8Array>): AsyncIterable<AgentEvent>;
 }
