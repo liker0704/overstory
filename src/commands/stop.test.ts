@@ -461,7 +461,12 @@ describe("stopCommand headless agents", () => {
 		const { tmux, calls: tmuxCalls } = makeFakeTmux({});
 		const { proc, calls: procCalls } = makeFakeProcess(pidAliveMap);
 		const { worktree, calls: worktreeCalls } = makeFakeWorktree(worktreeConfig?.shouldFail);
-		return { deps: { _tmux: tmux, _worktree: worktree, _process: proc }, tmuxCalls, procCalls, worktreeCalls };
+		return {
+			deps: { _tmux: tmux, _worktree: worktree, _process: proc },
+			tmuxCalls,
+			procCalls,
+			worktreeCalls,
+		};
 	}
 
 	test("stops headless agent by killing process tree (no tmux interaction)", async () => {
