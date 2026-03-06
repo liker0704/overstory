@@ -1,0 +1,31 @@
+services:
+  overstory:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: overstory
+    stdin_open: true
+    tty: true
+    volumes:
+      # Project source code (the repo being worked on)
+      - ${PROJECT_PATH:-.}:/workspace
+      # Claude Code config (agent definitions, commands, settings)
+      - ${CLAUDE_CONFIG:-~/.claude}:/root/.claude
+      # Persistent overstory data (SQLite DBs, sessions, mail)
+      - overstory-data:/workspace/.overstory
+      # Git config (read-only)
+      - ~/.gitconfig:/root/.gitconfig:ro
+      - ~/.ssh:/root/.ssh:ro
+    environment:
+      - ANTHROPIC_API_KEY
+      - OPENAI_API_KEY
+      - GEMINI_API_KEY
+      - GITHUB_TOKEN
+      - OVERSTORY_LOG_LEVEL=${OVERSTORY_LOG_LEVEL:-info}
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+volumes:
+  overstory-data:
