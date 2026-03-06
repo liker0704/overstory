@@ -15,6 +15,7 @@ import type {
 	AgentRuntime,
 	HooksDef,
 	OverlayContent,
+	RateLimitState,
 	ReadyState,
 	SpawnOpts,
 	TranscriptSummary,
@@ -181,5 +182,27 @@ export class OpenCodeRuntime implements AgentRuntime {
 	 */
 	buildEnv(model: ResolvedModel): Record<string, string> {
 		return model.env ?? {};
+	}
+
+	/**
+	 * Detect rate limiting from tmux pane content.
+	 *
+	 * Checks for HTTP 429 status codes, "rate limit", and "too many requests"
+	 * patterns that indicate the underlying API provider is throttling.
+	 */
+	detectRateLimit(paneContent: string): RateLimitState {
+		const lower = paneContent.toLowerCase();
+		if (
+			lower.includes("429") ||
+			lower.includes("rate limit") ||
+			lower.includes("too many requests")
+		) {
+			return {
+				limited: true,
+				resumesAt: null,
+				message: "Rate limit detected in OpenCode output",
+			};
+		}
+		return { limited: false };
 	}
 }
