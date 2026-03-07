@@ -20,7 +20,7 @@ describe("CodexRuntime", () => {
 	});
 
 	describe("buildSpawnCommand", () => {
-		test("basic command uses interactive codex with --full-auto", () => {
+		test("basic command uses interactive codex with --full-auto and --no-alt-screen", () => {
 			const opts: SpawnOpts = {
 				model: "gpt-5-codex",
 				permissionMode: "bypass",
@@ -28,7 +28,7 @@ describe("CodexRuntime", () => {
 				env: {},
 			};
 			const cmd = runtime.buildSpawnCommand(opts);
-			expect(cmd).toContain("codex --full-auto");
+			expect(cmd).toContain("codex --no-alt-screen --full-auto");
 			expect(cmd).toContain("--model gpt-5-codex");
 			expect(cmd).toContain("Read AGENTS.md");
 		});
@@ -42,7 +42,7 @@ describe("CodexRuntime", () => {
 					env: {},
 				};
 				const cmd = runtime.buildSpawnCommand(opts);
-				expect(cmd).toContain("codex --full-auto");
+				expect(cmd).toContain("codex --no-alt-screen --full-auto");
 				expect(cmd).not.toContain(" --model ");
 			}
 		});
@@ -160,8 +160,22 @@ describe("CodexRuntime", () => {
 			};
 			const cmd = runtime.buildSpawnCommand(opts);
 			expect(cmd).toBe(
-				"codex --full-auto --model gpt-5-codex 'Read AGENTS.md for your task assignment and begin immediately.'",
+				"codex --no-alt-screen --full-auto --model gpt-5-codex 'Read AGENTS.md for your task assignment and begin immediately.'",
 			);
+		});
+
+		test("with resumeSessionId uses codex resume subcommand", () => {
+			const opts: SpawnOpts = {
+				model: "gpt-5-codex",
+				permissionMode: "bypass",
+				cwd: "/tmp/worktree",
+				env: {},
+				resumeSessionId: "019cc3b5-4567-77b1-a46a-d9bce9fd7ac2",
+			};
+			const cmd = runtime.buildSpawnCommand(opts);
+			expect(cmd).toContain("codex --no-alt-screen resume 019cc3b5-4567-77b1-a46a-d9bce9fd7ac2");
+			expect(cmd).toContain("--full-auto");
+			expect(cmd).toContain("--model gpt-5-codex");
 		});
 
 		test("cwd and env are not embedded in command string", () => {
@@ -268,27 +282,29 @@ describe("CodexRuntime", () => {
 	});
 
 	describe("detectReady", () => {
-		test("returns ready for empty pane", () => {
+		test("returns ready when idle placeholder is present", () => {
+			const state = runtime.detectReady("Ask Codex to do anything\n> ");
+			expect(state).toEqual({ phase: "ready" });
+		});
+
+		test("returns loading when Working indicator is present", () => {
+			const state = runtime.detectReady("Working (3s • esc to interrupt)");
+			expect(state).toEqual({ phase: "loading" });
+		});
+
+		test("returns loading for empty pane (still initializing)", () => {
 			const state = runtime.detectReady("");
-			expect(state).toEqual({ phase: "ready" });
+			expect(state).toEqual({ phase: "loading" });
 		});
 
-		test("returns ready for any pane content", () => {
+		test("returns loading for unknown pane content", () => {
 			const state = runtime.detectReady("Loading Codex...\nPlease wait");
-			expect(state).toEqual({ phase: "ready" });
-		});
-
-		test("returns ready for NDJSON output", () => {
-			const state = runtime.detectReady(
-				'{"type":"thread.started","thread_id":"abc"}\n{"type":"turn.started"}',
-			);
-			expect(state).toEqual({ phase: "ready" });
+			expect(state).toEqual({ phase: "loading" });
 		});
 
 		test("no dialog phase — Codex has no trust dialog", () => {
 			const state = runtime.detectReady("trust this folder");
 			expect(state.phase).not.toBe("dialog");
-			expect(state.phase).toBe("ready");
 		});
 	});
 
@@ -678,7 +694,7 @@ describe("CodexRuntime integration: spawn command structure", () => {
 			env: { OVERSTORY_AGENT_NAME: "builder-1" },
 		});
 		expect(cmd).toBe(
-			"codex --full-auto --model gpt-5-codex 'Read AGENTS.md for your task assignment and begin immediately.'",
+			"codex --no-alt-screen --full-auto --model gpt-5-codex 'Read AGENTS.md for your task assignment and begin immediately.'",
 		);
 	});
 
@@ -691,7 +707,7 @@ describe("CodexRuntime integration: spawn command structure", () => {
 			appendSystemPrompt: baseDefinition,
 			env: { OVERSTORY_AGENT_NAME: "coordinator" },
 		});
-		expect(cmd).toContain("codex --full-auto --model gpt-5-codex");
+		expect(cmd).toContain("codex --no-alt-screen --full-auto --model gpt-5-codex");
 		expect(cmd).toContain("# Coordinator");
 		expect(cmd).toContain("You are the coordinator agent.");
 		expect(cmd).toContain("Read AGENTS.md");
@@ -705,7 +721,7 @@ describe("CodexRuntime integration: spawn command structure", () => {
 			appendSystemPromptFile: "/project/.overstory/agent-defs/coordinator.md",
 			env: { OVERSTORY_AGENT_NAME: "coordinator" },
 		});
-		expect(cmd).toContain("codex --full-auto --model gpt-5-codex");
+		expect(cmd).toContain("codex --no-alt-screen --full-auto --model gpt-5-codex");
 		expect(cmd).toContain("$(cat '/project/.overstory/agent-defs/coordinator.md')");
 		expect(cmd).toContain("Read AGENTS.md");
 	});

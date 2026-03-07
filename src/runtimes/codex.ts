@@ -6,10 +6,14 @@
 // - Instruction file: AGENTS.md (not .claude/CLAUDE.md)
 // - No hooks: Codex uses OS-level sandbox (Seatbelt/Landlock)
 // - One-shot calls still use `codex exec` (buildPrintCommand)
+// - Resume: `codex resume <UUID>` restores previous session context
+// - --no-alt-screen: always set for tmux capture-pane compatibility
 
-import { mkdir } from "node:fs/promises";
+import { mkdir, readdir, stat } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ResolvedModel } from "../types.ts";
+import { tailReadLines } from "../watchdog/swap.ts";
 import type {
 	AgentRuntime,
 	HooksDef,
@@ -51,32 +55,28 @@ export class CodexRuntime implements AgentRuntime {
 	 * Build the shell command string to spawn a Codex agent in a tmux pane.
 	 *
 	 * Uses interactive `codex` with `--full-auto` for workspace-write sandbox +
-	 * automatic approvals.
+	 * automatic approvals. Always passes `--no-alt-screen` to keep tmux
+	 * capture-pane working (alternate screen buffers interfere with pane reads).
 	 *
-	 * The prompt directs the agent to read AGENTS.md for its full instructions.
-	 * If `appendSystemPrompt` or `appendSystemPromptFile` is provided, the
-	 * content is prepended to the prompt (Codex has no --append-system-prompt
-	 * flag — all context goes through the exec prompt or AGENTS.md).
-	 *
-	 * @param opts - Spawn options (model, appendSystemPrompt; permissionMode is accepted but
-	 *   not mapped — Codex enforces security via OS sandbox, not permission flags)
-	 * @returns Shell command string suitable for tmux new-session -c
+	 * When `resumeSessionId` is provided, uses `codex resume <UUID>` subcommand
+	 * to restore full conversation context from the previous session.
 	 */
 	buildSpawnCommand(opts: SpawnOpts): string {
-		// When model comes from default manifest aliases (sonnet/opus/haiku),
-		// omit --model so Codex uses the user's configured default model.
-		let cmd = "codex --full-auto";
-		if (!CodexRuntime.MANIFEST_ALIASES.has(opts.model)) {
-			cmd += ` --model ${opts.model}`;
+		const modelFlag = CodexRuntime.MANIFEST_ALIASES.has(opts.model)
+			? ""
+			: ` --model ${opts.model}`;
+
+		let cmd: string;
+		if (opts.resumeSessionId) {
+			cmd = `codex --no-alt-screen resume ${opts.resumeSessionId} --full-auto${modelFlag}`;
+		} else {
+			cmd = `codex --no-alt-screen --full-auto${modelFlag}`;
 		}
 
 		if (opts.appendSystemPromptFile) {
-			// Read role definition from file at shell expansion time — avoids tmux
-			// IPC message size limits. Append the "read AGENTS.md" instruction.
 			const escaped = opts.appendSystemPromptFile.replace(/'/g, "'\\''");
 			cmd += ` "$(cat '${escaped}')"' Read AGENTS.md for your task assignment and begin immediately.'`;
 		} else if (opts.appendSystemPrompt) {
-			// Inline role definition + instruction to read AGENTS.md.
 			const prompt = `${opts.appendSystemPrompt}\n\nRead AGENTS.md for your task assignment and begin immediately.`;
 			const escaped = prompt.replace(/'/g, "'\\''");
 			cmd += ` '${escaped}'`;
@@ -96,10 +96,6 @@ export class CodexRuntime implements AgentRuntime {
 	 *
 	 * Used by merge/resolver.ts (AI-assisted conflict resolution) and
 	 * watchdog/triage.ts (AI-assisted failure classification).
-	 *
-	 * @param prompt - The prompt to pass as the exec argument
-	 * @param model - Optional model override
-	 * @returns Argv array for Bun.spawn
 	 */
 	buildPrintCommand(prompt: string, model?: string): string[] {
 		const cmd = ["codex", "exec", "--full-auto", "--ephemeral"];
@@ -120,10 +116,6 @@ export class CodexRuntime implements AgentRuntime {
 	 *
 	 * When overlay is undefined (hooks-only deployment for coordinator/supervisor/monitor),
 	 * this is a no-op since Codex has no hook system to deploy.
-	 *
-	 * @param worktreePath - Absolute path to the agent's git worktree
-	 * @param overlay - Overlay content to write as AGENTS.md, or undefined for no-op
-	 * @param _hooks - Hook definition (unused — Codex uses OS sandbox, not hooks)
 	 */
 	async deployConfig(
 		worktreePath: string,
@@ -133,20 +125,25 @@ export class CodexRuntime implements AgentRuntime {
 		if (!overlay) return;
 
 		const agentsPath = join(worktreePath, this.instructionPath);
-		// Ensure parent directory exists (AGENTS.md is in the worktree root,
-		// but the worktree dir itself might not exist yet).
 		await mkdir(dirname(agentsPath), { recursive: true });
 		await Bun.write(agentsPath, overlay.content);
 	}
 
 	/**
-	 * Codex interactive startup is treated as ready once a pane exists.
+	 * Detect Codex TUI readiness from tmux pane content.
 	 *
-	 * @param _paneContent - Captured tmux pane content (unused)
-	 * @returns Always `{ phase: "ready" }`
+	 * - Idle: "Ask Codex to do anything" placeholder in input area
+	 * - Working: "Working (" pattern (e.g. "Working (3s • esc to interrupt)")
+	 * - Otherwise: still initializing → loading
 	 */
-	detectReady(_paneContent: string): ReadyState {
-		return { phase: "ready" };
+	detectReady(paneContent: string): ReadyState {
+		if (paneContent.includes("Ask Codex to do anything")) {
+			return { phase: "ready" };
+		}
+		if (paneContent.includes("Working (")) {
+			return { phase: "loading" };
+		}
+		return { phase: "loading" };
 	}
 
 	/**
@@ -159,17 +156,13 @@ export class CodexRuntime implements AgentRuntime {
 	}
 
 	/**
-	 * Parse a Codex NDJSON transcript file into normalized token usage.
+	 * Parse a Codex rollout JSONL transcript into normalized token usage.
 	 *
-	 * Codex NDJSON format (from `--json` flag) differs from Claude/Pi:
-	 * - Token counts are in `turn.completed` events with
-	 *   `usage.input_tokens` and `usage.output_tokens`
-	 * - Model identity may appear in `thread.started` events or item metadata
+	 * Codex Rust CLI wraps events in `event_msg` envelopes. Token usage is in
+	 * `token_count` events with cumulative `total_token_usage`. Model info
+	 * may appear in `turn_context` or `session_meta` events.
 	 *
-	 * Returns null if the file does not exist or cannot be parsed.
-	 *
-	 * @param path - Absolute path to the Codex NDJSON transcript file
-	 * @returns Aggregated token usage, or null if unavailable
+	 * Also supports legacy `turn.completed` format for older Codex versions.
 	 */
 	async parseTranscript(path: string): Promise<TranscriptSummary | null> {
 		const file = Bun.file(path);
@@ -190,10 +183,34 @@ export class CodexRuntime implements AgentRuntime {
 				try {
 					event = JSON.parse(line) as Record<string, unknown>;
 				} catch {
-					// Skip malformed lines — partial writes during capture.
 					continue;
 				}
 
+				// Unwrap event_msg envelope used by Codex Rust CLI
+				const payload =
+					event.type === "event_msg"
+						? (event.payload as Record<string, unknown> | undefined)
+						: event;
+				if (!payload) continue;
+				const ptype = payload.type as string | undefined;
+
+				// token_count: cumulative totals — assignment, not +=
+				if (ptype === "token_count") {
+					const info = payload.info as Record<string, unknown> | undefined;
+					const total = info?.total_token_usage as
+						| Record<string, number | undefined>
+						| undefined;
+					if (total) {
+						if (typeof total.input_tokens === "number") {
+							inputTokens = total.input_tokens;
+						}
+						if (typeof total.output_tokens === "number") {
+							outputTokens = total.output_tokens;
+						}
+					}
+				}
+
+				// Legacy: turn.completed (older Codex TypeScript CLI)
 				if (event.type === "turn.completed") {
 					const usage = event.usage as Record<string, number | undefined> | undefined;
 					if (usage) {
@@ -206,7 +223,7 @@ export class CodexRuntime implements AgentRuntime {
 					}
 				}
 
-				// Capture model from any event that carries it.
+				// Capture model from any event that carries it
 				if (typeof event.model === "string") {
 					model = event.model;
 				}
@@ -220,30 +237,208 @@ export class CodexRuntime implements AgentRuntime {
 
 	/**
 	 * Build runtime-specific environment variables for model/provider routing.
-	 *
-	 * Returns the provider environment variables from the resolved model.
-	 * For OpenAI native: may include OPENAI_API_KEY, OPENAI_BASE_URL.
-	 * For gateway providers: may include gateway-specific auth and routing vars.
-	 *
-	 * @param model - Resolved model with optional provider env vars
-	 * @returns Environment variable map (may be empty)
 	 */
 	buildEnv(model: ResolvedModel): Record<string, string> {
 		return model.env ?? {};
 	}
 
-	/** Codex does not produce transcript files. */
+	/**
+	 * Return the Codex transcript directory.
+	 *
+	 * Codex stores rollout JSONL files at `~/.codex/sessions/YYYY/MM/DD/`.
+	 * Unlike Claude, sessions are not project-scoped in their directory layout.
+	 */
 	getTranscriptDir(_projectRoot: string): string | null {
-		return null;
+		const home = process.env.HOME ?? "";
+		if (home.length === 0) return null;
+		return join(home, ".codex", "sessions");
+	}
+
+	/**
+	 * Discover the Codex session UUID after agent spawn.
+	 *
+	 * Scans `~/.codex/sessions/YYYY/MM/DD/` for rollout files modified after
+	 * the spawn timestamp. Extracts the UUID from the `session_meta` event
+	 * (always the first line of a rollout file).
+	 */
+	async discoverSessionId(
+		_worktreePath: string,
+		spawnedAfter: number,
+	): Promise<string | null> {
+		try {
+			const home = process.env.HOME ?? "";
+			if (home.length === 0) return null;
+
+			const d = new Date(spawnedAfter);
+			const dayDir = join(
+				home,
+				".codex",
+				"sessions",
+				d.getFullYear().toString(),
+				String(d.getMonth() + 1).padStart(2, "0"),
+				String(d.getDate()).padStart(2, "0"),
+			);
+
+			let entries: string[];
+			try {
+				entries = await readdir(dayDir);
+			} catch {
+				return null;
+			}
+
+			const candidates: Array<{ path: string; mtime: number }> = [];
+			for (const entry of entries) {
+				if (!entry.startsWith("rollout-") || !entry.endsWith(".jsonl")) continue;
+				const fp = join(dayDir, entry);
+				const s = await stat(fp);
+				if (s.mtimeMs >= spawnedAfter) {
+					candidates.push({ path: fp, mtime: s.mtimeMs });
+				}
+			}
+			if (candidates.length === 0) return null;
+			candidates.sort((a, b) => b.mtime - a.mtime);
+
+			const best = candidates[0];
+			if (!best) return null;
+			const firstLine = (await Bun.file(best.path).text()).split("\n")[0];
+			if (!firstLine) return null;
+			const meta = JSON.parse(firstLine) as Record<string, unknown>;
+			if (meta.type === "session_meta") {
+				const metaPayload = meta.payload as Record<string, unknown> | undefined;
+				if (metaPayload && typeof metaPayload.id === "string") {
+					return metaPayload.id;
+				}
+			}
+			return null;
+		} catch {
+			return null;
+		}
+	}
+
+	/**
+	 * Extract recent conversation from a Codex rollout JSONL transcript.
+	 *
+	 * Uses tail-read (last 100KB) for performance. Parses user_message,
+	 * agent_message, and function_call events into markdown format.
+	 */
+	async extractConversation(
+		_worktreePath: string,
+		sessionId: string,
+		maxTurns: number,
+	): Promise<string> {
+		const rolloutPath = await this.findRolloutFile(sessionId);
+		if (!rolloutPath) return "";
+
+		const lines = await tailReadLines(rolloutPath);
+		if (lines.length === 0) return "";
+
+		const turns: Array<{ type: string; content: string }> = [];
+		for (const line of lines) {
+			try {
+				const event = JSON.parse(line) as Record<string, unknown>;
+
+				// Unwrap event_msg envelope
+				const payload =
+					event.type === "event_msg"
+						? (event.payload as Record<string, unknown> | undefined)
+						: null;
+				const responsePayload =
+					event.type === "response_item"
+						? (event.payload as Record<string, unknown> | undefined)
+						: null;
+
+				// User messages: event_msg > user_message
+				if (payload && payload.type === "user_message") {
+					const msg = payload.message as string | undefined;
+					if (msg && msg.trim()) {
+						turns.push({ type: "user", content: msg.trim() });
+					}
+				}
+
+				// Agent messages: event_msg > agent_message
+				if (payload && payload.type === "agent_message") {
+					const msg = payload.message as string | undefined;
+					if (msg && msg.trim()) {
+						turns.push({ type: "assistant", content: msg.trim() });
+					}
+				}
+
+				// Assistant text: response_item > message with output_text
+				if (responsePayload && responsePayload.type === "message") {
+					const role = responsePayload.role as string | undefined;
+					const contentArr = responsePayload.content as
+						| Array<Record<string, unknown>>
+						| undefined;
+					if (role === "assistant" && Array.isArray(contentArr)) {
+						let text = "";
+						for (const block of contentArr) {
+							if (block.type === "output_text" && typeof block.text === "string") {
+								text += `${block.text}\n`;
+							}
+						}
+						if (text.trim()) {
+							turns.push({ type: "assistant", content: text.trim() });
+						}
+					}
+				}
+
+				// Tool calls: response_item > function_call
+				if (responsePayload && responsePayload.type === "function_call") {
+					const name = responsePayload.name as string | undefined;
+					const args = responsePayload.arguments as string | undefined;
+					let content = `[Tool: ${name ?? "unknown"}]`;
+					if (name === "exec_command" && args) {
+						try {
+							const parsed = JSON.parse(args) as Record<string, unknown>;
+							const cmd = parsed.cmd as string | undefined;
+							if (cmd) content = `[Shell: ${cmd.slice(0, 100)}]`;
+						} catch {
+							// Use generic label
+						}
+					}
+					turns.push({ type: "assistant", content });
+				}
+			} catch {
+				// Skip malformed lines
+			}
+		}
+
+		const recent = turns.slice(-maxTurns * 2);
+		if (recent.length === 0) return "";
+
+		let md = "";
+		for (const turn of recent) {
+			const label = turn.type === "user" ? "User" : "Assistant";
+			md += `### ${label}\n${turn.content}\n\n`;
+		}
+		return md.trim();
 	}
 
 	/**
 	 * Detect rate limiting from tmux pane content.
 	 *
-	 * Checks for OpenAI rate limit patterns: HTTP 429, quota exceeded, etc.
+	 * Checks for Codex-specific patterns first (more specific messages),
+	 * then falls back to generic OpenAI rate limit indicators.
 	 */
 	detectRateLimit(paneContent: string): RateLimitState {
 		const lower = paneContent.toLowerCase();
+
+		// Codex-specific: stream disconnection with rate limit
+		if (lower.includes("stream disconnected before completion: rate limit")) {
+			return { limited: true, resumesAt: null, message: "Codex stream rate limited" };
+		}
+
+		// Codex-specific: TPM rate limit with model details
+		if (lower.includes("rate limit reached for")) {
+			return { limited: true, resumesAt: null, message: "OpenAI TPM rate limit reached" };
+		}
+
+		// Codex-specific: weekly usage cap warning
+		if (/you've used over \d+% of your weekly limit/i.test(paneContent)) {
+			return { limited: true, resumesAt: null, message: "OpenAI weekly limit warning" };
+		}
+
+		// Generic OpenAI patterns
 		if (lower.includes("429") || lower.includes("rate limit") || lower.includes("rate_limit")) {
 			return { limited: true, resumesAt: null, message: "OpenAI rate limited (429)" };
 		}
@@ -254,5 +449,55 @@ export class CodexRuntime implements AgentRuntime {
 			return { limited: true, resumesAt: null, message: "OpenAI quota exceeded" };
 		}
 		return { limited: false };
+	}
+
+	/**
+	 * Find the rollout JSONL file for a given Codex session UUID.
+	 *
+	 * Searches `~/.codex/sessions/` date directories for a rollout file
+	 * whose `session_meta` contains the matching UUID.
+	 */
+	private async findRolloutFile(sessionId: string): Promise<string | null> {
+		try {
+			const home = homedir();
+			const sessionsDir = join(home, ".codex", "sessions");
+
+			// Rollout filenames contain the UUID: rollout-{timestamp}-{uuid}.jsonl
+			// Search recent date directories (today and yesterday)
+			const now = new Date();
+			const dateDirs: string[] = [];
+			for (let daysBack = 0; daysBack < 7; daysBack++) {
+				const d = new Date(now.getTime() - daysBack * 86_400_000);
+				dateDirs.push(
+					join(
+						sessionsDir,
+						d.getFullYear().toString(),
+						String(d.getMonth() + 1).padStart(2, "0"),
+						String(d.getDate()).padStart(2, "0"),
+					),
+				);
+			}
+
+			for (const dir of dateDirs) {
+				let entries: string[];
+				try {
+					entries = await readdir(dir);
+				} catch {
+					continue;
+				}
+
+				// UUID appears at the end of the filename
+				for (const entry of entries) {
+					if (!entry.endsWith(".jsonl")) continue;
+					if (entry.includes(sessionId)) {
+						return join(dir, entry);
+					}
+				}
+			}
+
+			return null;
+		} catch {
+			return null;
+		}
 	}
 }
