@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdir, mkdtemp, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -85,6 +85,7 @@ project:
 	});
 
 	test("parses boolean values correctly", async () => {
+		const stderrSpy = spyOn(process.stderr, "write").mockImplementation(() => true);
 		await ensureOverstoryDir();
 		await writeConfig(`
 beads:
@@ -102,6 +103,7 @@ logging:
 		expect(config.mulch.enabled).toBe(true);
 		expect(config.logging.verbose).toBe(true);
 		expect(config.logging.redactSecrets).toBe(false);
+		stderrSpy.mockRestore();
 	});
 
 	test("parses empty array literal", async () => {
@@ -348,6 +350,7 @@ models:
 	});
 
 	test("migrates deprecated watchdog tier1/tier2 keys to tier0/tier1", async () => {
+		const stderrSpy = spyOn(process.stderr, "write").mockImplementation(() => true);
 		await ensureOverstoryDir();
 		await writeConfig(`
 watchdog:
@@ -362,6 +365,7 @@ watchdog:
 		expect(config.watchdog.tier0IntervalMs).toBe(45000);
 		// Old tier2 (AI triage) → new tier1
 		expect(config.watchdog.tier1Enabled).toBe(true);
+		stderrSpy.mockRestore();
 	});
 
 	test("new-style tier keys take precedence over deprecated keys", async () => {
@@ -381,6 +385,7 @@ watchdog:
 	});
 
 	test("migrates deprecated beads: key to taskTracker:", async () => {
+		const stderrSpy = spyOn(process.stderr, "write").mockImplementation(() => true);
 		await ensureOverstoryDir();
 		await writeConfig(`
 beads:
@@ -390,9 +395,11 @@ beads:
 		const config = await loadConfig(tempDir);
 		expect(config.taskTracker.backend).toBe("beads");
 		expect(config.taskTracker.enabled).toBe(false);
+		stderrSpy.mockRestore();
 	});
 
 	test("migrates deprecated seeds: key to taskTracker:", async () => {
+		const stderrSpy = spyOn(process.stderr, "write").mockImplementation(() => true);
 		await ensureOverstoryDir();
 		await writeConfig(`
 seeds:
@@ -402,6 +409,7 @@ seeds:
 		const config = await loadConfig(tempDir);
 		expect(config.taskTracker.backend).toBe("seeds");
 		expect(config.taskTracker.enabled).toBe(true);
+		stderrSpy.mockRestore();
 	});
 
 	test("taskTracker: key takes precedence over legacy keys", async () => {

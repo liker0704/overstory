@@ -159,6 +159,14 @@ export class ClaudeRuntime implements AgentRuntime {
 			return { phase: "dialog", action: "Enter" };
 		}
 
+		// Negative check: "esc to interrupt" appears in the status bar only while
+		// the agent is actively working (Hatching/Running). The prompt (❯) and
+		// "bypass permissions" remain visible in the scroll buffer even during
+		// active work, so we must check for this indicator first.
+		if (paneContent.includes("esc to interrupt")) {
+			return { phase: "loading" };
+		}
+
 		// Phase 1: prompt indicator confirms Claude Code has started.
 		// ❯ is the claude prompt character; 'Try "' appears in the welcome banner.
 		const hasPrompt = paneContent.includes("\u276f") || paneContent.includes('Try "');

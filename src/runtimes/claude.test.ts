@@ -300,6 +300,24 @@ describe("ClaudeRuntime", () => {
 			const state = runtime.detectReady("Loading Claude Code...\nPlease wait");
 			expect(state).toEqual({ phase: "loading" });
 		});
+
+		test("returns loading when agent is actively working (esc to interrupt)", () => {
+			// When Hatching/Running, the status bar shows "esc to interrupt"
+			// but ❯ and "bypass permissions" remain in the scroll buffer.
+			// detectReady must return loading, not ready.
+			const pane = [
+				"● Bash(sleep 240 && ov mail check)",
+				"  Running… (1m 28s · timeout 5m)",
+				"",
+				"· Hatching… (9m 1s · ↓ 1.2k tokens)",
+				"",
+				"❯",
+				"──────────────────────────────",
+				"  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt",
+			].join("\n");
+			const state = runtime.detectReady(pane);
+			expect(state).toEqual({ phase: "loading" });
+		});
 	});
 
 	describe("buildEnv", () => {
