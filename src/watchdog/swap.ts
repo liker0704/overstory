@@ -12,8 +12,10 @@
  * 6. Updates the session store
  */
 
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { initiateHandoff } from "../agents/lifecycle.ts";
+import { createManifestLoader, resolveModel } from "../agents/manifest.ts";
 import { nudgeAgent } from "../commands/nudge.ts";
 import { getRuntime } from "../runtimes/registry.ts";
 import { openSessionStore } from "../sessions/compat.ts";
@@ -152,19 +154,47 @@ export async function swapRuntime(options: SwapOptions): Promise<SwapResult> {
 
 		// 6. Spawn new tmux session
 		const newTmuxSession = `${session.tmuxSession}-${targetRuntimeName}`;
+
+		// Resolve model properly — same pattern as coordinator/sling/resume
+		const capabilityDefaults: Record<string, string> = {
+			coordinator: "opus",
+			supervisor: "opus",
+			monitor: "sonnet",
+			lead: "sonnet",
+			builder: "sonnet",
+			scout: "haiku",
+			reviewer: "sonnet",
+			merger: "sonnet",
+		};
+		const fallbackModel = capabilityDefaults[session.capability] ?? "sonnet";
+		const manifestLoader = createManifestLoader(
+			join(root, config.agents.manifestPath),
+			join(root, config.agents.baseDir),
+		);
+		const manifest = await manifestLoader.load();
+		const resolvedModel = resolveModel(config, manifest, session.capability, fallbackModel);
+
 		const env: Record<string, string> = {
-			...targetRuntime.buildEnv({
-				model: config.runtime?.default === targetRuntimeName ? "default" : "default",
-				env: {},
-			}),
+			...targetRuntime.buildEnv(resolvedModel),
 			OVERSTORY_AGENT_NAME: session.agentName,
 		};
 
+		// Root-level agents get their definition via prompt
+		const rootAgentCaps = new Set(["coordinator", "supervisor", "monitor"]);
+		let appendSystemPromptFile: string | undefined;
+		if (rootAgentCaps.has(session.capability)) {
+			const agentDefPath = join(root, ".overstory", "agent-defs", `${session.capability}.md`);
+			if (existsSync(agentDefPath)) {
+				appendSystemPromptFile = agentDefPath;
+			}
+		}
+
 		const spawnCmd = targetRuntime.buildSpawnCommand({
-			model: "default",
+			model: resolvedModel.model,
 			permissionMode: "bypass",
 			cwd: session.worktreePath,
 			env,
+			appendSystemPromptFile,
 		});
 
 		const newPid = await tmux.createSession(newTmuxSession, session.worktreePath, spawnCmd, env);
