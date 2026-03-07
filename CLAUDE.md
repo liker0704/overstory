@@ -295,6 +295,18 @@ ov stop <agent-name>            Terminate a running agent
   --clean-worktree                       Remove the agent's worktree (best-effort)
   --json                                 JSON output
 
+ov attach [agent-name]          Attach to a running agent's tmux session
+  (no args)                              List running agents (name/capability/runtime/state)
+  <agent-name>                           Attach to agent's tmux session (supports partial match)
+
+ov resume [agent-name]          Resume interrupted agent sessions
+  (no args)                              Resume all resumable sessions
+  <agent-name>                           Resume a specific agent
+  list                                   Alias for --list
+  --list                                 List resumable sessions without resuming
+  --attach                               Attach to tmux session after resume (single agent only)
+  --json                                 JSON output
+
 ov prime                         Load context for orchestrator/agent
   --agent <name>                         Per-agent priming
   --compact                              Less context (for PreCompact hook)
