@@ -302,21 +302,48 @@ describe("ClaudeRuntime", () => {
 		});
 
 		test("returns loading when agent is actively working (esc to interrupt)", () => {
-			// When Hatching/Running, the status bar shows "esc to interrupt"
-			// but ❯ and "bypass permissions" remain in the scroll buffer.
-			// detectReady must return loading, not ready.
 			const pane = [
-				"● Bash(sleep 240 && ov mail check)",
-				"  Running… (1m 28s · timeout 5m)",
-				"",
-				"· Hatching… (9m 1s · ↓ 1.2k tokens)",
-				"",
 				"❯",
 				"──────────────────────────────",
 				"  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt",
 			].join("\n");
-			const state = runtime.detectReady(pane);
-			expect(state).toEqual({ phase: "loading" });
+			expect(runtime.detectReady(pane)).toEqual({ phase: "loading" });
+		});
+
+		test("returns loading when Hatching (narrow pane, no esc to interrupt visible)", () => {
+			// In narrow panes (<50 cols), "esc to interrupt" is truncated.
+			// Detect via "Hatching…" in pane body instead.
+			const pane = [
+				"· Hatching… (9m 1s · ↓ 1.2k tokens)",
+				"",
+				"❯",
+				"──────────────────────────────",
+				"  ⏵⏵ bypass permissions on (shift+tab t…",
+			].join("\n");
+			expect(runtime.detectReady(pane)).toEqual({ phase: "loading" });
+		});
+
+		test("returns loading when Running a tool call", () => {
+			const pane = [
+				"● Bash(sleep 240 && ov mail check)",
+				"  Running… (1m 28s · timeout 5m)",
+				"",
+				"❯",
+				"──────────────────────────────",
+				"  ⏵⏵ bypass permissions on (shift+tab t…",
+			].join("\n");
+			expect(runtime.detectReady(pane)).toEqual({ phase: "loading" });
+		});
+
+		test("returns loading when Wibbling", () => {
+			const pane = [
+				"✶ Wibbling…",
+				"",
+				"❯",
+				"──────────────────────────────",
+				"  ⏵⏵ bypass permissions on (shift+tab t…",
+			].join("\n");
+			expect(runtime.detectReady(pane)).toEqual({ phase: "loading" });
 		});
 	});
 

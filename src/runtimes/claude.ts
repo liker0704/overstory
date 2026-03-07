@@ -159,11 +159,16 @@ export class ClaudeRuntime implements AgentRuntime {
 			return { phase: "dialog", action: "Enter" };
 		}
 
-		// Negative check: "esc to interrupt" appears in the status bar only while
-		// the agent is actively working (Hatching/Running). The prompt (❯) and
+		// Negative check: active work indicators. The prompt (❯) and
 		// "bypass permissions" remain visible in the scroll buffer even during
-		// active work, so we must check for this indicator first.
-		if (paneContent.includes("esc to interrupt")) {
+		// active work, so we must check for these indicators first.
+		// - "esc to interrupt" in status bar (may be truncated in narrow panes)
+		// - "Hatching…" / "Wibbling…" = generating text
+		// - "Running…" = executing a tool call (Bash, etc.)
+		if (
+			paneContent.includes("esc to interrupt") ||
+			/(?:Hatching|Wibbling|Running)…/.test(paneContent)
+		) {
 			return { phase: "loading" };
 		}
 
