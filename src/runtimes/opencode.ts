@@ -2,11 +2,11 @@
 // Implements the AgentRuntime contract for the `opencode` CLI (SST OpenCode).
 //
 // Key differences from Claude/Pi adapters:
-// - Uses `opencode` CLI for interactive sessions
-// - Instruction file: AGENTS.md (unverified — needs confirmation against real OpenCode install)
-// - No hooks: OpenCode does not support Claude Code's hook mechanism
-// - detectReady is stubbed: real TUI patterns not yet observed
-// - parseTranscript returns null: output format not yet verified
+// - Uses `opencode` CLI for interactive sessions + `opencode run` for headless
+// - Instruction file: AGENTS.md (OpenCode reads `instructions` from config, overlay via AGENTS.md)
+// - No hooks: OpenCode has plugin system, not Claude Code hook mechanism
+// - Session data stored in SQLite at ~/.local/share/opencode/opencode.db
+// - Resume via `--session <id>` or `--continue`
 
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -25,71 +25,56 @@ import type {
  * OpenCode runtime adapter.
  *
  * Implements AgentRuntime for the `opencode` CLI (SST OpenCode coding agent).
- * Key differences from Claude Code:
- * - Uses `--model` flag for model selection
- * - Instruction file lives at `AGENTS.md` (unverified — confirm against real install)
- * - No hooks deployment (OpenCode has no Claude Code hook mechanism)
- * - `detectReady` is a stub — real TUI ready patterns not yet observed in tmux
- * - `parseTranscript` returns null — `opencode` output format not yet verified
+ * Supports both interactive TUI mode (tmux) and headless mode (`opencode run`).
  *
- * TODO: Once a real OpenCode installation is available:
- * 1. Verify `instructionPath` — run `opencode` and check which file it reads
- * 2. Fill in `detectReady` — capture tmux pane content and match actual strings
- * 3. Fill in `parseTranscript` — run `opencode run --format json` and inspect output
- * 4. Fill in `getTranscriptDir` — check where OpenCode writes session files
+ * Session data stored in SQLite: ~/.local/share/opencode/opencode.db
+ * Tables: session, message, part (conversation history)
+ *
+ * CLI flags:
+ * - `-m, --model <provider/model>` — model selection
+ * - `-s, --session <id>` — resume specific session
+ * - `-c, --continue` — continue last session
+ * - `--agent <name>` — agent to use
  */
 export class OpenCodeRuntime implements AgentRuntime {
-	/** Unique identifier for this runtime. */
 	readonly id = "opencode";
 
 	/**
 	 * Relative path to the instruction file within a worktree.
-	 *
-	 * @stub Unverified — `AGENTS.md` is a common convention for terminal coding agents
-	 * but has not been confirmed against a real OpenCode installation.
-	 * Verify with `opencode --help` or OpenCode documentation before relying on this.
+	 * OpenCode reads instructions from its config's `instructions` array,
+	 * but AGENTS.md in the worktree is used for the per-task overlay.
 	 */
 	readonly instructionPath = "AGENTS.md";
 
 	/**
-	 * Build the shell command string to spawn an interactive OpenCode agent in a tmux pane.
+	 * Build the shell command string to spawn an interactive OpenCode agent in tmux.
 	 *
 	 * Maps SpawnOpts to `opencode` CLI flags:
 	 * - `model` → `--model <model>`
-	 * - `permissionMode`, `appendSystemPrompt`, `appendSystemPromptFile` are IGNORED —
-	 *   the `opencode` CLI has no equivalent flags.
+	 * - `sessionId` → used for session tracking (OpenCode generates its own IDs)
+	 * - `resumeSessionId` → `--session <id>` to resume an existing session
 	 *
-	 * The `cwd` and `env` fields of SpawnOpts are handled by the tmux session
-	 * creator, not embedded in the command string.
-	 *
-	 * @param opts - Spawn options (model used; others ignored)
-	 * @returns Shell command string suitable for tmux new-session -c
+	 * The `cwd` and `env` fields are handled by the tmux session creator.
 	 */
 	buildSpawnCommand(opts: SpawnOpts): string {
-		// permissionMode, appendSystemPrompt, appendSystemPromptFile are intentionally ignored.
-		// OpenCode has no equivalent flags for these options.
-		return `opencode --model ${opts.model}`;
+		let cmd = `opencode --model ${opts.model}`;
+
+		if (opts.resumeSessionId) {
+			cmd += ` --session ${opts.resumeSessionId}`;
+		}
+
+		return cmd;
 	}
 
 	/**
 	 * Build the argv array for a headless one-shot OpenCode invocation.
 	 *
-	 * Returns an argv array suitable for `Bun.spawn()`. The `--prompt` flag passes
-	 * the prompt and `--format json` requests structured JSON output.
-	 *
-	 * Used by merge/resolver.ts and watchdog/triage.ts for AI-assisted operations.
-	 *
-	 * @stub `--prompt` and `--format json` flags are unverified against real OpenCode CLI.
-	 * Run `opencode --help` to confirm flag names before use in production.
-	 *
-	 * @param prompt - The prompt to pass via `--prompt`
-	 * @param model - Optional model override
-	 * @returns Argv array for Bun.spawn
+	 * Uses `opencode run` subcommand with `--format json` for structured output.
 	 */
 	buildPrintCommand(prompt: string, model?: string): string[] {
-		const cmd = ["opencode", "--prompt", prompt, "--format", "json"];
+		const cmd = ["opencode", "run", "--format", "json", prompt];
 		if (model !== undefined) {
-			cmd.push("--model", model);
+			cmd.splice(2, 0, "--model", model);
 		}
 		return cmd;
 	}
@@ -97,16 +82,8 @@ export class OpenCodeRuntime implements AgentRuntime {
 	/**
 	 * Deploy per-agent instructions to a worktree.
 	 *
-	 * For OpenCode this writes only the instruction file:
-	 * - `AGENTS.md` — the agent's task-specific overlay.
-	 *   Skipped when overlay is undefined.
-	 *
-	 * The `hooks` parameter is unused — OpenCode does not support Claude Code's
-	 * hook mechanism, so no settings file is deployed.
-	 *
-	 * @param worktreePath - Absolute path to the agent's git worktree
-	 * @param overlay - Overlay content to write as AGENTS.md, or undefined to skip
-	 * @param _hooks - Unused for OpenCode runtime
+	 * Writes AGENTS.md with the overlay content. OpenCode has no hook mechanism,
+	 * so guard rules are injected as instructions in the overlay.
 	 */
 	async deployConfig(
 		worktreePath: string,
@@ -117,68 +94,62 @@ export class OpenCodeRuntime implements AgentRuntime {
 			await mkdir(worktreePath, { recursive: true });
 			await Bun.write(join(worktreePath, "AGENTS.md"), overlay.content);
 		}
-
-		// No hook deployment for OpenCode — the runtime has no hook mechanism.
 	}
 
 	/**
-	 * Detect OpenCode TUI readiness from a tmux pane content snapshot.
+	 * Detect OpenCode TUI readiness from tmux pane content.
 	 *
-	 * @stub This method always returns `{ phase: "loading" }` because the real
-	 * TUI startup strings for OpenCode have not been observed in a live tmux session.
-	 * To implement: run `opencode` in tmux, capture pane content at startup, and
-	 * match strings unique to the ready state (version header, prompt character,
-	 * status bar content, etc.).
-	 *
-	 * @param _paneContent - Captured tmux pane content (unused until patterns are known)
-	 * @returns Always `{ phase: "loading" }` until real patterns are observed
+	 * Ready patterns observed from live OpenCode v1.2.20 TUI:
+	 * - "Ask anything" placeholder text in the input area
+	 * - Version number in footer (e.g., "1.2.20")
+	 * - "ctrl+t" or "ctrl+p" keyboard hints
 	 */
-	detectReady(_paneContent: string): ReadyState {
-		// STUB: Real OpenCode TUI ready patterns have not been observed.
-		// Fill in once someone runs OpenCode in tmux and captures the pane content.
+	detectReady(paneContent: string): ReadyState {
+		const hasPrompt = paneContent.includes("Ask anything");
+		const hasControls =
+			paneContent.includes("ctrl+t") || paneContent.includes("ctrl+p");
+
+		if (hasPrompt && hasControls) {
+			return { phase: "ready" };
+		}
+
+		// During loading, OpenCode shows the ASCII banner before the input box
+		if (paneContent.includes("OPENCODE") || paneContent.includes("opencode")) {
+			return { phase: "loading" };
+		}
+
 		return { phase: "loading" };
 	}
 
 	/**
 	 * Parse an OpenCode session transcript into normalized token usage.
 	 *
-	 * @stub Returns null unconditionally because the `opencode run --format json`
-	 * output format has not been verified. Do NOT guess at the format.
-	 * To implement: run `opencode run --format json` against a real OpenCode install,
-	 * inspect the NDJSON output, then add parsing logic here.
+	 * OpenCode stores sessions in SQLite (~/.local/share/opencode/opencode.db).
+	 * The `opencode stats` command shows token usage.
+	 * The `opencode export <sessionId>` exports session data as JSON.
 	 *
-	 * @param _path - Path to transcript file (unused until format is known)
-	 * @returns Always null until transcript format is verified
+	 * For now, returns null. Full implementation would query the SQLite DB directly
+	 * or parse `opencode export` JSON output.
 	 */
 	async parseTranscript(_path: string): Promise<TranscriptSummary | null> {
-		// STUB: OpenCode transcript format not yet verified.
-		// Fill in once `opencode run --format json` output is inspected.
+		// OpenCode stores data in SQLite, not JSONL files.
+		// TODO: query ~/.local/share/opencode/opencode.db for token usage
 		return null;
 	}
 
 	/**
 	 * Return the transcript directory for OpenCode sessions.
 	 *
-	 * @stub Returns null because the location of OpenCode session files has not
-	 * been verified. Check where OpenCode writes session/history files
-	 * (e.g. `~/.opencode/`, `<project>/.opencode/`, or similar).
-	 *
-	 * @param _projectRoot - Absolute path to the project root (unused until known)
-	 * @returns Always null until transcript location is verified
+	 * OpenCode uses a centralized SQLite database, not per-project transcript files.
+	 * The database is at ~/.local/share/opencode/opencode.db
 	 */
 	getTranscriptDir(_projectRoot: string): string | null {
-		// STUB: OpenCode transcript directory location not yet verified.
-		return null;
+		const home = process.env.HOME ?? "";
+		return join(home, ".local", "share", "opencode");
 	}
 
 	/**
 	 * Build runtime-specific environment variables for model/provider routing.
-	 *
-	 * Returns the provider environment variables from the resolved model, or an
-	 * empty object if none are set.
-	 *
-	 * @param model - Resolved model with optional provider env vars
-	 * @returns Environment variable map (may be empty)
 	 */
 	buildEnv(model: ResolvedModel): Record<string, string> {
 		return model.env ?? {};
@@ -187,8 +158,7 @@ export class OpenCodeRuntime implements AgentRuntime {
 	/**
 	 * Detect rate limiting from tmux pane content.
 	 *
-	 * Checks for HTTP 429 status codes, "rate limit", and "too many requests"
-	 * patterns that indicate the underlying API provider is throttling.
+	 * Checks for HTTP 429, "rate limit", and "too many requests" patterns.
 	 */
 	detectRateLimit(paneContent: string): RateLimitState {
 		const lower = paneContent.toLowerCase();
@@ -204,5 +174,64 @@ export class OpenCodeRuntime implements AgentRuntime {
 			};
 		}
 		return { limited: false };
+	}
+
+	/**
+	 * Extract recent conversation from OpenCode's SQLite database.
+	 *
+	 * Queries the message + part tables for the given session ID.
+	 */
+	async extractConversation(
+		_worktreePath: string,
+		sessionId: string,
+		maxTurns: number,
+	): Promise<string> {
+		try {
+			const { Database } = await import("bun:sqlite");
+			const dbPath = join(
+				process.env.HOME ?? "",
+				".local",
+				"share",
+				"opencode",
+				"opencode.db",
+			);
+			const db = new Database(dbPath, { readonly: true });
+
+			const rows = db
+				.query<
+					{ data: string; time_created: number },
+					[string, number]
+				>(
+					`SELECT m.data, m.time_created
+					 FROM message m
+					 WHERE m.session_id = ?
+					 ORDER BY m.time_created DESC
+					 LIMIT ?`,
+				)
+				.all(sessionId, maxTurns * 2);
+
+			db.close();
+
+			if (rows.length === 0) return "";
+
+			const turns: string[] = [];
+			for (const row of rows.reverse()) {
+				try {
+					const msg = JSON.parse(row.data);
+					const role = msg.role ?? "unknown";
+					const content =
+						typeof msg.content === "string"
+							? msg.content
+							: JSON.stringify(msg.content);
+					turns.push(`### ${role}\n${content.slice(0, 3000)}`);
+				} catch {
+					// Skip malformed messages
+				}
+			}
+
+			return turns.join("\n\n");
+		} catch {
+			return "";
+		}
 	}
 }

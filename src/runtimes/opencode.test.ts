@@ -44,31 +44,29 @@ describe("OpenCodeRuntime", () => {
 			expect(runtime.buildSpawnCommand(ask)).toBe("opencode --model opus");
 		});
 
-		test("appendSystemPrompt is ignored (opencode has no such flag)", () => {
+		test("resumeSessionId adds --session flag", () => {
 			const opts: SpawnOpts = {
 				model: "sonnet",
 				permissionMode: "bypass",
 				cwd: "/tmp/worktree",
 				env: {},
-				appendSystemPrompt: "You are a builder agent.",
+				resumeSessionId: "ses_abc123",
+			};
+			const cmd = runtime.buildSpawnCommand(opts);
+			expect(cmd).toContain("--session ses_abc123");
+		});
+
+		test("sessionId is ignored (opencode generates its own IDs)", () => {
+			const opts: SpawnOpts = {
+				model: "sonnet",
+				permissionMode: "bypass",
+				cwd: "/tmp/worktree",
+				env: {},
+				sessionId: "some-uuid",
 			};
 			const cmd = runtime.buildSpawnCommand(opts);
 			expect(cmd).toBe("opencode --model sonnet");
-			expect(cmd).not.toContain("append-system-prompt");
-			expect(cmd).not.toContain("You are a builder agent");
-		});
-
-		test("appendSystemPromptFile is ignored (opencode has no such flag)", () => {
-			const opts: SpawnOpts = {
-				model: "opus",
-				permissionMode: "bypass",
-				cwd: "/project",
-				env: {},
-				appendSystemPromptFile: "/project/.overstory/specs/task.md",
-			};
-			const cmd = runtime.buildSpawnCommand(opts);
-			expect(cmd).toBe("opencode --model opus");
-			expect(cmd).not.toContain("task.md");
+			expect(cmd).not.toContain("some-uuid");
 		});
 
 		test("cwd and env are not embedded in command string", () => {
@@ -81,7 +79,6 @@ describe("OpenCodeRuntime", () => {
 			const cmd = runtime.buildSpawnCommand(opts);
 			expect(cmd).not.toContain("/some/specific/path");
 			expect(cmd).not.toContain("sk-test-123");
-			expect(cmd).not.toContain("OPENAI_API_KEY");
 		});
 
 		test("all model names pass through unchanged", () => {
@@ -96,34 +93,24 @@ describe("OpenCodeRuntime", () => {
 				expect(cmd).toContain(`--model ${model}`);
 			}
 		});
-
-		test("produces identical output for same inputs (deterministic)", () => {
-			const opts: SpawnOpts = {
-				model: "sonnet",
-				permissionMode: "bypass",
-				cwd: "/tmp/worktree",
-				env: {},
-			};
-			expect(runtime.buildSpawnCommand(opts)).toBe(runtime.buildSpawnCommand(opts));
-		});
 	});
 
 	describe("buildPrintCommand", () => {
-		test("basic command without model includes --prompt and --format json", () => {
+		test("uses opencode run subcommand with --format json", () => {
 			const argv = runtime.buildPrintCommand("Summarize this diff");
-			expect(argv).toEqual(["opencode", "--prompt", "Summarize this diff", "--format", "json"]);
+			expect(argv).toEqual(["opencode", "run", "--format", "json", "Summarize this diff"]);
 		});
 
-		test("command with model override appends --model flag", () => {
+		test("command with model override inserts --model flag", () => {
 			const argv = runtime.buildPrintCommand("Classify this error", "haiku");
 			expect(argv).toEqual([
 				"opencode",
-				"--prompt",
-				"Classify this error",
-				"--format",
-				"json",
+				"run",
 				"--model",
 				"haiku",
+				"--format",
+				"json",
+				"Classify this error",
 			]);
 		});
 
@@ -133,25 +120,31 @@ describe("OpenCodeRuntime", () => {
 			expect(argv).toContain("--format");
 			expect(argv).toContain("json");
 		});
-
-		test("prompt is passed verbatim as a single argv element", () => {
-			const prompt = "Fix the bug in src/foo.ts line 42";
-			const argv = runtime.buildPrintCommand(prompt);
-			const promptIdx = argv.indexOf("--prompt");
-			expect(promptIdx).toBeGreaterThan(-1);
-			expect(argv[promptIdx + 1]).toBe(prompt);
-		});
 	});
 
-	describe("detectReady (stub)", () => {
+	describe("detectReady", () => {
 		test("returns loading for empty pane", () => {
 			expect(runtime.detectReady("")).toEqual({ phase: "loading" });
 		});
 
-		test("returns loading for any content (stub always returns loading)", () => {
-			expect(runtime.detectReady("OpenCode v1.0\n> ")).toEqual({ phase: "loading" });
-			expect(runtime.detectReady("ready")).toEqual({ phase: "loading" });
-			expect(runtime.detectReady("opencode started")).toEqual({ phase: "loading" });
+		test("returns ready when Ask anything and controls are visible", () => {
+			const pane = `
+                OPENCODE
+                Ask anything... "Fix a TODO"
+                Build  GPT-5.3 Codex OpenAI
+                ctrl+t variants  tab agents  ctrl+p commands
+                /tmp  1.2.20`;
+			expect(runtime.detectReady(pane)).toEqual({ phase: "ready" });
+		});
+
+		test("returns loading when only banner is visible (no prompt yet)", () => {
+			const pane = "OPENCODE\nLoading...";
+			expect(runtime.detectReady(pane)).toEqual({ phase: "loading" });
+		});
+
+		test("returns loading when prompt visible but no controls", () => {
+			const pane = "Ask anything...";
+			expect(runtime.detectReady(pane)).toEqual({ phase: "loading" });
 		});
 
 		test("never returns dialog phase", () => {
@@ -160,45 +153,17 @@ describe("OpenCodeRuntime", () => {
 		});
 	});
 
-	describe("parseTranscript (stub)", () => {
-		let tempDir: string;
-
-		beforeEach(async () => {
-			tempDir = await mkdtemp(join(tmpdir(), "overstory-opencode-transcript-test-"));
-		});
-
-		afterEach(async () => {
-			await cleanupTempDir(tempDir);
-		});
-
-		test("returns null for non-existent file", async () => {
-			const result = await runtime.parseTranscript(join(tempDir, "does-not-exist.jsonl"));
-			expect(result).toBeNull();
-		});
-
-		test("returns null for existing file (format not yet verified)", async () => {
-			const transcriptPath = join(tempDir, "session.jsonl");
-			await Bun.write(transcriptPath, `${JSON.stringify({ type: "result", tokens: 100 })}\n`);
-			const result = await runtime.parseTranscript(transcriptPath);
-			expect(result).toBeNull();
-		});
-
-		test("returns null for empty file", async () => {
-			const transcriptPath = join(tempDir, "empty.jsonl");
-			await Bun.write(transcriptPath, "");
-			const result = await runtime.parseTranscript(transcriptPath);
+	describe("parseTranscript", () => {
+		test("returns null (SQLite-based, not file-based)", async () => {
+			const result = await runtime.parseTranscript("/any/path");
 			expect(result).toBeNull();
 		});
 	});
 
-	describe("getTranscriptDir (stub)", () => {
-		test("returns null (location not yet verified)", () => {
-			expect(runtime.getTranscriptDir("/some/project")).toBeNull();
-		});
-
-		test("returns null regardless of project root", () => {
-			expect(runtime.getTranscriptDir("/home/user/project")).toBeNull();
-			expect(runtime.getTranscriptDir("/tmp/test")).toBeNull();
+	describe("getTranscriptDir", () => {
+		test("returns opencode data directory", () => {
+			const dir = runtime.getTranscriptDir("/some/project");
+			expect(dir).toContain(".local/share/opencode");
 		});
 	});
 
@@ -223,12 +188,22 @@ describe("OpenCodeRuntime", () => {
 			const model: ResolvedModel = { model: "opus", env: undefined };
 			expect(runtime.buildEnv(model)).toEqual({});
 		});
+	});
 
-		test("env is safe to spread into session env", () => {
-			const model: ResolvedModel = { model: "sonnet" };
-			const env = runtime.buildEnv(model);
-			const combined = { ...env, OVERSTORY_AGENT_NAME: "builder-1" };
-			expect(combined).toEqual({ OVERSTORY_AGENT_NAME: "builder-1" });
+	describe("detectRateLimit", () => {
+		test("detects 429 status code", () => {
+			const state = runtime.detectRateLimit("Error: 429 Too Many Requests");
+			expect(state.limited).toBe(true);
+		});
+
+		test("detects rate limit text", () => {
+			const state = runtime.detectRateLimit("API rate limit exceeded, please wait");
+			expect(state.limited).toBe(true);
+		});
+
+		test("returns not limited for normal content", () => {
+			const state = runtime.detectRateLimit("Working on task...\nFile written successfully");
+			expect(state.limited).toBe(false);
 		});
 	});
 

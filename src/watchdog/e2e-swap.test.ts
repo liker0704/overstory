@@ -153,7 +153,7 @@ sleep 300
 				notifyCoordinator: false,
 				swapRuntime: "gemini",
 			},
-		} as OverstoryConfig;
+		} as unknown as OverstoryConfig;
 
 		// 6. Track health checks
 		const healthChecks: Array<{ agentName: string; action: string }> = [];
@@ -291,7 +291,7 @@ sleep 300
 				pollIntervalMs: 5_000,
 				notifyCoordinator: false,
 			},
-		} as OverstoryConfig;
+		} as unknown as OverstoryConfig;
 
 		await runDaemonTick({
 			root: tempDir,
