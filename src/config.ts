@@ -66,6 +66,12 @@ export const DEFAULT_CONFIG: OverstoryConfig = {
 	taskTracker: {
 		backend: "auto" as TaskTrackerBackend,
 		enabled: true,
+		github: {
+			pollIntervalMs: 30_000,
+			readyLabel: "ov-ready",
+			activeLabel: "ov-active",
+			maxConcurrent: 5,
+		},
 	},
 	mulch: {
 		enabled: true,
@@ -89,6 +95,7 @@ export const DEFAULT_CONFIG: OverstoryConfig = {
 		nudgeIntervalMs: 60_000, // 1 minute between progressive nudge stages
 	},
 	coordinator: {
+		autoPull: false,
 		exitTriggers: {
 			allAgentsDone: false,
 			taskTrackerEmpty: false,
@@ -613,6 +620,46 @@ function validateConfig(config: OverstoryConfig): void {
 		throw new ValidationError(`taskTracker.backend must be one of: ${validBackends.join(", ")}`, {
 			field: "taskTracker.backend",
 			value: config.taskTracker.backend,
+		});
+	}
+
+	// taskTracker.github: validate poller config if present
+	if (config.taskTracker.github !== undefined) {
+		const gh = config.taskTracker.github;
+		if (gh.pollIntervalMs <= 0) {
+			throw new ValidationError("taskTracker.github.pollIntervalMs must be positive", {
+				field: "taskTracker.github.pollIntervalMs",
+				value: gh.pollIntervalMs,
+			});
+		}
+		if (!gh.readyLabel || typeof gh.readyLabel !== "string") {
+			throw new ValidationError("taskTracker.github.readyLabel must be a non-empty string", {
+				field: "taskTracker.github.readyLabel",
+				value: gh.readyLabel,
+			});
+		}
+		if (!gh.activeLabel || typeof gh.activeLabel !== "string") {
+			throw new ValidationError("taskTracker.github.activeLabel must be a non-empty string", {
+				field: "taskTracker.github.activeLabel",
+				value: gh.activeLabel,
+			});
+		}
+		if (!Number.isInteger(gh.maxConcurrent) || gh.maxConcurrent < 1) {
+			throw new ValidationError("taskTracker.github.maxConcurrent must be a positive integer", {
+				field: "taskTracker.github.maxConcurrent",
+				value: gh.maxConcurrent,
+			});
+		}
+	}
+
+	// coordinator.autoPull: must be boolean if present
+	if (
+		config.coordinator?.autoPull !== undefined &&
+		typeof config.coordinator.autoPull !== "boolean"
+	) {
+		throw new ValidationError("coordinator.autoPull must be a boolean", {
+			field: "coordinator.autoPull",
+			value: config.coordinator.autoPull,
 		});
 	}
 

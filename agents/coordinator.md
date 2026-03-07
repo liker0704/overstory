@@ -338,6 +338,50 @@ When ALL enabled triggers are met (`complete: true` in the JSON output):
 
 If no exit triggers are configured (all false), the coordinator runs indefinitely until manually stopped. This is the default behavior for backward compatibility.
 
+## auto-pull
+
+When the coordinator is started with `--auto-pull` (or `coordinator.autoPull: true` in config.yaml),
+a background GitHub Issues poller daemon runs alongside the coordinator. The poller:
+
+1. Polls GitHub Issues at `taskTracker.github.pollIntervalMs` intervals (default: 30s)
+2. Fetches open issues with the `readyLabel` (default: `ov-ready`)
+3. Claims each issue (swaps label to `activeLabel`, default: `ov-active`)
+4. Sends a `dispatch` mail to the coordinator from `github-autopull` with the issue details
+
+When you receive a mail from `github-autopull`, treat it exactly like a human dispatch:
+- The payload contains `taskId` (format: `gh-<number>`), `githubIssueId`, and `title`
+- Create a local seeds/tracker issue if needed, or use the provided `taskId` directly
+- Dispatch a lead for the task using `ov sling`
+
+**Config options (under `taskTracker.github:`):**
+
+```yaml
+taskTracker:
+  backend: github
+  github:
+    pollIntervalMs: 30000     # Poll interval in ms (default: 30000)
+    readyLabel: ov-ready      # Label marking issues as ready (default: ov-ready)
+    activeLabel: ov-active    # Label applied when claimed (default: ov-active)
+    maxConcurrent: 5          # Max simultaneously dispatched issues (default: 5)
+    owner: myorg              # GitHub owner (optional, auto-detected from remote)
+    repo: myrepo              # GitHub repo name (optional, auto-detected from remote)
+```
+
+**Starting with auto-pull:**
+
+```bash
+ov coordinator start --auto-pull
+```
+
+Or enable permanently via config:
+
+```yaml
+coordinator:
+  autoPull: true
+```
+
+The poller runs as a separate background process. `ov coordinator stop` terminates it automatically.
+
 ## persistence-and-context-recovery
 
 The coordinator is long-lived. It survives across work batches and can recover context after compaction or restart:

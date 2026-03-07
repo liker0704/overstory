@@ -100,6 +100,11 @@ export interface CoordinatorDeps {
 	_capturePaneContent?: (name: string, lines?: number) => Promise<string | null>;
 	/** Override poll interval for ask subcommand (default: ASK_POLL_INTERVAL_MS). Used in tests. */
 	_pollIntervalMs?: number;
+	_autoPull?: {
+		start: () => Promise<{ pid: number } | null>;
+		stop: () => Promise<boolean>;
+		isRunning: () => Promise<boolean>;
+	};
 }
 
 /**
@@ -131,6 +136,35 @@ async function readWatchdogPid(projectRoot: string): Promise<number | null> {
  */
 async function removeWatchdogPid(projectRoot: string): Promise<void> {
 	const pidFilePath = join(projectRoot, ".overstory", "watchdog.pid");
+	try {
+		await unlink(pidFilePath);
+	} catch {
+		// File may already be gone — not an error
+	}
+}
+
+/**
+ * Read the autopull PID from its PID file.
+ * Returns null if the file doesn't exist or can't be parsed.
+ */
+async function readAutoPullPid(projectRoot: string): Promise<number | null> {
+	const pidFilePath = join(projectRoot, ".overstory", "autopull.pid");
+	const file = Bun.file(pidFilePath);
+	if (!(await file.exists())) return null;
+	try {
+		const pid = Number.parseInt((await file.text()).trim(), 10);
+		if (Number.isNaN(pid) || pid <= 0) return null;
+		return pid;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Remove the autopull PID file.
+ */
+async function removeAutoPullPid(projectRoot: string): Promise<void> {
+	const pidFilePath = join(projectRoot, ".overstory", "autopull.pid");
 	try {
 		await unlink(pidFilePath);
 	} catch {
@@ -263,6 +297,62 @@ function createDefaultMonitor(projectRoot: string): NonNullable<CoordinatorDeps[
 }
 
 /**
+ * Default autopull implementation for production use.
+ * Spawns github-poller.ts as a background Bun subprocess.
+ */
+function createDefaultAutoPull(projectRoot: string): NonNullable<CoordinatorDeps["_autoPull"]> {
+	const pollerScript = new URL("../tracker/github-poller.ts", import.meta.url).pathname;
+
+	return {
+		async start(): Promise<{ pid: number } | null> {
+			// Check if already running
+			const existingPid = await readAutoPullPid(projectRoot);
+			if (existingPid !== null && isProcessRunning(existingPid)) {
+				return null; // Already running
+			}
+			if (existingPid !== null) {
+				await removeAutoPullPid(projectRoot);
+			}
+
+			// Spawn the poller as a detached background process
+			const proc = Bun.spawn(
+				["bun", "run", pollerScript, "--project-root", projectRoot],
+				{
+					cwd: projectRoot,
+					stdout: "ignore",
+					stderr: "ignore",
+				},
+			);
+			const pid = proc.pid;
+			await Bun.write(join(projectRoot, ".overstory", "autopull.pid"), String(pid));
+			return { pid };
+		},
+
+		async stop(): Promise<boolean> {
+			const pid = await readAutoPullPid(projectRoot);
+			if (pid === null) return false;
+			if (!isProcessRunning(pid)) {
+				await removeAutoPullPid(projectRoot);
+				return false;
+			}
+			try {
+				process.kill(pid, 15); // SIGTERM
+			} catch {
+				return false;
+			}
+			await removeAutoPullPid(projectRoot);
+			return true;
+		},
+
+		async isRunning(): Promise<boolean> {
+			const pid = await readAutoPullPid(projectRoot);
+			if (pid === null) return false;
+			return isProcessRunning(pid);
+		},
+	};
+}
+
+/**
  * Build the coordinator startup beacon — the first message sent to the coordinator
  * via tmux send-keys after Claude Code initializes.
  *
@@ -291,7 +381,7 @@ export function resolveAttach(args: string[], isTTY: boolean): boolean {
 }
 
 async function startCoordinator(
-	opts: { json: boolean; attach: boolean; watchdog: boolean; monitor: boolean },
+	opts: { json: boolean; attach: boolean; watchdog: boolean; monitor: boolean; autoPull: boolean },
 	deps: CoordinatorDeps = {},
 ): Promise<void> {
 	const tmux = deps._tmux ?? {
@@ -304,7 +394,13 @@ async function startCoordinator(
 		ensureTmuxAvailable,
 	};
 
-	const { json, attach: shouldAttach, watchdog: watchdogFlag, monitor: monitorFlag } = opts;
+	const {
+		json,
+		attach: shouldAttach,
+		watchdog: watchdogFlag,
+		monitor: monitorFlag,
+		autoPull: autoPullFlag,
+	} = opts;
 
 	if (isRunningAsRoot()) {
 		throw new AgentError(
@@ -317,6 +413,7 @@ async function startCoordinator(
 	const projectRoot = config.project.root;
 	const watchdog = deps._watchdog ?? createDefaultWatchdog(projectRoot);
 	const monitor = deps._monitor ?? createDefaultMonitor(projectRoot);
+	const autoPull = deps._autoPull ?? createDefaultAutoPull(projectRoot);
 	const tmuxSession = coordinatorTmuxSession(config.project.name);
 
 	// Check for existing coordinator
@@ -526,6 +623,23 @@ async function startCoordinator(
 			}
 		}
 
+		// Auto-start autopull if --auto-pull flag or coordinator.autoPull config is true
+		let autoPullPid: number | undefined;
+		const shouldStartAutoPull = autoPullFlag || config.coordinator?.autoPull === true;
+		if (shouldStartAutoPull) {
+			if (!config.taskTracker.github) {
+				if (!json) printWarning("AutoPull skipped", "taskTracker.github config is missing");
+			} else {
+				const autoPullResult = await autoPull.start();
+				if (autoPullResult) {
+					autoPullPid = autoPullResult.pid;
+					if (!json) printHint("AutoPull poller started");
+				} else {
+					if (!json) printWarning("AutoPull poller already running or failed to start");
+				}
+			}
+		}
+
 		const output = {
 			agentName: COORDINATOR_NAME,
 			capability: "coordinator",
@@ -534,6 +648,7 @@ async function startCoordinator(
 			pid,
 			watchdog: watchdogFlag ? watchdogPid !== undefined : false,
 			monitor: monitorFlag ? monitorPid !== undefined : false,
+			autoPull: shouldStartAutoPull ? autoPullPid !== undefined : false,
 		};
 
 		if (json) {
@@ -580,6 +695,7 @@ async function stopCoordinator(opts: { json: boolean }, deps: CoordinatorDeps = 
 	const projectRoot = config.project.root;
 	const watchdog = deps._watchdog ?? createDefaultWatchdog(projectRoot);
 	const monitor = deps._monitor ?? createDefaultMonitor(projectRoot);
+	const autoPull = deps._autoPull ?? createDefaultAutoPull(projectRoot);
 
 	const overstoryDir = join(projectRoot, ".overstory");
 	const { store } = openSessionStore(overstoryDir);
@@ -608,6 +724,9 @@ async function stopCoordinator(opts: { json: boolean }, deps: CoordinatorDeps = 
 
 		// Always attempt to stop monitor
 		const monitorStopped = await monitor.stop();
+
+		// Always attempt to stop autopull poller
+		const autoPullStopped = await autoPull.stop();
 
 		// Update session state
 		store.updateState(COORDINATOR_NAME, "completed");
@@ -645,6 +764,7 @@ async function stopCoordinator(opts: { json: boolean }, deps: CoordinatorDeps = 
 				sessionId: session.id,
 				watchdogStopped,
 				monitorStopped,
+				autoPullStopped,
 				runCompleted,
 			});
 		} else {
@@ -658,6 +778,11 @@ async function stopCoordinator(opts: { json: boolean }, deps: CoordinatorDeps = 
 				printHint("Monitor stopped");
 			} else {
 				printHint("No monitor running");
+			}
+			if (autoPullStopped) {
+				printHint("AutoPull poller stopped");
+			} else {
+				printHint("No autopull poller running");
 			}
 			if (runCompleted) {
 				printHint("Run completed");
@@ -1238,9 +1363,19 @@ export function createCoordinatorCommand(deps: CoordinatorDeps = {}): Command {
 		.option("--no-attach", "Never attach to tmux session after start")
 		.option("--watchdog", "Auto-start watchdog daemon with coordinator")
 		.option("--monitor", "Auto-start Tier 2 monitor agent with coordinator")
+		.option(
+			"--auto-pull",
+			"Auto-start GitHub Issues poller (requires taskTracker.github config)",
+		)
 		.option("--json", "Output as JSON")
 		.action(
-			async (opts: { attach?: boolean; watchdog?: boolean; monitor?: boolean; json?: boolean }) => {
+			async (opts: {
+				attach?: boolean;
+				watchdog?: boolean;
+				monitor?: boolean;
+				autoPull?: boolean;
+				json?: boolean;
+			}) => {
 				// opts.attach = true if --attach, false if --no-attach, undefined if neither
 				const shouldAttach = opts.attach !== undefined ? opts.attach : !!process.stdout.isTTY;
 				await startCoordinator(
@@ -1249,6 +1384,7 @@ export function createCoordinatorCommand(deps: CoordinatorDeps = {}): Command {
 						attach: shouldAttach,
 						watchdog: opts.watchdog ?? false,
 						monitor: opts.monitor ?? false,
+						autoPull: opts.autoPull ?? false,
 					},
 					deps,
 				);
