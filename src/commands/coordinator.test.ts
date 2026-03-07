@@ -1251,7 +1251,31 @@ describe("watchdog integration", () => {
 			expect(watchdogCalls?.start).toBe(1);
 		});
 
-		test("does NOT call watchdog.start() when --watchdog flag is absent", async () => {
+		test("does NOT call watchdog.start() when --watchdog absent and tier0Enabled false", async () => {
+			// Override config to disable tier0 so watchdog won't auto-start
+			const configPath = join(tempDir, ".overstory", "config.yaml");
+			const originalConfig = await Bun.file(configPath).text();
+			await Bun.write(
+				configPath,
+				[originalConfig, "  tier0Enabled: false"].join("\n"),
+			);
+
+			const { deps, watchdogCalls } = makeDeps({}, { startSuccess: true });
+			const originalSleep = Bun.sleep;
+			Bun.sleep = (() => Promise.resolve()) as typeof Bun.sleep;
+
+			try {
+				await captureStdout(() => coordinatorCommand(["start", "--json"], deps));
+			} finally {
+				Bun.sleep = originalSleep;
+				// Restore original config
+				await Bun.write(configPath, originalConfig);
+			}
+
+			expect(watchdogCalls?.start).toBe(0);
+		});
+
+		test("auto-starts watchdog when tier0Enabled is true even without --watchdog flag", async () => {
 			const { deps, watchdogCalls } = makeDeps({}, { startSuccess: true });
 			const originalSleep = Bun.sleep;
 			Bun.sleep = (() => Promise.resolve()) as typeof Bun.sleep;
@@ -1262,7 +1286,8 @@ describe("watchdog integration", () => {
 				Bun.sleep = originalSleep;
 			}
 
-			expect(watchdogCalls?.start).toBe(0);
+			// Default config has tier0Enabled: true, so watchdog should auto-start
+			expect(watchdogCalls?.start).toBe(1);
 		});
 
 		test("--json output includes watchdog field when --watchdog is present and succeeds", async () => {

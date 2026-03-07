@@ -496,9 +496,10 @@ async function startCoordinator(
 			await tmux.sendKeys(tmuxSession, "");
 		}
 
-		// Auto-start watchdog if --watchdog flag is present
+		// Auto-start watchdog if --watchdog flag is present or tier0Enabled in config
 		let watchdogPid: number | undefined;
-		if (watchdogFlag) {
+		const shouldStartWatchdog = watchdogFlag || config.watchdog.tier0Enabled;
+		if (shouldStartWatchdog) {
 			const watchdogResult = await watchdog.start();
 			if (watchdogResult) {
 				watchdogPid = watchdogResult.pid;
@@ -1325,6 +1326,22 @@ export function createCoordinatorCommand(deps: CoordinatorDeps = {}): Command {
 		.option("--json", "Output as JSON")
 		.action(async (opts: { json?: boolean }) => {
 			await checkComplete({ json: opts.json ?? false }, deps);
+		});
+
+	cmd
+		.command("attach")
+		.description("Attach to the coordinator tmux session")
+		.action(async () => {
+			const config = await loadConfig(process.cwd());
+			const tmuxSession = coordinatorTmuxSession(config.project.name);
+			const tmux = deps._tmux ?? (await import("../worktree/tmux.ts"));
+			const alive = await tmux.isSessionAlive(tmuxSession);
+			if (!alive) {
+				throw new AgentError(`Coordinator tmux session "${tmuxSession}" is not running`);
+			}
+			Bun.spawnSync(["tmux", "attach-session", "-t", tmuxSession], {
+				stdio: ["inherit", "inherit", "inherit"],
+			});
 		});
 
 	return cmd;

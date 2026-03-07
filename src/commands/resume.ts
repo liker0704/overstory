@@ -23,6 +23,7 @@ export function createResumeCommand(): Command {
 		.description("Resume interrupted agent sessions")
 		.argument("[agent-name]", "Resume a specific agent (default: all)")
 		.option("--list", "List resumable sessions without resuming")
+		.option("--attach", "Attach to tmux session after resume (only with single agent)")
 		.option("--json", "JSON output")
 		.action(async (agentName: string | undefined, _opts: unknown, cmd: Command) => {
 			await resumeCommand(agentName, cmd.optsWithGlobals());
@@ -31,7 +32,7 @@ export function createResumeCommand(): Command {
 
 async function resumeCommand(
 	agentName: string | undefined,
-	opts: { list?: boolean; json?: boolean },
+	opts: { list?: boolean; attach?: boolean; json?: boolean },
 ): Promise<void> {
 	const json = opts.json ?? false;
 	const config = await loadConfig(process.cwd());
@@ -118,6 +119,22 @@ async function resumeCommand(
 
 		if (json) {
 			jsonOutput("resume", { results });
+		}
+
+		// Attach to tmux if --attach and exactly one agent was resumed
+		if (opts.attach) {
+			const succeeded = results.filter((r) => r.success);
+			if (succeeded.length === 1) {
+				const first = succeeded[0];
+				const target = first ? resumable.find((s) => s.agentName === first.agentName) : undefined;
+				if (target) {
+					Bun.spawnSync(["tmux", "attach-session", "-t", target.tmuxSession], {
+						stdio: ["inherit", "inherit", "inherit"],
+					});
+				}
+			} else if (succeeded.length > 1 && !json) {
+				printWarning("--attach requires a single agent. Specify agent name: ov resume <name> --attach");
+			}
 		}
 	} finally {
 		store.close();

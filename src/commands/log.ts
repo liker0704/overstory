@@ -25,9 +25,11 @@ import { estimateCost } from "../metrics/pricing.ts";
 import { createMetricsStore } from "../metrics/store.ts";
 import { parseTranscriptUsage } from "../metrics/transcript.ts";
 import { createMulchClient, type MulchClient } from "../mulch/client.ts";
+import { getRuntime } from "../runtimes/registry.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import { createRunStore } from "../sessions/store.ts";
-import type { AgentSession } from "../types.ts";
+import type { AgentSession, OverstoryConfig } from "../types.ts";
+import { capturePaneContent } from "../worktree/tmux.ts";
 
 /**
  * Get or create a session timestamp directory for the agent.
@@ -94,13 +96,19 @@ const PERSISTENT_CAPABILITIES = new Set(["coordinator", "monitor"]);
  *
  * Non-fatal: silently ignores errors to avoid breaking hook execution.
  */
-function transitionToCompleted(projectRoot: string, agentName: string): void {
+async function transitionToCompleted(
+	projectRoot: string,
+	agentName: string,
+	config: OverstoryConfig,
+): Promise<void> {
 	try {
 		const overstoryDir = join(projectRoot, ".overstory");
 		const { store } = openSessionStore(overstoryDir);
 		try {
 			const session = store.getByName(agentName);
-			if (session && PERSISTENT_CAPABILITIES.has(session.capability)) {
+			if (!session) return;
+
+			if (PERSISTENT_CAPABILITIES.has(session.capability)) {
 				// Check if coordinator self-exited by verifying the run is already completed.
 				// If `ov run complete` was called before session-end, the run status is 'completed'
 				// and we should transition the coordinator session to completed too.
@@ -122,6 +130,29 @@ function transitionToCompleted(projectRoot: string, agentName: string): void {
 				store.updateLastActivity(agentName);
 				return;
 			}
+
+			// Check if session-end was triggered by rate limit dialog.
+			// Claude Code fires Stop hook when the rate limit dialog appears,
+			// so we must detect this before marking the session as completed.
+			if (session.tmuxSession && session.rateLimitedSince === null) {
+				try {
+					const paneContent = await capturePaneContent(session.tmuxSession, 100);
+					if (paneContent) {
+						const runtime = getRuntime(session.runtime, config, session.capability);
+						if (runtime.detectRateLimit) {
+							const rlState = runtime.detectRateLimit(paneContent);
+							if (rlState.limited) {
+								store.updateRateLimitedSince(agentName, new Date().toISOString());
+								store.updateLastActivity(agentName);
+								return;
+							}
+						}
+					}
+				} catch {
+					// Pane capture or runtime resolution failure is non-fatal
+				}
+			}
+
 			store.updateState(agentName, "completed");
 			store.updateLastActivity(agentName);
 		} finally {
@@ -625,8 +656,8 @@ async function runLog(opts: {
 		}
 		case "session-end":
 			logger.info("session.end", { agentName: opts.agent });
-			// Transition agent state to completed
-			transitionToCompleted(config.project.root, opts.agent);
+			// Transition agent state to completed (checks for rate limit first)
+			await transitionToCompleted(config.project.root, opts.agent, config);
 			// Look up agent session for identity update and metrics recording
 			{
 				const agentSession = getAgentSession(config.project.root, opts.agent);

@@ -43,6 +43,7 @@ import {
 	isSessionAlive,
 	killProcessTree,
 	killSession,
+	sendKeys,
 } from "../worktree/tmux.ts";
 import { evaluateHealth, transitionState } from "./health.ts";
 import { swapRuntime } from "./swap.ts";
@@ -466,8 +467,8 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 		const eventsDbPath = join(overstoryDir, "events.db");
 
 		for (const session of sessions) {
-			// Skip completed sessions — they are terminal and don't need monitoring
-			if (session.state === "completed") {
+			// Skip completed sessions unless they're rate-limited (caught by session-end hook)
+			if (session.state === "completed" && session.rateLimitedSince === null) {
 				continue;
 			}
 
@@ -541,15 +542,18 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 
 			const tmuxAlive = await tmux.isSessionAlive(session.tmuxSession);
 
+			// Capture pane content once — reused for rate limit detection and idle mail nudge
+			let lastPaneContent: string | null = null;
+
 			// Rate limit detection: capture pane content and check via runtime adapter
 			let rateLimitState: RateLimitState | undefined;
 			if (tmuxAlive && session.tmuxSession !== "" && rateLimitConfig?.enabled) {
 				try {
 					const runtime = getRuntime(session.runtime, options.config, session.capability);
 					if (runtime.detectRateLimit) {
-						const paneContent = await capturePane(session.tmuxSession);
-						if (paneContent) {
-							rateLimitState = runtime.detectRateLimit(paneContent);
+						lastPaneContent = await capturePane(session.tmuxSession);
+						if (lastPaneContent) {
+							rateLimitState = runtime.detectRateLimit(lastPaneContent);
 						}
 					}
 				} catch {
@@ -639,6 +643,55 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 						level: "info",
 						data: { type: "rate_limit_cleared", runtime: session.runtime },
 					});
+
+					// Nudge completed+rate-limited sessions to dismiss the rate limit dialog
+					if (session.state === "completed" && session.tmuxSession) {
+						try {
+							await sendKeys(session.tmuxSession, "");
+						} catch {
+							// Non-fatal: tmux session may have died
+						}
+					}
+				}
+			}
+
+			// Nudge idle TUI agents that have unread mail
+			if (
+				tmuxAlive &&
+				session.tmuxSession !== "" &&
+				session.state !== "completed" &&
+				session.state !== "zombie"
+			) {
+				try {
+					const mailStore = createMailStore(join(overstoryDir, "mail.db"));
+					try {
+						const unread = mailStore.getUnread(session.agentName);
+						if (unread.length > 0) {
+							const paneContent = lastPaneContent ?? await capturePane(session.tmuxSession);
+							if (paneContent) {
+								const runtime = getRuntime(
+									session.runtime,
+									options.config,
+									session.capability,
+								);
+								const readyState = runtime.detectReady(paneContent);
+								if (readyState.phase === "ready") {
+									const subjects = unread
+										.slice(0, 3)
+										.map((m) => m.subject)
+										.join("; ");
+									const msg = `You have ${unread.length} unread message(s): ${subjects} — check mail: ov mail check --agent ${session.agentName}`;
+									await sendKeys(session.tmuxSession, msg);
+									await Bun.sleep(500);
+									await sendKeys(session.tmuxSession, "");
+								}
+							}
+						}
+					} finally {
+						mailStore.close();
+					}
+				} catch {
+					// Non-fatal: mail nudge failure shouldn't break watchdog
 				}
 			}
 
