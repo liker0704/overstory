@@ -35,7 +35,7 @@ export interface PiRuntimeConfig {
 // === Task Tracker ===
 
 /** Backend for the task tracker. Defined here for use in OverstoryConfig. */
-export type TaskTrackerBackend = "auto" | "seeds" | "beads";
+export type TaskTrackerBackend = "auto" | "seeds" | "beads" | "github";
 
 // === Project Configuration ===
 
