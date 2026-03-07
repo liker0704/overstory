@@ -9,6 +9,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Command } from "commander";
+import { createManifestLoader, resolveModel } from "../agents/manifest.ts";
 import { loadConfig } from "../config.ts";
 import { jsonOutput } from "../json.ts";
 import { printSuccess, printWarning } from "../logging/color.ts";
@@ -169,19 +170,50 @@ async function resumeAgent(
 	const runtime = getRuntime(session.runtime ?? "claude", config, session.capability);
 	const overstoryDir = join(root, ".overstory");
 
+	// Resolve model the same way as coordinator/sling — capability-based lookup
+	const capabilityDefaults: Record<string, string> = {
+		coordinator: "opus",
+		supervisor: "opus",
+		monitor: "sonnet",
+		lead: "sonnet",
+		builder: "sonnet",
+		scout: "haiku",
+		reviewer: "sonnet",
+		merger: "sonnet",
+	};
+	const fallbackModel = capabilityDefaults[session.capability] ?? "sonnet";
+	const manifestLoader = createManifestLoader(
+		join(root, config.agents.manifestPath),
+		join(root, config.agents.baseDir),
+	);
+	const manifest = await manifestLoader.load();
+	const resolvedModel = resolveModel(config, manifest, session.capability, fallbackModel);
+
 	const env: Record<string, string> = {
-		...runtime.buildEnv({ model: "default", env: {} }),
+		...runtime.buildEnv(resolvedModel),
 		OVERSTORY_AGENT_NAME: session.agentName,
 		OVERSTORY_WORKTREE_PATH: session.worktreePath,
 	};
 
+	// Root-level agents (coordinator, supervisor, monitor) get their definition
+	// via --append-system-prompt-file, not via AGENTS.md/CLAUDE.md in a worktree.
+	const rootAgentCaps = new Set(["coordinator", "supervisor", "monitor"]);
+	let appendSystemPromptFile: string | undefined;
+	if (rootAgentCaps.has(session.capability)) {
+		const agentDefPath = join(root, ".overstory", "agent-defs", `${session.capability}.md`);
+		if (existsSync(agentDefPath)) {
+			appendSystemPromptFile = agentDefPath;
+		}
+	}
+
 	// Use runtimeSessionId for resume — works for all runtimes that support it
 	const spawnCmd = runtime.buildSpawnCommand({
-		model: config.runtime?.default === runtime.id ? "default" : "default",
+		model: resolvedModel.model,
 		permissionMode: "bypass",
 		cwd: session.worktreePath,
 		env,
 		resumeSessionId: session.runtimeSessionId ?? undefined,
+		appendSystemPromptFile,
 	});
 
 	const pid = await createSession(session.tmuxSession, session.worktreePath, spawnCmd, env);

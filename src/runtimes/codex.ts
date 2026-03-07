@@ -49,7 +49,7 @@ export class CodexRuntime implements AgentRuntime {
 	 * Anthropic aliases used by overstory manifests that Codex CLI does not
 	 * accept as --model values.
 	 */
-	private static readonly MANIFEST_ALIASES = new Set(["sonnet", "opus", "haiku"]);
+	private static readonly SKIP_MODEL_FLAG = new Set(["sonnet", "opus", "haiku", "default"]);
 
 	/**
 	 * Build the shell command string to spawn a Codex agent in a tmux pane.
@@ -62,7 +62,7 @@ export class CodexRuntime implements AgentRuntime {
 	 * to restore full conversation context from the previous session.
 	 */
 	buildSpawnCommand(opts: SpawnOpts): string {
-		const modelFlag = CodexRuntime.MANIFEST_ALIASES.has(opts.model)
+		const modelFlag = CodexRuntime.SKIP_MODEL_FLAG.has(opts.model)
 			? ""
 			: ` --model ${opts.model}`;
 
