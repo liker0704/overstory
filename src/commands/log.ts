@@ -140,7 +140,12 @@ async function transitionToCompleted(
 					if (paneContent) {
 						const runtime = getRuntime(session.runtime, config, session.capability);
 						if (runtime.detectRateLimit) {
-							const rlState = runtime.detectRateLimit(paneContent);
+							// Guard: if agent is at prompt, it's not rate limited
+							const readyState = runtime.detectReady(paneContent);
+							const rlState =
+								readyState.phase === "ready"
+									? { limited: false as const }
+									: runtime.detectRateLimit(paneContent);
 							if (rlState.limited) {
 								store.updateRateLimitedSince(agentName, new Date().toISOString());
 								store.updateLastActivity(agentName);

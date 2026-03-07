@@ -59,6 +59,7 @@ describe("SQL schema consistency", () => {
 				"escalation_level",
 				"id",
 				"last_activity",
+				"original_runtime",
 				"parent_agent",
 				"pid",
 				"rate_limited_since",

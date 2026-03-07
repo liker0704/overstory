@@ -591,7 +591,13 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 					if (runtime.detectRateLimit) {
 						lastPaneContent = await capturePane(session.tmuxSession);
 						if (lastPaneContent) {
-							rateLimitState = runtime.detectRateLimit(lastPaneContent);
+							// Guard against false positives: if agent is at the prompt
+							// (ready), it's not rate limited — even if pane text mentions
+							// "rate limit" in conversation.
+							const readyState = runtime.detectReady(lastPaneContent);
+							if (readyState.phase !== "ready") {
+								rateLimitState = runtime.detectRateLimit(lastPaneContent);
+							}
 						}
 					}
 				} catch {

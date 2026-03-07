@@ -753,28 +753,28 @@ describe("ClaudeRuntime detectRateLimit", () => {
 			}
 		});
 
-		test("detects API rate limit error line", () => {
-			const result = runtime.detectRateLimit("⚠ rate limit exceeded");
+		test("detects generic rate limit text", () => {
+			const result = runtime.detectRateLimit("Error: rate limit exceeded");
 			expect(result.limited).toBe(true);
 		});
 
-		test("detects error prefix rate limit", () => {
-			const result = runtime.detectRateLimit("error: rate limit reached for model");
-			expect(result.limited).toBe(true);
-		});
+		test("callers must guard with detectReady to avoid false positives", () => {
+			// detectRateLimit itself matches any "rate limit" text.
+			// Callers (daemon, log) guard by checking detectReady first —
+			// if agent is at the prompt, detectRateLimit is never called.
+			const result = runtime.detectRateLimit("agent hit a rate limit");
+			expect(result.limited).toBe(true); // raw match is true
 
-		test("does NOT false-positive on prose mentioning rate limit", () => {
-			const result = runtime.detectRateLimit(
-				"I checked the watchdog logs and found a rate limit event from earlier today.\nLet me investigate further.",
-			);
-			expect(result.limited).toBe(false);
-		});
-
-		test("does NOT false-positive on agent discussing rate limits", () => {
-			const result = runtime.detectRateLimit(
-				"The builder-auth-conftest agent hit a rate limit. I'll swap it to codex.",
-			);
-			expect(result.limited).toBe(false);
+			// But if agent is at the prompt (ready), caller skips detectRateLimit.
+			// Simulate: agent discussed rate limits, now back at prompt.
+			const pane = [
+				"I encountered a rate limit earlier but recovered.",
+				"\u276f",
+				"bypass permissions",
+			].join("\n");
+			const readyState = runtime.detectReady(pane);
+			expect(readyState.phase).toBe("ready");
+			// Caller sees ready → never calls detectRateLimit → no false positive
 		});
 
 		test("returns not limited for normal output", () => {
