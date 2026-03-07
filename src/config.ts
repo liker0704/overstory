@@ -608,7 +608,7 @@ function validateConfig(config: OverstoryConfig): void {
 	}
 
 	// taskTracker.backend must be one of the valid options
-	const validBackends = ["auto", "seeds", "beads"] as const;
+	const validBackends = ["auto", "seeds", "beads", "github"] as const;
 	if (!validBackends.includes(config.taskTracker.backend as (typeof validBackends)[number])) {
 		throw new ValidationError(`taskTracker.backend must be one of: ${validBackends.join(", ")}`, {
 			field: "taskTracker.backend",
