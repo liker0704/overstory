@@ -158,6 +158,7 @@ describe("inspectCommand", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 			store.close();
 
@@ -194,6 +195,7 @@ describe("inspectCommand", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 			store.close();
 
@@ -234,6 +236,7 @@ describe("inspectCommand", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 			store.close();
 
@@ -274,6 +277,7 @@ describe("inspectCommand", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 			store.close();
 
@@ -317,6 +321,7 @@ describe("inspectCommand", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 			store.close();
 
@@ -356,6 +361,7 @@ describe("inspectCommand", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 			store.close();
 
@@ -395,6 +401,7 @@ describe("inspectCommand", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 			store.close();
 
@@ -443,6 +450,7 @@ describe("inspectCommand", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 			store.close();
 
@@ -490,6 +498,7 @@ describe("inspectCommand", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 			store.close();
 
@@ -543,6 +552,7 @@ describe("inspectCommand", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 			store.close();
 
@@ -584,6 +594,7 @@ describe("inspectCommand", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 			store.close();
 
@@ -626,6 +637,7 @@ describe("inspectCommand", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 			store.close();
 
@@ -664,6 +676,7 @@ describe("inspectCommand", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 			store.close();
 
@@ -707,6 +720,7 @@ describe("inspectCommand", () => {
 					rateLimitedSince: null,
 					runtimeSessionId: null,
 					transcriptPath: null,
+					originalRuntime: null,
 				},
 				timeSinceLastActivity: 5000,
 				recentToolCalls: [],
@@ -749,6 +763,7 @@ describe("inspectCommand", () => {
 					rateLimitedSince: null,
 					runtimeSessionId: null,
 					transcriptPath: null,
+					originalRuntime: null,
 				},
 				timeSinceLastActivity: 5000,
 				recentToolCalls: [],
@@ -796,6 +811,7 @@ describe("inspectCommand", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				transcriptPath: null,
+				originalRuntime: null,
 				runtime: "claude",
 				rateLimitedSince: null,
 				runtimeSessionId: null,
@@ -1059,6 +1075,7 @@ describe("inspectCommand", () => {
 					escalationLevel: 0,
 					stalledSince: null,
 					transcriptPath: null,
+					originalRuntime: null,
 					runtime: "claude",
 					rateLimitedSince: null,
 					runtimeSessionId: null,
@@ -1105,6 +1122,7 @@ describe("inspectCommand", () => {
 					escalationLevel: 0,
 					stalledSince: null,
 					transcriptPath: null,
+					originalRuntime: null,
 					runtime: "claude",
 					rateLimitedSince: null,
 					runtimeSessionId: null,
@@ -1199,6 +1217,7 @@ describe("inspectCommand", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 			store.close();
 
@@ -1240,6 +1259,7 @@ describe("inspectCommand", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 			store.close();
 
@@ -1282,6 +1302,7 @@ describe("inspectCommand", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 			store.close();
 

@@ -306,6 +306,7 @@ describe("swapRuntime", () => {
 				rateLimitedSince: new Date().toISOString(),
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			},
 			targetRuntimeName: "codex",
 			config: {} as never,

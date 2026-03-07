@@ -314,6 +314,7 @@ function makeCoordinatorSession(overrides: Partial<AgentSession> = {}): AgentSes
 		rateLimitedSince: null,
 		runtimeSessionId: null,
 		transcriptPath: null,
+		originalRuntime: null,
 		...overrides,
 	};
 }
@@ -2191,6 +2192,7 @@ describe("checkComplete", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			};
 			store.upsert(base);
 			store.upsert({ ...base, id: "s2", agentName: "builder-2" });
@@ -2246,6 +2248,7 @@ describe("checkComplete", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			};
 			store.upsert(session);
 		} finally {
@@ -2301,6 +2304,7 @@ describe("checkComplete", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 			// worker session that is completed
 			store.upsert({
@@ -2324,6 +2328,7 @@ describe("checkComplete", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 		} finally {
 			store.close();
@@ -2468,6 +2473,7 @@ describe("checkComplete", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 		} finally {
 			store.close();
@@ -2537,6 +2543,7 @@ describe("checkComplete", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 		} finally {
 			store.close();

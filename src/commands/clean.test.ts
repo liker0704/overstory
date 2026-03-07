@@ -169,6 +169,7 @@ describe("--all", () => {
 			rateLimitedSince: null,
 			runtimeSessionId: null,
 			transcriptPath: null,
+		originalRuntime: null,
 		});
 		store.close();
 
@@ -317,6 +318,7 @@ describe("individual flags", () => {
 			rateLimitedSince: null,
 			runtimeSessionId: null,
 			transcriptPath: null,
+		originalRuntime: null,
 		});
 		store.close();
 
@@ -442,6 +444,7 @@ describe("synthetic session-end events", () => {
 			rateLimitedSince: null,
 			runtimeSessionId: null,
 			transcriptPath: null,
+		originalRuntime: null,
 			...overrides,
 		};
 	}
@@ -697,6 +700,7 @@ describe("--agent", () => {
 			rateLimitedSince: null,
 			runtimeSessionId: null,
 			transcriptPath: null,
+		originalRuntime: null,
 			...overrides,
 		};
 	}

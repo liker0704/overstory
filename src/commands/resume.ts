@@ -139,7 +139,9 @@ async function resumeCommand(
 					});
 				}
 			} else if (succeeded.length > 1 && !json) {
-				printWarning("--attach requires a single agent. Specify agent name: ov resume <name> --attach");
+				printWarning(
+					"--attach requires a single agent. Specify agent name: ov resume <name> --attach",
+				);
 			}
 		}
 	} finally {
@@ -164,8 +166,15 @@ async function resumeAgent(
 	config: OverstoryConfig,
 	root: string,
 ): Promise<void> {
-	const runtime = getRuntime(session.runtime ?? "claude", config, session.capability);
+	// Swap back to original runtime if agent was swapped by watchdog
+	const runtimeName = session.originalRuntime ?? session.runtime ?? "claude";
+	const runtime = getRuntime(runtimeName, config, session.capability);
 	const overstoryDir = join(root, ".overstory");
+
+	// Use original tmux session name (strip runtime suffix if swapped)
+	const tmuxSession = session.originalRuntime
+		? session.tmuxSession.replace(/-[^-]+$/, "")
+		: session.tmuxSession;
 
 	const env: Record<string, string> = {
 		...runtime.buildEnv({ model: "default", env: {} }),
@@ -182,13 +191,16 @@ async function resumeAgent(
 		resumeSessionId: session.runtimeSessionId ?? undefined,
 	});
 
-	const pid = await createSession(session.tmuxSession, session.worktreePath, spawnCmd, env);
+	const pid = await createSession(tmuxSession, session.worktreePath, spawnCmd, env);
 
 	// Update session store immediately so hooks can find the entry
 	const { store } = openSessionStore(overstoryDir);
 	try {
 		store.upsert({
 			...session,
+			runtime: runtimeName,
+			tmuxSession,
+			originalRuntime: null,
 			pid,
 			state: "booting",
 			lastActivity: new Date().toISOString(),

@@ -189,6 +189,7 @@ async function startMonitor(opts: { json: boolean; attach: boolean }): Promise<v
 			rateLimitedSince: null,
 			runtimeSessionId: sessionId,
 			transcriptPath: null,
+			originalRuntime: null,
 		};
 
 		store.upsert(session);

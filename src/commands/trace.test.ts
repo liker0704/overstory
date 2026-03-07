@@ -556,6 +556,7 @@ describe("traceCommand", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 			sessionStore.close();
 

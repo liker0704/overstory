@@ -235,6 +235,7 @@ async function startSupervisor(opts: {
 			rateLimitedSince: null,
 			runtimeSessionId: sessionId,
 			transcriptPath: null,
+			originalRuntime: null,
 		};
 
 		store.upsert(session);

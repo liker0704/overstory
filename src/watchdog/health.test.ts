@@ -51,6 +51,7 @@ function makeSession(overrides: Partial<AgentSession> = {}): AgentSession {
 		rateLimitedSince: null,
 		runtimeSessionId: null,
 		transcriptPath: null,
+		originalRuntime: null,
 		...overrides,
 	};
 }

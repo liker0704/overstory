@@ -371,12 +371,21 @@ export class ClaudeRuntime implements AgentRuntime {
 			};
 		}
 
-		// Pattern 2: Rate limit dialog or text
-		if (lower.includes("rate-limit-options") || lower.includes("rate limit")) {
+		// Pattern 2: Rate limit dialog (specific UI element IDs only)
+		if (lower.includes("rate-limit-options") || lower.includes("/rate-limit")) {
 			return {
 				limited: true,
 				resumesAt: null,
 				message: "Claude rate limited",
+			};
+		}
+
+		// Pattern 3: API rate limit error (must be a standalone error line, not prose)
+		if (/^\s*(?:⚠|error|✖|■).*rate.?limit/im.test(paneContent)) {
+			return {
+				limited: true,
+				resumesAt: null,
+				message: "Claude rate limit error",
 			};
 		}
 

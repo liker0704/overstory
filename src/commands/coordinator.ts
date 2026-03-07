@@ -451,6 +451,7 @@ async function startCoordinator(
 			rateLimitedSince: null,
 			runtimeSessionId: sessionId,
 			transcriptPath: null,
+			originalRuntime: null,
 		};
 
 		store.upsert(session);

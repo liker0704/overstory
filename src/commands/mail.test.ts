@@ -778,6 +778,7 @@ describe("mailCommand", () => {
 					rateLimitedSince: null,
 					runtimeSessionId: null,
 					transcriptPath: null,
+					originalRuntime: null,
 				},
 				{
 					id: "session-builder-1",
@@ -800,6 +801,7 @@ describe("mailCommand", () => {
 					rateLimitedSince: null,
 					runtimeSessionId: null,
 					transcriptPath: null,
+					originalRuntime: null,
 				},
 				{
 					id: "session-builder-2",
@@ -822,6 +824,7 @@ describe("mailCommand", () => {
 					rateLimitedSince: null,
 					runtimeSessionId: null,
 					transcriptPath: null,
+					originalRuntime: null,
 				},
 				{
 					id: "session-scout-1",
@@ -844,6 +847,7 @@ describe("mailCommand", () => {
 					rateLimitedSince: null,
 					runtimeSessionId: null,
 					transcriptPath: null,
+					originalRuntime: null,
 				},
 			];
 
@@ -1168,6 +1172,7 @@ describe("mailCommand", () => {
 					rateLimitedSince: null,
 					runtimeSessionId: null,
 					transcriptPath: null,
+					originalRuntime: null,
 				});
 			}
 

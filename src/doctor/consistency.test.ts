@@ -211,6 +211,7 @@ describe("checkConsistency", () => {
 			rateLimitedSince: null,
 			runtimeSessionId: null,
 			transcriptPath: null,
+			originalRuntime: null,
 		});
 		store.close();
 
@@ -251,6 +252,7 @@ describe("checkConsistency", () => {
 			rateLimitedSince: null,
 			runtimeSessionId: null,
 			transcriptPath: null,
+			originalRuntime: null,
 		});
 		store.close();
 
@@ -290,6 +292,7 @@ describe("checkConsistency", () => {
 			rateLimitedSince: null,
 			runtimeSessionId: null,
 			transcriptPath: null,
+			originalRuntime: null,
 		});
 		store.close();
 
@@ -330,6 +333,7 @@ describe("checkConsistency", () => {
 			rateLimitedSince: null,
 			runtimeSessionId: null,
 			transcriptPath: null,
+			originalRuntime: null,
 		});
 		store.close();
 
@@ -373,6 +377,7 @@ describe("checkConsistency", () => {
 			rateLimitedSince: null,
 			runtimeSessionId: null,
 			transcriptPath: null,
+			originalRuntime: null,
 		});
 		store.close();
 
@@ -450,6 +455,7 @@ describe("checkConsistency", () => {
 			rateLimitedSince: null,
 			runtimeSessionId: null,
 			transcriptPath: null,
+			originalRuntime: null,
 		});
 
 		store.upsert({
@@ -473,6 +479,7 @@ describe("checkConsistency", () => {
 			rateLimitedSince: null,
 			runtimeSessionId: null,
 			transcriptPath: null,
+			originalRuntime: null,
 		});
 		store.close();
 
@@ -513,6 +520,7 @@ describe("checkConsistency", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 		}
 
@@ -537,6 +545,7 @@ describe("checkConsistency", () => {
 			rateLimitedSince: null,
 			runtimeSessionId: null,
 			transcriptPath: null,
+			originalRuntime: null,
 		});
 		store.close();
 
@@ -575,6 +584,7 @@ describe("checkConsistency", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 
 			store.upsert({
@@ -598,6 +608,7 @@ describe("checkConsistency", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 		}
 		store.close();
@@ -645,6 +656,7 @@ describe("checkConsistency", () => {
 			rateLimitedSince: null,
 			runtimeSessionId: null,
 			transcriptPath: null,
+			originalRuntime: null,
 		});
 
 		store.upsert({
@@ -668,6 +680,7 @@ describe("checkConsistency", () => {
 			rateLimitedSince: null,
 			runtimeSessionId: null,
 			transcriptPath: null,
+			originalRuntime: null,
 		});
 
 		// Lead-2 has builders only (bad)
@@ -692,6 +705,7 @@ describe("checkConsistency", () => {
 			rateLimitedSince: null,
 			runtimeSessionId: null,
 			transcriptPath: null,
+			originalRuntime: null,
 		});
 		store.close();
 

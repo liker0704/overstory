@@ -250,6 +250,7 @@ describe("logCommand", () => {
 			rateLimitedSince: null,
 			runtimeSessionId: null,
 			transcriptPath: null,
+			originalRuntime: null,
 		};
 		const store = createSessionStore(dbPath);
 		store.upsert(session);
@@ -309,6 +310,7 @@ describe("logCommand", () => {
 			rateLimitedSince: null,
 			runtimeSessionId: null,
 			transcriptPath: null,
+			originalRuntime: null,
 		};
 		const sessStore = createSessionStore(sessionsDbPath);
 		sessStore.upsert(session);
@@ -353,6 +355,7 @@ describe("logCommand", () => {
 			rateLimitedSince: null,
 			runtimeSessionId: null,
 			transcriptPath: null,
+			originalRuntime: null,
 		};
 		const store = createSessionStore(dbPath);
 		store.upsert(session);
@@ -396,6 +399,7 @@ describe("logCommand", () => {
 			rateLimitedSince: null,
 			runtimeSessionId: null,
 			transcriptPath: null,
+			originalRuntime: null,
 		};
 		const store = createSessionStore(dbPath);
 		store.upsert(session);
@@ -439,6 +443,7 @@ describe("logCommand", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 			sessionStoreLocal.close();
 
@@ -497,6 +502,7 @@ describe("logCommand", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 			sessionStoreLocal.close();
 
@@ -531,6 +537,7 @@ describe("logCommand", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 			sessionStoreLocal.close();
 
@@ -589,6 +596,7 @@ describe("logCommand", () => {
 				rateLimitedSince: null,
 				runtimeSessionId: null,
 				transcriptPath: null,
+				originalRuntime: null,
 			});
 			sessionStoreLocal.close();
 
@@ -646,6 +654,7 @@ describe("logCommand", () => {
 			rateLimitedSince: null,
 			runtimeSessionId: null,
 			transcriptPath: null,
+			originalRuntime: null,
 		};
 		const store = createSessionStore(dbPath);
 		store.upsert(session);
@@ -690,6 +699,7 @@ describe("logCommand", () => {
 			rateLimitedSince: null,
 			runtimeSessionId: null,
 			transcriptPath: null,
+			originalRuntime: null,
 		};
 		const store = createSessionStore(dbPath);
 		store.upsert(session);
@@ -736,6 +746,7 @@ describe("logCommand", () => {
 			rateLimitedSince: null,
 			runtimeSessionId: null,
 			transcriptPath: null,
+			originalRuntime: null,
 		};
 		const store = createSessionStore(dbPath);
 		store.upsert(session);
@@ -779,6 +790,7 @@ describe("logCommand", () => {
 			rateLimitedSince: null,
 			runtimeSessionId: null,
 			transcriptPath: null,
+			originalRuntime: null,
 		};
 		const store = createSessionStore(dbPath);
 		store.upsert(session);
@@ -916,6 +928,7 @@ describe("logCommand", () => {
 			rateLimitedSince: null,
 			runtimeSessionId: null,
 			transcriptPath: null,
+			originalRuntime: null,
 		};
 		const store = createSessionStore(dbPath);
 		store.upsert(session);
@@ -959,6 +972,7 @@ describe("logCommand", () => {
 			rateLimitedSince: null,
 			runtimeSessionId: null,
 			transcriptPath: null,
+			originalRuntime: null,
 		};
 		const store = createSessionStore(dbPath);
 		store.upsert(session);

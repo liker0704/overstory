@@ -45,6 +45,7 @@ describe("resolveGroupAddress", () => {
 			rateLimitedSince: null,
 			runtimeSessionId: null,
 			transcriptPath: null,
+			originalRuntime: null,
 		};
 	}
 

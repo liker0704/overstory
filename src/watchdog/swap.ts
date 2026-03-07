@@ -169,11 +169,12 @@ export async function swapRuntime(options: SwapOptions): Promise<SwapResult> {
 
 		const newPid = await tmux.createSession(newTmuxSession, session.worktreePath, spawnCmd, env);
 
-		// 7. Update session store
+		// 7. Update session store (preserve original runtime for swap-back on resume)
 		const { store } = openSessionStore(overstoryDir);
 		store.upsert({
 			...session,
 			runtime: targetRuntime.id,
+			originalRuntime: session.originalRuntime ?? session.runtime,
 			tmuxSession: newTmuxSession,
 			pid: newPid,
 			rateLimitedSince: null,

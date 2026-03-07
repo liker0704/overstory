@@ -40,6 +40,7 @@ function normalizeSession(raw: Record<string, unknown>): AgentSession {
 		rateLimitedSince: (raw.rateLimitedSince as string | null) ?? null,
 		runtimeSessionId: (raw.runtimeSessionId as string | null) ?? null,
 		transcriptPath: (raw.transcriptPath as string | null) ?? null,
+		originalRuntime: (raw.originalRuntime as string | null) ?? null,
 	};
 }
 

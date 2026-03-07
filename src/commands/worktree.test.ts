@@ -83,6 +83,7 @@ describe("worktreeCommand", () => {
 			rateLimitedSince: null,
 			runtimeSessionId: null,
 			transcriptPath: null,
+		originalRuntime: null,
 			...overrides,
 		};
 	}
@@ -175,6 +176,7 @@ describe("worktreeCommand", () => {
 					rateLimitedSince: null,
 					runtimeSessionId: null,
 					transcriptPath: null,
+		originalRuntime: null,
 				},
 			]);
 
@@ -226,6 +228,7 @@ describe("worktreeCommand", () => {
 					rateLimitedSince: null,
 					runtimeSessionId: null,
 					transcriptPath: null,
+		originalRuntime: null,
 				},
 			]);
 
@@ -324,6 +327,7 @@ describe("worktreeCommand", () => {
 					rateLimitedSince: null,
 					runtimeSessionId: null,
 					transcriptPath: null,
+		originalRuntime: null,
 				},
 			]);
 
@@ -383,6 +387,7 @@ describe("worktreeCommand", () => {
 					rateLimitedSince: null,
 					runtimeSessionId: null,
 					transcriptPath: null,
+		originalRuntime: null,
 				},
 			]);
 
@@ -425,6 +430,7 @@ describe("worktreeCommand", () => {
 					rateLimitedSince: null,
 					runtimeSessionId: null,
 					transcriptPath: null,
+		originalRuntime: null,
 				},
 			]);
 
@@ -483,6 +489,7 @@ describe("worktreeCommand", () => {
 					rateLimitedSince: null,
 					runtimeSessionId: null,
 					transcriptPath: null,
+		originalRuntime: null,
 				},
 			]);
 
@@ -648,6 +655,7 @@ describe("worktreeCommand", () => {
 					rateLimitedSince: null,
 					runtimeSessionId: null,
 					transcriptPath: null,
+		originalRuntime: null,
 				},
 				{
 					id: "session-2",
@@ -670,6 +678,7 @@ describe("worktreeCommand", () => {
 					rateLimitedSince: null,
 					runtimeSessionId: null,
 					transcriptPath: null,
+		originalRuntime: null,
 				},
 			]);
 

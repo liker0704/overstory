@@ -753,9 +753,28 @@ describe("ClaudeRuntime detectRateLimit", () => {
 			}
 		});
 
-		test("detects generic rate limit text", () => {
-			const result = runtime.detectRateLimit("Error: rate limit exceeded");
+		test("detects API rate limit error line", () => {
+			const result = runtime.detectRateLimit("⚠ rate limit exceeded");
 			expect(result.limited).toBe(true);
+		});
+
+		test("detects error prefix rate limit", () => {
+			const result = runtime.detectRateLimit("error: rate limit reached for model");
+			expect(result.limited).toBe(true);
+		});
+
+		test("does NOT false-positive on prose mentioning rate limit", () => {
+			const result = runtime.detectRateLimit(
+				"I checked the watchdog logs and found a rate limit event from earlier today.\nLet me investigate further.",
+			);
+			expect(result.limited).toBe(false);
+		});
+
+		test("does NOT false-positive on agent discussing rate limits", () => {
+			const result = runtime.detectRateLimit(
+				"The builder-auth-conftest agent hit a rate limit. I'll swap it to codex.",
+			);
+			expect(result.limited).toBe(false);
 		});
 
 		test("returns not limited for normal output", () => {

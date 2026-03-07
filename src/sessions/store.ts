@@ -34,6 +34,8 @@ export interface SessionStore {
 	updateRuntimeSessionId(agentName: string, runtimeSessionId: string | null): void;
 	/** Update the rate_limited_since timestamp for a session. */
 	updateRateLimitedSince(agentName: string, rateLimitedSince: string | null): void;
+	/** Update original_runtime (set on swap, cleared on resume). */
+	updateOriginalRuntime(agentName: string, originalRuntime: string | null): void;
 	/** Get sessions that can be resumed (not completed — includes zombie since dead tmux is expected). */
 	getResumable(): AgentSession[];
 	/** Remove a session by agent name. */
@@ -66,6 +68,7 @@ interface SessionRow {
 	rate_limited_since: string | null;
 	runtime_session_id: string | null;
 	transcript_path: string | null;
+	original_runtime: string | null;
 }
 
 /** Row shape for runs table as stored in SQLite (snake_case columns). */
@@ -141,6 +144,7 @@ function rowToSession(row: SessionRow): AgentSession {
 		rateLimitedSince: row.rate_limited_since,
 		runtimeSessionId: row.runtime_session_id ?? null,
 		transcriptPath: row.transcript_path,
+		originalRuntime: row.original_runtime ?? null,
 	};
 }
 
@@ -208,6 +212,19 @@ function migrateBeadIdToTaskId(db: Database): void {
 }
 
 /**
+ * Migrate an existing sessions table to add original_runtime column.
+ * Tracks the pre-swap runtime when watchdog swaps due to rate limits.
+ * Safe to call multiple times — only adds the column if it does not exist.
+ */
+function migrateAddOriginalRuntime(db: Database): void {
+	const rows = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
+	const existingColumns = new Set(rows.map((r) => r.name));
+	if (!existingColumns.has("original_runtime")) {
+		db.exec("ALTER TABLE sessions ADD COLUMN original_runtime TEXT");
+	}
+}
+
+/**
  * Create a new SessionStore backed by a SQLite database at the given path.
  *
  * Initializes the database with WAL mode and a 5-second busy timeout.
@@ -235,6 +252,8 @@ export function createSessionStore(dbPath: string): SessionStore {
 	migrateAddRateLimitFields(db);
 	// Migrate: add runtime_session_id column
 	migrateAddRuntimeSessionId(db);
+	// Migrate: add original_runtime column (swap-back support)
+	migrateAddOriginalRuntime(db);
 
 	// Prepare statements for frequent operations
 	const upsertStmt = db.prepare<
@@ -260,18 +279,19 @@ export function createSessionStore(dbPath: string): SessionStore {
 			$rate_limited_since: string | null;
 			$runtime_session_id: string | null;
 			$transcript_path: string | null;
+			$original_runtime: string | null;
 		}
 	>(`
 		INSERT INTO sessions
 			(id, agent_name, capability, runtime, worktree_path, branch_name, task_id,
 			 tmux_session, state, pid, parent_agent, depth, run_id,
 			 started_at, last_activity, escalation_level, stalled_since,
-			 rate_limited_since, runtime_session_id, transcript_path)
+			 rate_limited_since, runtime_session_id, transcript_path, original_runtime)
 		VALUES
 			($id, $agent_name, $capability, $runtime, $worktree_path, $branch_name, $task_id,
 			 $tmux_session, $state, $pid, $parent_agent, $depth, $run_id,
 			 $started_at, $last_activity, $escalation_level, $stalled_since,
-			 $rate_limited_since, $runtime_session_id, $transcript_path)
+			 $rate_limited_since, $runtime_session_id, $transcript_path, $original_runtime)
 		ON CONFLICT(agent_name) DO UPDATE SET
 			id = excluded.id,
 			capability = excluded.capability,
@@ -291,7 +311,8 @@ export function createSessionStore(dbPath: string): SessionStore {
 			stalled_since = excluded.stalled_since,
 			rate_limited_since = excluded.rate_limited_since,
 			runtime_session_id = excluded.runtime_session_id,
-			transcript_path = excluded.transcript_path
+			transcript_path = excluded.transcript_path,
+			original_runtime = excluded.original_runtime
 	`);
 
 	const getByNameStmt = db.prepare<SessionRow, { $agent_name: string }>(`
@@ -366,6 +387,13 @@ export function createSessionStore(dbPath: string): SessionStore {
 		UPDATE sessions SET rate_limited_since = $rate_limited_since WHERE agent_name = $agent_name
 	`);
 
+	const updateOriginalRuntimeStmt = db.prepare<
+		void,
+		{ $agent_name: string; $original_runtime: string | null }
+	>(`
+		UPDATE sessions SET original_runtime = $original_runtime WHERE agent_name = $agent_name
+	`);
+
 	return {
 		upsert(session: AgentSession): void {
 			upsertStmt.run({
@@ -389,6 +417,7 @@ export function createSessionStore(dbPath: string): SessionStore {
 				$rate_limited_since: session.rateLimitedSince,
 				$runtime_session_id: session.runtimeSessionId ?? null,
 				$transcript_path: session.transcriptPath,
+				$original_runtime: session.originalRuntime ?? null,
 			});
 		},
 
@@ -456,6 +485,13 @@ export function createSessionStore(dbPath: string): SessionStore {
 			updateRateLimitedSinceStmt.run({
 				$agent_name: agentName,
 				$rate_limited_since: rateLimitedSince,
+			});
+		},
+
+		updateOriginalRuntime(agentName: string, originalRuntime: string | null): void {
+			updateOriginalRuntimeStmt.run({
+				$agent_name: agentName,
+				$original_runtime: originalRuntime,
 			});
 		},
 

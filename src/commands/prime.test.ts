@@ -171,6 +171,7 @@ recentTasks:
 					rateLimitedSince: null,
 					runtimeSessionId: null,
 					transcriptPath: null,
+					originalRuntime: null,
 				},
 			];
 
@@ -212,6 +213,7 @@ recentTasks:
 					rateLimitedSince: null,
 					runtimeSessionId: null,
 					transcriptPath: null,
+					originalRuntime: null,
 				},
 			];
 
