@@ -34,6 +34,12 @@ async function resumeCommand(
 	agentName: string | undefined,
 	opts: { list?: boolean; attach?: boolean; json?: boolean },
 ): Promise<void> {
+	// Support `ov resume list` as alias for `ov resume --list`
+	if (agentName === "list") {
+		opts.list = true;
+		agentName = undefined;
+	}
+
 	const json = opts.json ?? false;
 	const config = await loadConfig(process.cwd());
 	const root = config.project.root;

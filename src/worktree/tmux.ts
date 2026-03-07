@@ -160,9 +160,13 @@ export async function listSessions(): Promise<Array<{ name: string; pid: number 
 		"#{session_name}:#{pid}",
 	]);
 
-	// Exit code 1 with "no server running" means no sessions exist — not an error
+	// Exit code 1 with "no server running" / "error connecting" means no sessions — not an error
 	if (exitCode !== 0) {
-		if (stderr.includes("no server running") || stderr.includes("no sessions")) {
+		if (
+			stderr.includes("no server running") ||
+			stderr.includes("no sessions") ||
+			stderr.includes("error connecting to")
+		) {
 			return [];
 		}
 		throw new AgentError(`Failed to list tmux sessions: ${stderr.trim()}`);
@@ -441,7 +445,11 @@ export type SessionState = "alive" | "dead" | "no_server";
 export async function checkSessionState(name: string): Promise<SessionState> {
 	const { exitCode, stderr } = await runCommand(["tmux", "has-session", "-t", name]);
 	if (exitCode === 0) return "alive";
-	if (stderr.includes("no server running") || stderr.includes("no sessions")) {
+	if (
+		stderr.includes("no server running") ||
+		stderr.includes("no sessions") ||
+		stderr.includes("error connecting to")
+	) {
 		return "no_server";
 	}
 	return "dead";

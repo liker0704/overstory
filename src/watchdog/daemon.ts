@@ -475,8 +475,38 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 		}
 
 		for (const session of sessions) {
-			// Skip completed sessions unless they're rate-limited (caught by session-end hook)
+			// Completed sessions: kill lingering tmux/process, then skip.
+			// The session-end hook marks agents completed but can't kill its own
+			// tmux session (it runs inside it). The watchdog cleans up on next tick.
 			if (session.state === "completed" && session.rateLimitedSince === null) {
+				if (session.tmuxSession && session.tmuxSession !== "") {
+					const alive = await tmux.isSessionAlive(session.tmuxSession);
+					if (alive) {
+						try {
+							await tmux.killSession(session.tmuxSession);
+							recordEvent(eventStore, {
+								runId,
+								agentName: session.agentName,
+								eventType: "custom",
+								level: "info",
+								data: {
+									type: "completed_cleanup",
+									tmuxSession: session.tmuxSession,
+								},
+							});
+						} catch {
+							// Non-fatal: tmux kill failure
+						}
+					}
+				} else if (session.pid !== null) {
+					if (proc.isAlive(session.pid)) {
+						try {
+							await proc.killTree(session.pid);
+						} catch {
+							// Non-fatal: process kill failure
+						}
+					}
+				}
 				continue;
 			}
 
@@ -674,13 +704,9 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 				try {
 					const unread = mailStore.getUnread(session.agentName);
 					if (unread.length > 0) {
-						const paneContent = lastPaneContent ?? await capturePane(session.tmuxSession);
+						const paneContent = lastPaneContent ?? (await capturePane(session.tmuxSession));
 						if (paneContent) {
-							const runtime = getRuntime(
-								session.runtime,
-								options.config,
-								session.capability,
-							);
+							const runtime = getRuntime(session.runtime, options.config, session.capability);
 							const readyState = runtime.detectReady(paneContent);
 							if (readyState.phase === "ready") {
 								const subjects = unread

@@ -287,6 +287,20 @@ describe("listSessions", () => {
 		expect(sessions).toHaveLength(0);
 	});
 
+	test("returns empty array when tmux socket is missing (after reboot)", async () => {
+		spawnSpy.mockImplementation(() =>
+			mockSpawnResult(
+				"",
+				"error connecting to /tmp/tmux-1000/default (No such file or directory)",
+				1,
+			),
+		);
+
+		const sessions = await listSessions();
+
+		expect(sessions).toHaveLength(0);
+	});
+
 	test("throws AgentError on other tmux failures", async () => {
 		spawnSpy.mockImplementation(() => mockSpawnResult("", "protocol version mismatch", 1));
 
@@ -832,12 +846,12 @@ describe("checkSessionState", () => {
 		expect(state).toBe("dead");
 	});
 
-	test("returns dead for generic tmux failure", async () => {
+	test("returns no_server when tmux socket is missing", async () => {
 		spawnSpy.mockReturnValue(
 			mockSpawnResult("", "error connecting to /tmp/tmux-1000/default\n", 1),
 		);
 		const state = await checkSessionState("overstory-test-coordinator");
-		expect(state).toBe("dead");
+		expect(state).toBe("no_server");
 	});
 });
 

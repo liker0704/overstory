@@ -601,7 +601,7 @@ describe("daemon tick", () => {
 		const tmuxMock = tmuxWithLiveness({
 			"overstory-agent-alpha": true,
 			"overstory-agent-beta": false, // Dead — should become zombie
-			"overstory-agent-gamma": true, // Doesn't matter — completed is skipped
+			"overstory-agent-gamma": true, // Alive — will be killed as completed cleanup
 		});
 
 		const checks: HealthCheck[] = [];
@@ -681,6 +681,38 @@ describe("daemon tick", () => {
 		expect(checks).toHaveLength(0);
 
 		// State unchanged
+		const reloaded = readSessionsFromStore(tempRoot);
+		expect(reloaded[0]?.state).toBe("completed");
+	});
+
+	test("completed sessions with live tmux are killed on next tick", async () => {
+		const session = makeSession({
+			state: "completed",
+			tmuxSession: "overstory-lead-done",
+		});
+
+		writeSessionsToStore(tempRoot, [session]);
+
+		const tmuxMock = tmuxWithLiveness({
+			"overstory-lead-done": true,
+		});
+		const checks: HealthCheck[] = [];
+
+		await runDaemonTick({
+			root: tempRoot,
+			...THRESHOLDS,
+			onHealthCheck: (c) => checks.push(c),
+			_tmux: tmuxMock,
+			_triage: triageAlways("extend"),
+		});
+
+		// No health checks — completed sessions are still skipped from evaluation
+		expect(checks).toHaveLength(0);
+
+		// But the lingering tmux session was killed
+		expect(tmuxMock.killed).toEqual(["overstory-lead-done"]);
+
+		// State unchanged (still completed)
 		const reloaded = readSessionsFromStore(tempRoot);
 		expect(reloaded[0]?.state).toBe("completed");
 	});
