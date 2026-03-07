@@ -37,6 +37,22 @@ export interface PiRuntimeConfig {
 /** Backend for the task tracker. Defined here for use in OverstoryConfig. */
 export type TaskTrackerBackend = "auto" | "seeds" | "beads" | "github";
 
+/** Configuration for the autonomous GitHub Issues poller. */
+export interface GitHubPollerConfig {
+	/** How often to poll GitHub for new ready issues, in milliseconds. Default: 30000. */
+	pollIntervalMs: number;
+	/** GitHub owner/org (auto-detected from git remote if omitted). */
+	owner?: string;
+	/** GitHub repo name (auto-detected from git remote if omitted). */
+	repo?: string;
+	/** Label that marks issues as ready to dispatch. Default: 'ov-ready'. */
+	readyLabel: string;
+	/** Label applied when an issue is claimed for dispatch. Default: 'ov-active'. */
+	activeLabel: string;
+	/** Maximum number of concurrently dispatched issues. Default: 5. */
+	maxConcurrent: number;
+}
+
 // === Project Configuration ===
 
 /**
@@ -82,8 +98,10 @@ export interface OverstoryConfig {
 		baseDir: string; // Where worktrees live
 	};
 	taskTracker: {
-		backend: TaskTrackerBackend; // "auto" | "seeds" | "beads"
+		backend: TaskTrackerBackend; // "auto" | "seeds" | "beads" | "github"
 		enabled: boolean;
+		/** GitHub Issues poller config (used when backend is "github" or autoPull is enabled). */
+		github?: GitHubPollerConfig;
 	};
 	mulch: {
 		enabled: boolean;
@@ -112,6 +130,8 @@ export interface OverstoryConfig {
 	coordinator?: {
 		/** Conditions that trigger automatic coordinator shutdown. */
 		exitTriggers: CoordinatorExitTriggers;
+		/** When true, auto-start the GitHub Issues poller on coordinator start. */
+		autoPull?: boolean;
 	};
 	rateLimit?: {
 		enabled: boolean;
