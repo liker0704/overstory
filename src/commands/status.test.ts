@@ -42,6 +42,7 @@ function makeAgent(overrides: Partial<AgentSession> = {}): AgentSession {
 		escalationLevel: 0,
 		stalledSince: null,
 		rateLimitedSince: null,
+		runtimeSessionId: null,
 		transcriptPath: null,
 		...overrides,
 	};

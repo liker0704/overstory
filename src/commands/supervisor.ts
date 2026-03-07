@@ -233,6 +233,7 @@ async function startSupervisor(opts: {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: sessionId,
 			transcriptPath: null,
 		};
 

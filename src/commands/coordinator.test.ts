@@ -312,6 +312,7 @@ function makeCoordinatorSession(overrides: Partial<AgentSession> = {}): AgentSes
 		escalationLevel: 0,
 		stalledSince: null,
 		rateLimitedSince: null,
+		runtimeSessionId: null,
 		transcriptPath: null,
 		...overrides,
 	};
@@ -2163,6 +2164,7 @@ describe("checkComplete", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			};
 			store.upsert(base);
@@ -2217,6 +2219,7 @@ describe("checkComplete", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			};
 			store.upsert(session);
@@ -2271,6 +2274,7 @@ describe("checkComplete", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 			// worker session that is completed
@@ -2293,6 +2297,7 @@ describe("checkComplete", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 		} finally {
@@ -2436,6 +2441,7 @@ describe("checkComplete", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 		} finally {
@@ -2504,6 +2510,7 @@ describe("checkComplete", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 		} finally {

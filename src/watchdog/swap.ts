@@ -177,6 +177,7 @@ export async function swapRuntime(options: SwapOptions): Promise<SwapResult> {
 			tmuxSession: newTmuxSession,
 			pid: newPid,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			state: "booting",
 			lastActivity: new Date().toISOString(),
 			escalationLevel: 0,

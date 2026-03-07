@@ -255,9 +255,61 @@ describe("OpenCodeRuntime", () => {
 
 			const exists = await Bun.file(join(worktreePath, "AGENTS.md")).exists();
 			expect(exists).toBe(false);
+			// Guard plugin and config are still written
+			const guardExists = await Bun.file(
+				join(worktreePath, ".opencode", "plugin", "overstory-guard.ts"),
+			).exists();
+			expect(guardExists).toBe(true);
 		});
 
-		test("does not write settings.local.json (no hook deployment)", async () => {
+		test("writes opencode.json with permission bypass", async () => {
+			const worktreePath = join(tempDir, "worktree");
+
+			await runtime.deployConfig(
+				worktreePath,
+				{ content: "# Instructions" },
+				{ agentName: "test-builder", capability: "builder", worktreePath },
+			);
+
+			const configContent = JSON.parse(await Bun.file(join(worktreePath, "opencode.json")).text());
+			expect(configContent.permission).toBe("allow");
+			expect(configContent.plugin).toContain(".opencode/plugin/overstory-guard.ts");
+			expect(configContent.instructions).toContain("AGENTS.md");
+		});
+
+		test("writes guard plugin with correct capability", async () => {
+			const worktreePath = join(tempDir, "worktree");
+
+			await runtime.deployConfig(
+				worktreePath,
+				{ content: "# Instructions" },
+				{ agentName: "test-scout", capability: "scout", worktreePath },
+			);
+
+			const guardContent = await Bun.file(
+				join(worktreePath, ".opencode", "plugin", "overstory-guard.ts"),
+			).text();
+			expect(guardContent).toContain("overstory-guard");
+			expect(guardContent).toContain("test-scout");
+			expect(guardContent).toContain("READ_ONLY = true");
+		});
+
+		test("guard plugin sets READ_ONLY=false for builders", async () => {
+			const worktreePath = join(tempDir, "worktree");
+
+			await runtime.deployConfig(
+				worktreePath,
+				{ content: "# Instructions" },
+				{ agentName: "test-builder", capability: "builder", worktreePath },
+			);
+
+			const guardContent = await Bun.file(
+				join(worktreePath, ".opencode", "plugin", "overstory-guard.ts"),
+			).text();
+			expect(guardContent).toContain("READ_ONLY = false");
+		});
+
+		test("does not write settings.local.json (no Claude hook deployment)", async () => {
 			const worktreePath = join(tempDir, "worktree");
 
 			await runtime.deployConfig(

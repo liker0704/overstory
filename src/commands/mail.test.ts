@@ -776,6 +776,7 @@ describe("mailCommand", () => {
 					escalationLevel: 0,
 					stalledSince: null,
 					rateLimitedSince: null,
+					runtimeSessionId: null,
 					transcriptPath: null,
 				},
 				{
@@ -797,6 +798,7 @@ describe("mailCommand", () => {
 					escalationLevel: 0,
 					stalledSince: null,
 					rateLimitedSince: null,
+					runtimeSessionId: null,
 					transcriptPath: null,
 				},
 				{
@@ -818,6 +820,7 @@ describe("mailCommand", () => {
 					escalationLevel: 0,
 					stalledSince: null,
 					rateLimitedSince: null,
+					runtimeSessionId: null,
 					transcriptPath: null,
 				},
 				{
@@ -839,6 +842,7 @@ describe("mailCommand", () => {
 					escalationLevel: 0,
 					stalledSince: null,
 					rateLimitedSince: null,
+					runtimeSessionId: null,
 					transcriptPath: null,
 				},
 			];
@@ -1162,6 +1166,7 @@ describe("mailCommand", () => {
 					escalationLevel: 0,
 					stalledSince: null,
 					rateLimitedSince: null,
+					runtimeSessionId: null,
 					transcriptPath: null,
 				});
 			}

@@ -167,6 +167,7 @@ describe("--all", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		});
 		store.close();
@@ -314,6 +315,7 @@ describe("individual flags", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		});
 		store.close();
@@ -438,6 +440,7 @@ describe("synthetic session-end events", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 			...overrides,
 		};
@@ -692,6 +695,7 @@ describe("--agent", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 			...overrides,
 		};

@@ -449,6 +449,7 @@ async function startCoordinator(
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: sessionId,
 			transcriptPath: null,
 		};
 

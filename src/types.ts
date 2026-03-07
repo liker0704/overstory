@@ -202,6 +202,7 @@ export interface AgentSession {
 	escalationLevel: number; // Progressive nudge stage: 0=warn, 1=nudge, 2=escalate, 3=terminate
 	stalledSince: string | null; // ISO timestamp when agent first entered stalled state
 	rateLimitedSince: string | null; // ISO timestamp when agent was first rate-limited
+	runtimeSessionId: string | null; // Runtime-native session ID (e.g. Claude UUID, OpenCode ses_xxx)
 	transcriptPath: string | null; // Runtime-provided transcript JSONL path (decoupled from ~/.claude/)
 }
 

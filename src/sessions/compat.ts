@@ -38,6 +38,7 @@ function normalizeSession(raw: Record<string, unknown>): AgentSession {
 		escalationLevel: (raw.escalationLevel as number) ?? 0,
 		stalledSince: (raw.stalledSince as string | null) ?? null,
 		rateLimitedSince: (raw.rateLimitedSince as string | null) ?? null,
+		runtimeSessionId: (raw.runtimeSessionId as string | null) ?? null,
 		transcriptPath: (raw.transcriptPath as string | null) ?? null,
 	};
 }

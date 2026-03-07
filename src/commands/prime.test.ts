@@ -169,6 +169,7 @@ recentTasks:
 					escalationLevel: 0,
 					stalledSince: null,
 					rateLimitedSince: null,
+					runtimeSessionId: null,
 					transcriptPath: null,
 				},
 			];
@@ -209,6 +210,7 @@ recentTasks:
 					escalationLevel: 0,
 					stalledSince: null,
 					rateLimitedSince: null,
+					runtimeSessionId: null,
 					transcriptPath: null,
 				},
 			];

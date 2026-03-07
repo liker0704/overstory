@@ -125,6 +125,7 @@ sleep 300
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		};
 		store.upsert(session);
@@ -273,6 +274,7 @@ sleep 300
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		});
 		store.close();

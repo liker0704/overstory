@@ -209,6 +209,7 @@ describe("checkConsistency", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		});
 		store.close();
@@ -248,6 +249,7 @@ describe("checkConsistency", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		});
 		store.close();
@@ -286,6 +288,7 @@ describe("checkConsistency", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		});
 		store.close();
@@ -325,6 +328,7 @@ describe("checkConsistency", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		});
 		store.close();
@@ -367,6 +371,7 @@ describe("checkConsistency", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		});
 		store.close();
@@ -443,6 +448,7 @@ describe("checkConsistency", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		});
 
@@ -465,6 +471,7 @@ describe("checkConsistency", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		});
 		store.close();
@@ -504,6 +511,7 @@ describe("checkConsistency", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 		}
@@ -527,6 +535,7 @@ describe("checkConsistency", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		});
 		store.close();
@@ -564,6 +573,7 @@ describe("checkConsistency", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 
@@ -586,6 +596,7 @@ describe("checkConsistency", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 		}
@@ -632,6 +643,7 @@ describe("checkConsistency", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		});
 
@@ -654,6 +666,7 @@ describe("checkConsistency", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		});
 
@@ -677,6 +690,7 @@ describe("checkConsistency", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		});
 		store.close();

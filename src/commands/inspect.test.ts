@@ -156,6 +156,7 @@ describe("inspectCommand", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 			store.close();
@@ -191,6 +192,7 @@ describe("inspectCommand", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 			store.close();
@@ -230,6 +232,7 @@ describe("inspectCommand", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 			store.close();
@@ -269,6 +272,7 @@ describe("inspectCommand", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 			store.close();
@@ -311,6 +315,7 @@ describe("inspectCommand", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 			store.close();
@@ -349,6 +354,7 @@ describe("inspectCommand", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 			store.close();
@@ -387,6 +393,7 @@ describe("inspectCommand", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 			store.close();
@@ -434,6 +441,7 @@ describe("inspectCommand", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 			store.close();
@@ -480,6 +488,7 @@ describe("inspectCommand", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 			store.close();
@@ -532,6 +541,7 @@ describe("inspectCommand", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 			store.close();
@@ -572,6 +582,7 @@ describe("inspectCommand", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 			store.close();
@@ -613,6 +624,7 @@ describe("inspectCommand", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 			store.close();
@@ -650,6 +662,7 @@ describe("inspectCommand", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 			store.close();
@@ -692,6 +705,7 @@ describe("inspectCommand", () => {
 					escalationLevel: 0,
 					stalledSince: null,
 					rateLimitedSince: null,
+					runtimeSessionId: null,
 					transcriptPath: null,
 				},
 				timeSinceLastActivity: 5000,
@@ -733,6 +747,7 @@ describe("inspectCommand", () => {
 					escalationLevel: 0,
 					stalledSince: null,
 					rateLimitedSince: null,
+					runtimeSessionId: null,
 					transcriptPath: null,
 				},
 				timeSinceLastActivity: 5000,
@@ -783,6 +798,7 @@ describe("inspectCommand", () => {
 				transcriptPath: null,
 				runtime: "claude",
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 			});
 			store.close();
 			return overstoryDir;
@@ -1045,6 +1061,7 @@ describe("inspectCommand", () => {
 					transcriptPath: null,
 					runtime: "claude",
 					rateLimitedSince: null,
+					runtimeSessionId: null,
 				},
 				timeSinceLastActivity: 1000,
 				recentToolCalls: [],
@@ -1090,6 +1107,7 @@ describe("inspectCommand", () => {
 					transcriptPath: null,
 					runtime: "claude",
 					rateLimitedSince: null,
+					runtimeSessionId: null,
 				},
 				timeSinceLastActivity: 500,
 				recentToolCalls: [],
@@ -1179,6 +1197,7 @@ describe("inspectCommand", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 			store.close();
@@ -1219,6 +1238,7 @@ describe("inspectCommand", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 			store.close();
@@ -1260,6 +1280,7 @@ describe("inspectCommand", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 			store.close();

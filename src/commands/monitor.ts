@@ -187,6 +187,7 @@ async function startMonitor(opts: { json: boolean; attach: boolean }): Promise<v
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: sessionId,
 			transcriptPath: null,
 		};
 

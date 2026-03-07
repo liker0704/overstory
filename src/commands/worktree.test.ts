@@ -81,6 +81,7 @@ describe("worktreeCommand", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 			...overrides,
 		};
@@ -172,6 +173,7 @@ describe("worktreeCommand", () => {
 					escalationLevel: 0,
 					stalledSince: null,
 					rateLimitedSince: null,
+					runtimeSessionId: null,
 					transcriptPath: null,
 				},
 			]);
@@ -222,6 +224,7 @@ describe("worktreeCommand", () => {
 					escalationLevel: 0,
 					stalledSince: null,
 					rateLimitedSince: null,
+					runtimeSessionId: null,
 					transcriptPath: null,
 				},
 			]);
@@ -319,6 +322,7 @@ describe("worktreeCommand", () => {
 					escalationLevel: 0,
 					stalledSince: null,
 					rateLimitedSince: null,
+					runtimeSessionId: null,
 					transcriptPath: null,
 				},
 			]);
@@ -377,6 +381,7 @@ describe("worktreeCommand", () => {
 					escalationLevel: 0,
 					stalledSince: null,
 					rateLimitedSince: null,
+					runtimeSessionId: null,
 					transcriptPath: null,
 				},
 			]);
@@ -418,6 +423,7 @@ describe("worktreeCommand", () => {
 					escalationLevel: 0,
 					stalledSince: null,
 					rateLimitedSince: null,
+					runtimeSessionId: null,
 					transcriptPath: null,
 				},
 			]);
@@ -475,6 +481,7 @@ describe("worktreeCommand", () => {
 					escalationLevel: 0,
 					stalledSince: new Date().toISOString(),
 					rateLimitedSince: null,
+					runtimeSessionId: null,
 					transcriptPath: null,
 				},
 			]);
@@ -639,6 +646,7 @@ describe("worktreeCommand", () => {
 					escalationLevel: 0,
 					stalledSince: null,
 					rateLimitedSince: null,
+					runtimeSessionId: null,
 					transcriptPath: null,
 				},
 				{
@@ -660,6 +668,7 @@ describe("worktreeCommand", () => {
 					escalationLevel: 0,
 					stalledSince: null,
 					rateLimitedSince: null,
+					runtimeSessionId: null,
 					transcriptPath: null,
 				},
 			]);

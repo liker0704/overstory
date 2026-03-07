@@ -10,6 +10,13 @@
 
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import {
+	DANGEROUS_BASH_PATTERNS,
+	INTERACTIVE_TOOLS,
+	NATIVE_TEAM_TOOLS,
+	SAFE_BASH_PREFIXES,
+	WRITE_TOOLS,
+} from "../agents/guard-rules.ts";
 import type { ResolvedModel } from "../types.ts";
 import type {
 	AgentRuntime,
@@ -80,20 +87,36 @@ export class OpenCodeRuntime implements AgentRuntime {
 	}
 
 	/**
-	 * Deploy per-agent instructions to a worktree.
+	 * Deploy per-agent instructions, guard plugin, and permission config to a worktree.
 	 *
-	 * Writes AGENTS.md with the overlay content. OpenCode has no hook mechanism,
-	 * so guard rules are injected as instructions in the overlay.
+	 * Writes:
+	 * 1. AGENTS.md — overlay instructions
+	 * 2. .opencode/plugin/overstory-guard.ts — security guard plugin
+	 * 3. opencode.json — permission bypass + plugin + instructions config
 	 */
 	async deployConfig(
 		worktreePath: string,
 		overlay: OverlayContent | undefined,
-		_hooks: HooksDef,
+		hooks: HooksDef,
 	): Promise<void> {
+		await mkdir(worktreePath, { recursive: true });
+
 		if (overlay) {
-			await mkdir(worktreePath, { recursive: true });
 			await Bun.write(join(worktreePath, "AGENTS.md"), overlay.content);
 		}
+
+		// Write guard plugin
+		const pluginDir = join(worktreePath, ".opencode", "plugin");
+		await mkdir(pluginDir, { recursive: true });
+		await Bun.write(join(pluginDir, "overstory-guard.ts"), buildGuardPlugin(hooks));
+
+		// Write opencode.json for permission bypass + plugin registration
+		const config = {
+			permission: "allow",
+			plugin: [".opencode/plugin/overstory-guard.ts"],
+			instructions: ["AGENTS.md"],
+		};
+		await Bun.write(join(worktreePath, "opencode.json"), JSON.stringify(config, null, 2));
 	}
 
 	/**
@@ -106,8 +129,7 @@ export class OpenCodeRuntime implements AgentRuntime {
 	 */
 	detectReady(paneContent: string): ReadyState {
 		const hasPrompt = paneContent.includes("Ask anything");
-		const hasControls =
-			paneContent.includes("ctrl+t") || paneContent.includes("ctrl+p");
+		const hasControls = paneContent.includes("ctrl+t") || paneContent.includes("ctrl+p");
 
 		if (hasPrompt && hasControls) {
 			return { phase: "ready" };
@@ -177,6 +199,34 @@ export class OpenCodeRuntime implements AgentRuntime {
 	}
 
 	/**
+	 * Discover the runtime-native session ID after agent spawn.
+	 * Queries OpenCode's SQLite DB for sessions created in the given directory
+	 * after the specified timestamp (before/after snapshot approach).
+	 */
+	async discoverSessionId(worktreePath: string, spawnedAfter: number): Promise<string | null> {
+		try {
+			const { Database } = await import("bun:sqlite");
+			const dbPath = join(process.env.HOME ?? "", ".local", "share", "opencode", "opencode.db");
+			const db = new Database(dbPath, { readonly: true });
+
+			// OpenCode stores time_created as Unix epoch seconds
+			const afterSeconds = Math.floor(spawnedAfter / 1000);
+			const row = db
+				.query<{ id: string }, [string, number]>(
+					`SELECT id FROM session
+					 WHERE directory = ? AND time_created > ?
+					 ORDER BY time_created DESC LIMIT 1`,
+				)
+				.get(worktreePath, afterSeconds);
+
+			db.close();
+			return row?.id ?? null;
+		} catch {
+			return null;
+		}
+	}
+
+	/**
 	 * Extract recent conversation from OpenCode's SQLite database.
 	 *
 	 * Queries the message + part tables for the given session ID.
@@ -188,20 +238,11 @@ export class OpenCodeRuntime implements AgentRuntime {
 	): Promise<string> {
 		try {
 			const { Database } = await import("bun:sqlite");
-			const dbPath = join(
-				process.env.HOME ?? "",
-				".local",
-				"share",
-				"opencode",
-				"opencode.db",
-			);
+			const dbPath = join(process.env.HOME ?? "", ".local", "share", "opencode", "opencode.db");
 			const db = new Database(dbPath, { readonly: true });
 
 			const rows = db
-				.query<
-					{ data: string; time_created: number },
-					[string, number]
-				>(
+				.query<{ data: string; time_created: number }, [string, number]>(
 					`SELECT m.data, m.time_created
 					 FROM message m
 					 WHERE m.session_id = ?
@@ -220,9 +261,7 @@ export class OpenCodeRuntime implements AgentRuntime {
 					const msg = JSON.parse(row.data);
 					const role = msg.role ?? "unknown";
 					const content =
-						typeof msg.content === "string"
-							? msg.content
-							: JSON.stringify(msg.content);
+						typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content);
 					turns.push(`### ${role}\n${content.slice(0, 3000)}`);
 				} catch {
 					// Skip malformed messages
@@ -234,4 +273,85 @@ export class OpenCodeRuntime implements AgentRuntime {
 			return "";
 		}
 	}
+}
+
+/**
+ * Generate the TypeScript source for an OpenCode guard plugin.
+ *
+ * OpenCode plugins use `tool.execute.before` hooks to intercept tool calls.
+ * This guard blocks:
+ * - File writes outside the worktree path
+ * - Dangerous git commands (push, reset --hard)
+ * - Dangerous bash patterns (from guard-rules.ts)
+ * - Native team tools and interactive tools (for non-coordinator agents)
+ */
+function buildGuardPlugin(hooks: HooksDef): string {
+	const isReadOnly = hooks.capability === "scout" || hooks.capability === "reviewer";
+	const blockedTools = [...NATIVE_TEAM_TOOLS, ...INTERACTIVE_TOOLS];
+	if (isReadOnly) {
+		blockedTools.push(...WRITE_TOOLS);
+	}
+
+	const dangerousPatterns = DANGEROUS_BASH_PATTERNS.map(
+		(p) => `new RegExp(${JSON.stringify(p)})`,
+	).join(",\n\t");
+	const safePrefixes = SAFE_BASH_PREFIXES.map((p) => JSON.stringify(p)).join(", ");
+
+	return `// Auto-generated overstory guard plugin for agent: ${hooks.agentName}
+// Capability: ${hooks.capability} | Worktree: ${hooks.worktreePath}
+
+const BLOCKED_TOOLS = new Set(${JSON.stringify(blockedTools)});
+const WORKTREE = ${JSON.stringify(hooks.worktreePath)};
+const READ_ONLY = ${isReadOnly};
+const DANGEROUS_PATTERNS = [
+\t${dangerousPatterns}
+];
+const SAFE_PREFIXES = [${safePrefixes}];
+
+export default {
+\tname: "overstory-guard",
+\thooks: {
+\t\t"tool.execute.before": (event: { tool: string; args: Record<string, unknown> }) => {
+\t\t\tconst { tool, args } = event;
+
+\t\t\t// Block forbidden tools
+\t\t\tif (BLOCKED_TOOLS.has(tool)) {
+\t\t\t\treturn { blocked: true, reason: \`Tool '\${tool}' is blocked for overstory agents. Use ov mail for coordination.\` };
+\t\t\t}
+
+\t\t\t// Block write tools for read-only agents
+\t\t\tif (READ_ONLY && (tool === "Write" || tool === "Edit" || tool === "NotebookEdit")) {
+\t\t\t\treturn { blocked: true, reason: \`Write tool '\${tool}' blocked for read-only \${${JSON.stringify(hooks.capability)}} agents.\` };
+\t\t\t}
+
+\t\t\t// Path boundary check for file operations
+\t\t\tif (tool === "Write" || tool === "Edit" || tool === "Read") {
+\t\t\t\tconst filePath = (args.file_path ?? args.path ?? "") as string;
+\t\t\t\tif (filePath && !filePath.startsWith(WORKTREE) && !filePath.startsWith("/tmp")) {
+\t\t\t\t\treturn { blocked: true, reason: \`File path '\${filePath}' is outside worktree boundary.\` };
+\t\t\t\t}
+\t\t\t}
+
+\t\t\t// Bash command guard
+\t\t\tif (tool === "Bash") {
+\t\t\t\tconst command = (args.command ?? "") as string;
+
+\t\t\t\t// Allow safe prefixes
+\t\t\t\tif (SAFE_PREFIXES.some((prefix: string) => command.startsWith(prefix))) {
+\t\t\t\t\treturn { blocked: false };
+\t\t\t\t}
+
+\t\t\t\t// Block dangerous patterns
+\t\t\t\tfor (const pattern of DANGEROUS_PATTERNS) {
+\t\t\t\t\tif (pattern.test(command)) {
+\t\t\t\t\t\treturn { blocked: true, reason: \`Bash command matches blocked pattern: \${pattern}\` };
+\t\t\t\t\t}
+\t\t\t\t}
+\t\t\t}
+
+\t\t\treturn { blocked: false };
+\t\t},
+\t},
+};
+`;
 }

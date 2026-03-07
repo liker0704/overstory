@@ -304,6 +304,7 @@ describe("swapRuntime", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: new Date().toISOString(),
+				runtimeSessionId: null,
 				transcriptPath: null,
 			},
 			targetRuntimeName: "codex",

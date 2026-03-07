@@ -906,6 +906,7 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 					escalationLevel: 0,
 					stalledSince: null,
 					rateLimitedSince: null,
+					runtimeSessionId: null,
 					transcriptPath: null,
 				};
 				store.upsert(session);
@@ -942,6 +943,7 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 				// 12. Create tmux session running claude in interactive mode
 				const tmuxSessionName = `overstory-${config.project.name}-${name}`;
 				const sessionId = crypto.randomUUID();
+				const spawnTimestamp = Date.now();
 				const spawnCmd = runtime.buildSpawnCommand({
 					model: resolvedModel.model,
 					permissionMode: "bypass",
@@ -982,6 +984,7 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 					escalationLevel: 0,
 					stalledSince: null,
 					rateLimitedSince: null,
+					runtimeSessionId: sessionId,
 					transcriptPath: null,
 				};
 
@@ -1053,6 +1056,19 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 						await sendKeys(tmuxSessionName, beacon);
 						await Bun.sleep(1_000);
 						await sendKeys(tmuxSessionName, ""); // Follow-up Enter
+					}
+				}
+
+				// 13e. Discover runtime-native session ID (e.g. OpenCode ses_xxx)
+				if (runtime.discoverSessionId) {
+					const runtimeSessionId = await runtime.discoverSessionId(worktreePath, spawnTimestamp);
+					if (runtimeSessionId) {
+						const { store: discoverStore } = openSessionStore(overstoryDir);
+						try {
+							discoverStore.updateRuntimeSessionId(name, runtimeSessionId);
+						} finally {
+							discoverStore.close();
+						}
 					}
 				}
 

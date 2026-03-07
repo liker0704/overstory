@@ -111,6 +111,7 @@ describe("discoverAgents", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		};
 
@@ -146,6 +147,7 @@ describe("discoverAgents", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		};
 
@@ -168,6 +170,7 @@ describe("discoverAgents", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		};
 
@@ -203,6 +206,7 @@ describe("discoverAgents", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		};
 
@@ -225,6 +229,7 @@ describe("discoverAgents", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		};
 

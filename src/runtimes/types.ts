@@ -259,6 +259,16 @@ export interface AgentRuntime {
 	detectRateLimit?(paneContent: string): RateLimitState;
 
 	/**
+	 * Discover the runtime-native session ID after agent spawn.
+	 * Called after TUI readiness is confirmed. Returns the runtime's own session ID
+	 * (e.g. OpenCode's `ses_xxx`), or null if discovery is not supported/failed.
+	 *
+	 * @param worktreePath - Agent's working directory (used as lookup key)
+	 * @param spawnedAfter - Epoch ms timestamp from before spawn (for before/after filtering)
+	 */
+	discoverSessionId?(worktreePath: string, spawnedAfter: number): Promise<string | null>;
+
+	/**
 	 * Extract recent conversation context from a transcript file for handoff.
 	 * Returns markdown-formatted last N turns, or empty string if unavailable.
 	 *

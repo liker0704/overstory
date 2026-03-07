@@ -30,6 +30,8 @@ export interface SessionStore {
 	updateEscalation(agentName: string, level: number, stalledSince: string | null): void;
 	/** Update the transcript path for a session. */
 	updateTranscriptPath(agentName: string, path: string): void;
+	/** Update the runtime-native session ID for a session. */
+	updateRuntimeSessionId(agentName: string, runtimeSessionId: string | null): void;
 	/** Update the rate_limited_since timestamp for a session. */
 	updateRateLimitedSince(agentName: string, rateLimitedSince: string | null): void;
 	/** Get sessions that can be resumed (not completed — includes zombie since dead tmux is expected). */
@@ -62,6 +64,7 @@ interface SessionRow {
 	escalation_level: number;
 	stalled_since: string | null;
 	rate_limited_since: string | null;
+	runtime_session_id: string | null;
 	transcript_path: string | null;
 }
 
@@ -136,6 +139,7 @@ function rowToSession(row: SessionRow): AgentSession {
 		escalationLevel: row.escalation_level,
 		stalledSince: row.stalled_since,
 		rateLimitedSince: row.rate_limited_since,
+		runtimeSessionId: row.runtime_session_id ?? null,
 		transcriptPath: row.transcript_path,
 	};
 }
@@ -180,6 +184,18 @@ function migrateAddRateLimitFields(db: Database): void {
 }
 
 /**
+ * Migrate an existing sessions table to add runtime_session_id column.
+ * Safe to call multiple times — only adds the column if it does not exist.
+ */
+function migrateAddRuntimeSessionId(db: Database): void {
+	const rows = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
+	const existingColumns = new Set(rows.map((r) => r.name));
+	if (!existingColumns.has("runtime_session_id")) {
+		db.exec("ALTER TABLE sessions ADD COLUMN runtime_session_id TEXT");
+	}
+}
+
+/**
  * Migrate an existing sessions table from bead_id to task_id column.
  * Safe to call multiple times — only renames if bead_id exists and task_id does not.
  */
@@ -217,6 +233,8 @@ export function createSessionStore(dbPath: string): SessionStore {
 	migrateAddTranscriptPath(db);
 	// Migrate: add rate_limited_since and runtime columns
 	migrateAddRateLimitFields(db);
+	// Migrate: add runtime_session_id column
+	migrateAddRuntimeSessionId(db);
 
 	// Prepare statements for frequent operations
 	const upsertStmt = db.prepare<
@@ -240,6 +258,7 @@ export function createSessionStore(dbPath: string): SessionStore {
 			$escalation_level: number;
 			$stalled_since: string | null;
 			$rate_limited_since: string | null;
+			$runtime_session_id: string | null;
 			$transcript_path: string | null;
 		}
 	>(`
@@ -247,12 +266,12 @@ export function createSessionStore(dbPath: string): SessionStore {
 			(id, agent_name, capability, runtime, worktree_path, branch_name, task_id,
 			 tmux_session, state, pid, parent_agent, depth, run_id,
 			 started_at, last_activity, escalation_level, stalled_since,
-			 rate_limited_since, transcript_path)
+			 rate_limited_since, runtime_session_id, transcript_path)
 		VALUES
 			($id, $agent_name, $capability, $runtime, $worktree_path, $branch_name, $task_id,
 			 $tmux_session, $state, $pid, $parent_agent, $depth, $run_id,
 			 $started_at, $last_activity, $escalation_level, $stalled_since,
-			 $rate_limited_since, $transcript_path)
+			 $rate_limited_since, $runtime_session_id, $transcript_path)
 		ON CONFLICT(agent_name) DO UPDATE SET
 			id = excluded.id,
 			capability = excluded.capability,
@@ -271,6 +290,7 @@ export function createSessionStore(dbPath: string): SessionStore {
 			escalation_level = excluded.escalation_level,
 			stalled_since = excluded.stalled_since,
 			rate_limited_since = excluded.rate_limited_since,
+			runtime_session_id = excluded.runtime_session_id,
 			transcript_path = excluded.transcript_path
 	`);
 
@@ -332,6 +352,13 @@ export function createSessionStore(dbPath: string): SessionStore {
 		ORDER BY started_at ASC
 	`);
 
+	const updateRuntimeSessionIdStmt = db.prepare<
+		void,
+		{ $agent_name: string; $runtime_session_id: string | null }
+	>(`
+		UPDATE sessions SET runtime_session_id = $runtime_session_id WHERE agent_name = $agent_name
+	`);
+
 	const updateRateLimitedSinceStmt = db.prepare<
 		void,
 		{ $agent_name: string; $rate_limited_since: string | null }
@@ -360,6 +387,7 @@ export function createSessionStore(dbPath: string): SessionStore {
 				$escalation_level: session.escalationLevel,
 				$stalled_since: session.stalledSince,
 				$rate_limited_since: session.rateLimitedSince,
+				$runtime_session_id: session.runtimeSessionId ?? null,
 				$transcript_path: session.transcriptPath,
 			});
 		},
@@ -415,6 +443,13 @@ export function createSessionStore(dbPath: string): SessionStore {
 		getResumable(): AgentSession[] {
 			const rows = getResumableStmt.all({});
 			return rows.map(rowToSession);
+		},
+
+		updateRuntimeSessionId(agentName: string, runtimeSessionId: string | null): void {
+			updateRuntimeSessionIdStmt.run({
+				$agent_name: agentName,
+				$runtime_session_id: runtimeSessionId,
+			});
 		},
 
 		updateRateLimitedSince(agentName: string, rateLimitedSince: string | null): void {

@@ -248,6 +248,7 @@ describe("logCommand", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		};
 		const store = createSessionStore(dbPath);
@@ -306,6 +307,7 @@ describe("logCommand", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		};
 		const sessStore = createSessionStore(sessionsDbPath);
@@ -349,6 +351,7 @@ describe("logCommand", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		};
 		const store = createSessionStore(dbPath);
@@ -391,6 +394,7 @@ describe("logCommand", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		};
 		const store = createSessionStore(dbPath);
@@ -433,6 +437,7 @@ describe("logCommand", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 			sessionStoreLocal.close();
@@ -490,6 +495,7 @@ describe("logCommand", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 			sessionStoreLocal.close();
@@ -523,6 +529,7 @@ describe("logCommand", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 			sessionStoreLocal.close();
@@ -580,6 +587,7 @@ describe("logCommand", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 			sessionStoreLocal.close();
@@ -636,6 +644,7 @@ describe("logCommand", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		};
 		const store = createSessionStore(dbPath);
@@ -679,6 +688,7 @@ describe("logCommand", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		};
 		const store = createSessionStore(dbPath);
@@ -724,6 +734,7 @@ describe("logCommand", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		};
 		const store = createSessionStore(dbPath);
@@ -766,6 +777,7 @@ describe("logCommand", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		};
 		const store = createSessionStore(dbPath);
@@ -902,6 +914,7 @@ describe("logCommand", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		};
 		const store = createSessionStore(dbPath);
@@ -944,6 +957,7 @@ describe("logCommand", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
+			runtimeSessionId: null,
 			transcriptPath: null,
 		};
 		const store = createSessionStore(dbPath);

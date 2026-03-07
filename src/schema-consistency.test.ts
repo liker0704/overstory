@@ -64,6 +64,7 @@ describe("SQL schema consistency", () => {
 				"rate_limited_since",
 				"run_id",
 				"runtime",
+				"runtime_session_id",
 				"stalled_since",
 				"started_at",
 				"state",

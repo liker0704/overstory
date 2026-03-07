@@ -783,6 +783,7 @@ describe("costsCommand", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 			sessionStore.close();
@@ -843,6 +844,7 @@ describe("costsCommand", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 			sessionStore.close();
@@ -911,6 +913,7 @@ describe("costsCommand", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 			sessionStore.upsert({
@@ -932,6 +935,7 @@ describe("costsCommand", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 			sessionStore.close();
@@ -996,6 +1000,7 @@ describe("costsCommand", () => {
 				escalationLevel: 0,
 				stalledSince: null,
 				rateLimitedSince: null,
+				runtimeSessionId: null,
 				transcriptPath: null,
 			});
 			sessionStore.close();
