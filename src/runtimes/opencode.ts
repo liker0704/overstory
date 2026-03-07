@@ -54,20 +54,39 @@ export class OpenCodeRuntime implements AgentRuntime {
 	readonly instructionPath = "AGENTS.md";
 
 	/**
+	 * Anthropic aliases that OpenCode does not accept as --model values.
+	 * When these are passed, we omit --model and let OpenCode use its configured default.
+	 */
+	private static readonly SKIP_MODEL_FLAG = new Set(["sonnet", "opus", "haiku", "default"]);
+
+	/**
 	 * Build the shell command string to spawn an interactive OpenCode agent in tmux.
 	 *
 	 * Maps SpawnOpts to `opencode` CLI flags:
-	 * - `model` → `--model <model>`
-	 * - `sessionId` → used for session tracking (OpenCode generates its own IDs)
+	 * - `model` → `--model <provider/model>` (skipped for Anthropic aliases / "default")
 	 * - `resumeSessionId` → `--session <id>` to resume an existing session
+	 * - `appendSystemPromptFile` → `--prompt "$(cat '<path>')"` for initial context
+	 * - `appendSystemPrompt` → `--prompt '<escaped>'` for inline context
 	 *
 	 * The `cwd` and `env` fields are handled by the tmux session creator.
 	 */
 	buildSpawnCommand(opts: SpawnOpts): string {
-		let cmd = `opencode --model ${opts.model}`;
+		const modelFlag = OpenCodeRuntime.SKIP_MODEL_FLAG.has(opts.model)
+			? ""
+			: ` --model ${opts.model}`;
+
+		let cmd = `opencode${modelFlag}`;
 
 		if (opts.resumeSessionId) {
 			cmd += ` --session ${opts.resumeSessionId}`;
+		}
+
+		if (opts.appendSystemPromptFile) {
+			const escaped = opts.appendSystemPromptFile.replace(/'/g, "'\\''");
+			cmd += ` --prompt "$(cat '${escaped}') Read AGENTS.md for your task assignment and begin immediately."`;
+		} else if (opts.appendSystemPrompt) {
+			const escaped = opts.appendSystemPrompt.replace(/'/g, "'\\''");
+			cmd += ` --prompt '${escaped}'`;
 		}
 
 		return cmd;
@@ -172,6 +191,9 @@ export class OpenCodeRuntime implements AgentRuntime {
 
 	/**
 	 * Build runtime-specific environment variables for model/provider routing.
+	 *
+	 * Always sets OPENCODE_PERMISSION to allow all tools (equivalent to
+	 * opencode.json "permission": "allow") so agents don't block on approvals.
 	 */
 	buildEnv(model: ResolvedModel): Record<string, string> {
 		return model.env ?? {};

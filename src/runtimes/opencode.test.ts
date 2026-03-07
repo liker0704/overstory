@@ -21,32 +21,44 @@ describe("OpenCodeRuntime", () => {
 	});
 
 	describe("buildSpawnCommand", () => {
-		test("includes --model flag", () => {
+		test("includes --model for provider/model format", () => {
 			const opts: SpawnOpts = {
-				model: "sonnet",
+				model: "openai/gpt-5.3-codex",
 				permissionMode: "bypass",
 				cwd: "/tmp/worktree",
 				env: {},
 			};
 			const cmd = runtime.buildSpawnCommand(opts);
-			expect(cmd).toBe("opencode --model sonnet");
+			expect(cmd).toBe("opencode --model openai/gpt-5.3-codex");
+		});
+
+		test("skips --model for Anthropic aliases and default", () => {
+			for (const model of ["sonnet", "opus", "haiku", "default"]) {
+				const opts: SpawnOpts = {
+					model,
+					permissionMode: "bypass",
+					cwd: "/tmp",
+					env: {},
+				};
+				const cmd = runtime.buildSpawnCommand(opts);
+				expect(cmd).toBe("opencode");
+			}
 		});
 
 		test("permissionMode is ignored (opencode has no permission flag)", () => {
 			const bypass: SpawnOpts = {
-				model: "opus",
+				model: "openai/gpt-5.3-codex",
 				permissionMode: "bypass",
 				cwd: "/tmp",
 				env: {},
 			};
 			const ask: SpawnOpts = { ...bypass, permissionMode: "ask" };
-			expect(runtime.buildSpawnCommand(bypass)).toBe("opencode --model opus");
-			expect(runtime.buildSpawnCommand(ask)).toBe("opencode --model opus");
+			expect(runtime.buildSpawnCommand(bypass)).toBe(runtime.buildSpawnCommand(ask));
 		});
 
 		test("resumeSessionId adds --session flag", () => {
 			const opts: SpawnOpts = {
-				model: "sonnet",
+				model: "openai/gpt-5.3-codex",
 				permissionMode: "bypass",
 				cwd: "/tmp/worktree",
 				env: {},
@@ -58,20 +70,19 @@ describe("OpenCodeRuntime", () => {
 
 		test("sessionId is ignored (opencode generates its own IDs)", () => {
 			const opts: SpawnOpts = {
-				model: "sonnet",
+				model: "openai/gpt-5.3-codex",
 				permissionMode: "bypass",
 				cwd: "/tmp/worktree",
 				env: {},
 				sessionId: "some-uuid",
 			};
 			const cmd = runtime.buildSpawnCommand(opts);
-			expect(cmd).toBe("opencode --model sonnet");
 			expect(cmd).not.toContain("some-uuid");
 		});
 
 		test("cwd and env are not embedded in command string", () => {
 			const opts: SpawnOpts = {
-				model: "sonnet",
+				model: "openai/gpt-5.3-codex",
 				permissionMode: "bypass",
 				cwd: "/some/specific/path",
 				env: { OPENAI_API_KEY: "sk-test-123" },
@@ -81,8 +92,8 @@ describe("OpenCodeRuntime", () => {
 			expect(cmd).not.toContain("sk-test-123");
 		});
 
-		test("all model names pass through unchanged", () => {
-			for (const model of ["sonnet", "opus", "haiku", "gpt-4o", "openrouter/gpt-5"]) {
+		test("provider/model names pass through with --model", () => {
+			for (const model of ["openai/gpt-5.3-codex", "openrouter/gpt-5", "anthropic/claude-opus-4.6"]) {
 				const opts: SpawnOpts = {
 					model,
 					permissionMode: "bypass",
@@ -92,6 +103,32 @@ describe("OpenCodeRuntime", () => {
 				const cmd = runtime.buildSpawnCommand(opts);
 				expect(cmd).toContain(`--model ${model}`);
 			}
+		});
+
+		test("appendSystemPromptFile uses --prompt with $(cat ...)", () => {
+			const opts: SpawnOpts = {
+				model: "default",
+				permissionMode: "bypass",
+				cwd: "/tmp",
+				env: {},
+				appendSystemPromptFile: "/project/.overstory/agent-defs/coordinator.md",
+			};
+			const cmd = runtime.buildSpawnCommand(opts);
+			expect(cmd).toContain("--prompt");
+			expect(cmd).toContain("$(cat '/project/.overstory/agent-defs/coordinator.md')");
+		});
+
+		test("appendSystemPrompt uses --prompt with escaped content", () => {
+			const opts: SpawnOpts = {
+				model: "default",
+				permissionMode: "bypass",
+				cwd: "/tmp",
+				env: {},
+				appendSystemPrompt: "You are a coordinator.",
+			};
+			const cmd = runtime.buildSpawnCommand(opts);
+			expect(cmd).toContain("--prompt");
+			expect(cmd).toContain("You are a coordinator.");
 		});
 	});
 
@@ -176,12 +213,9 @@ describe("OpenCodeRuntime", () => {
 		test("returns model.env when present", () => {
 			const model: ResolvedModel = {
 				model: "gpt-4o",
-				env: { OPENAI_API_KEY: "sk-test-123", OPENCODE_API_URL: "https://api.openai.com" },
+				env: { OPENAI_API_KEY: "sk-test-123" },
 			};
-			expect(runtime.buildEnv(model)).toEqual({
-				OPENAI_API_KEY: "sk-test-123",
-				OPENCODE_API_URL: "https://api.openai.com",
-			});
+			expect(runtime.buildEnv(model)).toEqual({ OPENAI_API_KEY: "sk-test-123" });
 		});
 
 		test("returns empty object when model.env is undefined", () => {
