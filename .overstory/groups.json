@@ -845,5 +845,17 @@
 		"status": "completed",
 		"createdAt": "2026-03-06T14:07:43.286Z",
 		"completedAt": "2026-03-07T09:18:14.263Z"
+	},
+	{
+		"id": "group-c3d4fc45",
+		"name": "github-issues-integration",
+		"memberIssueIds": [
+			"overstory-25a1",
+			"overstory-9b22",
+			"overstory-de7a"
+		],
+		"status": "active",
+		"createdAt": "2026-03-07T21:42:22.073Z",
+		"completedAt": null
 	}
 ]

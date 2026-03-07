@@ -9,7 +9,10 @@
 	"sling-rollback-lead": 1772806485021,
 	"merge-cleanup-lead": 1772806835893,
 	"init-commit-builder": 1772806688503,
-	"coordinator": 1772875094369,
+	"coordinator": 1772920305513,
 	"watchdog-fix-lead": 1772806961528,
-	"fix-uncommitted-state": 1772806896551
+	"fix-uncommitted-state": 1772806896551,
+	"github-tracker-lead": 1772920279615,
+	"github-tracker-builder": 1772920117031,
+	"github-config-builder": 1772920296061
 }
