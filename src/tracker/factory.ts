@@ -53,6 +53,23 @@ export async function resolveBackend(
 	};
 	if (await dirExists(join(cwd, ".seeds"))) return "seeds";
 	if (await dirExists(join(cwd, ".beads"))) return "beads";
+	// Check if the repo has a github.com remote (for auto-detection)
+	try {
+		const proc = Bun.spawn(["git", "remote", "get-url", "origin"], {
+			cwd,
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		const exitCode = await proc.exited;
+		if (exitCode === 0) {
+			const remoteUrl = await new Response(proc.stdout).text();
+			if (remoteUrl.trim().includes("github.com")) {
+				return "github";
+			}
+		}
+	} catch {
+		// git not available, fall through to default
+	}
 	// Default fallback — seeds is the preferred tracker
 	return "seeds";
 }
