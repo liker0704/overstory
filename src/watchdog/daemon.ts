@@ -466,6 +466,14 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 		const activeHeadlessAgents = new Set<string>();
 		const eventsDbPath = join(overstoryDir, "events.db");
 
+		// Open mail store once for the entire tick (not per-agent)
+		let mailStore: ReturnType<typeof createMailStore> | null = null;
+		try {
+			mailStore = createMailStore(join(overstoryDir, "mail.db"));
+		} catch {
+			// Non-fatal: mail nudge disabled for this tick
+		}
+
 		for (const session of sessions) {
 			// Skip completed sessions unless they're rate-limited (caught by session-end hook)
 			if (session.state === "completed" && session.rateLimitedSince === null) {
@@ -657,38 +665,34 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 
 			// Nudge idle TUI agents that have unread mail
 			if (
+				mailStore &&
 				tmuxAlive &&
 				session.tmuxSession !== "" &&
 				session.state !== "completed" &&
 				session.state !== "zombie"
 			) {
 				try {
-					const mailStore = createMailStore(join(overstoryDir, "mail.db"));
-					try {
-						const unread = mailStore.getUnread(session.agentName);
-						if (unread.length > 0) {
-							const paneContent = lastPaneContent ?? await capturePane(session.tmuxSession);
-							if (paneContent) {
-								const runtime = getRuntime(
-									session.runtime,
-									options.config,
-									session.capability,
-								);
-								const readyState = runtime.detectReady(paneContent);
-								if (readyState.phase === "ready") {
-									const subjects = unread
-										.slice(0, 3)
-										.map((m) => m.subject)
-										.join("; ");
-									const msg = `You have ${unread.length} unread message(s): ${subjects} — check mail: ov mail check --agent ${session.agentName}`;
-									await sendKeys(session.tmuxSession, msg);
-									await Bun.sleep(500);
-									await sendKeys(session.tmuxSession, "");
-								}
+					const unread = mailStore.getUnread(session.agentName);
+					if (unread.length > 0) {
+						const paneContent = lastPaneContent ?? await capturePane(session.tmuxSession);
+						if (paneContent) {
+							const runtime = getRuntime(
+								session.runtime,
+								options.config,
+								session.capability,
+							);
+							const readyState = runtime.detectReady(paneContent);
+							if (readyState.phase === "ready") {
+								const subjects = unread
+									.slice(0, 3)
+									.map((m) => m.subject)
+									.join("; ");
+								const msg = `You have ${unread.length} unread message(s): ${subjects} — check mail: ov mail check --agent ${session.agentName}`;
+								await sendKeys(session.tmuxSession, msg);
+								await Bun.sleep(500);
+								await sendKeys(session.tmuxSession, "");
 							}
 						}
-					} finally {
-						mailStore.close();
 					}
 				} catch {
 					// Non-fatal: mail nudge failure shouldn't break watchdog
@@ -776,6 +780,15 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 				store.updateEscalation(session.agentName, 0, null);
 				session.stalledSince = null;
 				session.escalationLevel = 0;
+			}
+		}
+
+		// Close shared mail store for this tick
+		if (mailStore) {
+			try {
+				mailStore.close();
+			} catch {
+				// Non-fatal
 			}
 		}
 
