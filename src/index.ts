@@ -11,6 +11,7 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Command, Help } from "commander";
 import { createAgentsCommand } from "./commands/agents.ts";
+import { createAttachCommand } from "./commands/attach.ts";
 import { cleanCommand } from "./commands/clean.ts";
 import { createCompletionsCommand } from "./commands/completions.ts";
 import { createCoordinatorCommand } from "./commands/coordinator.ts";
@@ -70,6 +71,7 @@ if ((rawArgs.includes("-v") || rawArgs.includes("--version")) && rawArgs.include
 
 const COMMANDS = [
 	"agents",
+	"attach",
 	"init",
 	"sling",
 	"spec",
@@ -234,6 +236,7 @@ program.hook("postAction", () => {
 
 // Migrated commands — use addCommand() with createXCommand() factories
 program.addCommand(createAgentsCommand());
+program.addCommand(createAttachCommand());
 program.addCommand(createDoctorCommand());
 program.addCommand(createCoordinatorCommand());
 program.addCommand(createSupervisorCommand());
