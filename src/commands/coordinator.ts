@@ -31,6 +31,7 @@ import type { AgentSession } from "../types.ts";
 import { isProcessRunning } from "../watchdog/health.ts";
 import type { SessionState } from "../worktree/tmux.ts";
 import {
+	attachOrSwitch,
 	capturePaneContent,
 	checkSessionState,
 	createSession,
@@ -682,9 +683,7 @@ async function startCoordinator(
 		}
 
 		if (shouldAttach) {
-			Bun.spawnSync(["tmux", "attach-session", "-t", tmuxSession], {
-				stdio: ["inherit", "inherit", "inherit"],
-			});
+			attachOrSwitch(tmuxSession);
 		}
 	} finally {
 		store.close();
@@ -1494,9 +1493,7 @@ export function createCoordinatorCommand(deps: CoordinatorDeps = {}): Command {
 			if (!alive) {
 				throw new AgentError(`Coordinator tmux session "${tmuxSession}" is not running`);
 			}
-			Bun.spawnSync(["tmux", "attach-session", "-t", tmuxSession], {
-				stdio: ["inherit", "inherit", "inherit"],
-			});
+			attachOrSwitch(tmuxSession);
 		});
 
 	return cmd;

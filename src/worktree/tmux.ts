@@ -561,6 +561,28 @@ export async function waitForTuiReady(
 }
 
 /**
+ * Attach to a tmux session, using switch-client when already inside tmux.
+ *
+ * When the `TMUX` environment variable is set, the caller is already inside a
+ * tmux session. Using `attach-session` in that context prints "sessions should
+ * be nested with care" and fails. Use `switch-client` instead, which switches
+ * the current tmux client to the target session without nesting.
+ *
+ * @param name - Session name to attach or switch to
+ */
+export function attachOrSwitch(name: string): void {
+	if (process.env.TMUX) {
+		Bun.spawnSync(["tmux", "switch-client", "-t", name], {
+			stdio: ["inherit", "inherit", "inherit"],
+		});
+	} else {
+		Bun.spawnSync(["tmux", "attach-session", "-t", name], {
+			stdio: ["inherit", "inherit", "inherit"],
+		});
+	}
+}
+
+/**
  * Verify that tmux is installed and executable.
  * Throws AgentError with a clear message if tmux is not available.
  */

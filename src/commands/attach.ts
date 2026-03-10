@@ -9,7 +9,7 @@ import { Command } from "commander";
 import { loadConfig } from "../config.ts";
 import { printWarning } from "../logging/color.ts";
 import { openSessionStore } from "../sessions/compat.ts";
-import { listSessions } from "../worktree/tmux.ts";
+import { attachOrSwitch, listSessions } from "../worktree/tmux.ts";
 
 export function createAttachCommand(): Command {
 	return new Command("attach")
@@ -75,7 +75,5 @@ async function attachCommand(agentName: string | undefined): Promise<void> {
 }
 
 function attachTmux(tmuxSession: string): void {
-	Bun.spawnSync(["tmux", "attach-session", "-t", tmuxSession], {
-		stdio: ["inherit", "inherit", "inherit"],
-	});
+	attachOrSwitch(tmuxSession);
 }
