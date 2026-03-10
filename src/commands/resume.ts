@@ -17,7 +17,13 @@ import { formatRelativeTime } from "../logging/format.ts";
 import { getRuntime } from "../runtimes/registry.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import type { AgentSession, OverstoryConfig } from "../types.ts";
-import { createSession, listSessions, sendKeys, waitForTuiReady } from "../worktree/tmux.ts";
+import {
+	attachOrSwitch,
+	createSession,
+	listSessions,
+	sendKeys,
+	waitForTuiReady,
+} from "../worktree/tmux.ts";
 
 export function createResumeCommand(): Command {
 	return new Command("resume")
@@ -135,9 +141,7 @@ async function resumeCommand(
 				const first = succeeded[0];
 				const target = first ? resumable.find((s) => s.agentName === first.agentName) : undefined;
 				if (target) {
-					Bun.spawnSync(["tmux", "attach-session", "-t", target.tmuxSession], {
-						stdio: ["inherit", "inherit", "inherit"],
-					});
+					attachOrSwitch(target.tmuxSession);
 				}
 			} else if (succeeded.length > 1 && !json) {
 				printWarning(
