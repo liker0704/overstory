@@ -918,7 +918,8 @@
 		"name": "ov-eval",
 		"memberIssueIds": [
 			"overstory-a597",
-			"overstory-e0f3"
+			"overstory-e0f3",
+			"overstory-88db"
 		],
 		"status": "active",
 		"createdAt": "2026-03-10T17:45:40.766Z",
