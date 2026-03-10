@@ -42,6 +42,9 @@ export class CodexRuntime implements AgentRuntime {
 	/** Unique identifier for this runtime. */
 	readonly id = "codex";
 
+	/** Stability level. Codex adapter is experimental — not fully validated. */
+	readonly stability = "experimental" as const;
+
 	/** Relative path to the instruction file within a worktree. */
 	readonly instructionPath = "AGENTS.md";
 
@@ -50,6 +53,16 @@ export class CodexRuntime implements AgentRuntime {
 	 * accept as --model values.
 	 */
 	private static readonly SKIP_MODEL_FLAG = new Set(["sonnet", "opus", "haiku", "default"]);
+
+	/**
+	 * Escape a directory path for use in a single-quoted shell argument.
+	 *
+	 * @param path - Absolute directory path
+	 * @returns POSIX shell-safe path string
+	 */
+	private static shellEscape(path: string): string {
+		return path.replace(/'/g, "'\\''");
+	}
 
 	/**
 	 * Build the shell command string to spawn a Codex agent in a tmux pane.
@@ -72,13 +85,18 @@ export class CodexRuntime implements AgentRuntime {
 		} else {
 			cmd = `codex --no-alt-screen --full-auto${modelFlag}`;
 		}
+		for (const dir of opts.sharedWritableDirs ?? []) {
+			cmd += ` --add-dir '${CodexRuntime.shellEscape(dir)}'`;
+		}
 
 		if (opts.appendSystemPromptFile) {
-			const escaped = opts.appendSystemPromptFile.replace(/'/g, "'\\''");
+			// Read role definition from file at shell expansion time — avoids tmux
+			// IPC message size limits. Append the "read AGENTS.md" instruction.
+			const escaped = CodexRuntime.shellEscape(opts.appendSystemPromptFile);
 			cmd += ` "$(cat '${escaped}')"' Read AGENTS.md for your task assignment and begin immediately.'`;
 		} else if (opts.appendSystemPrompt) {
 			const prompt = `${opts.appendSystemPrompt}\n\nRead AGENTS.md for your task assignment and begin immediately.`;
-			const escaped = prompt.replace(/'/g, "'\\''");
+			const escaped = CodexRuntime.shellEscape(prompt);
 			cmd += ` '${escaped}'`;
 		} else {
 			cmd += ` 'Read AGENTS.md for your task assignment and begin immediately.'`;

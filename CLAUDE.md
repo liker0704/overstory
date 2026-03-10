@@ -132,6 +132,7 @@ overstory/                        # This repo (the overstory tool itself)
       gemini.ts                   # Gemini CLI runtime adapter (Google's gemini coding agent)
       sapling.ts                  # Sapling runtime adapter (headless coding agent)
       opencode.ts                 # OpenCode runtime adapter (SST OpenCode coding agent)
+      cursor.ts                   # Cursor CLI runtime adapter (Cursor's `agent` binary)
       connections.ts              # Module-level RuntimeConnection registry for RPC agents
     mulch/
       client.ts                   # mulch client (programmatic API for record/search/query, CLI wrapper for rest)

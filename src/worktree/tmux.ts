@@ -87,6 +87,7 @@ export async function createSession(
 	cwd: string,
 	command: string,
 	env?: Record<string, string>,
+	maxRetries = 3,
 ): Promise<number> {
 	// Build environment exports for the tmux session
 	const exports: string[] = [];
@@ -110,7 +111,16 @@ export async function createSession(
 		}
 	}
 
-	const wrappedCommand = exports.length > 0 ? `${exports.join(" && ")} && ${command}` : command;
+	// Build the startup script using bash syntax (export/unset).
+	// Then wrap it in `/bin/bash -c '...'` so it always runs in bash,
+	// regardless of the user's $SHELL. Without this, tmux uses the user's
+	// default shell (e.g. fish), which rejects bash export/unset syntax and
+	// causes the session to die instantly. Single-quote wrapping with escaped
+	// single quotes prevents any intermediate shell from expanding variables
+	// before bash receives them. (GitHub #86)
+	const startupScript = exports.length > 0 ? `${exports.join(" && ")} && ${command}` : command;
+	const wrappedCommand =
+		exports.length > 0 ? `/bin/bash -c '${startupScript.replace(/'/g, "'\\''")}'` : command;
 
 	const { exitCode, stderr } = await runCommand(
 		["tmux", "new-session", "-d", "-s", name, "-c", cwd, wrappedCommand],
@@ -123,12 +133,19 @@ export async function createSession(
 		});
 	}
 
-	// Retrieve the actual PID of the process running inside the tmux pane
-	const pidResult = await runCommand(["tmux", "list-panes", "-t", name, "-F", "#{pane_pid}"]);
+	// Retrieve the actual PID of the process running inside the tmux pane.
+	// Retry up to maxRetries times with backoff for WSL2 race conditions where
+	// the session exists but the pane hasn't been registered yet (#73).
+	let pidResult: { stdout: string; stderr: string; exitCode: number } | undefined;
+	for (let attempt = 0; attempt < maxRetries; attempt++) {
+		pidResult = await runCommand(["tmux", "list-panes", "-t", name, "-F", "#{pane_pid}"]);
+		if (pidResult.exitCode === 0) break;
+		await Bun.sleep(250 * (attempt + 1));
+	}
 
-	if (pidResult.exitCode !== 0) {
+	if (!pidResult || pidResult.exitCode !== 0) {
 		throw new AgentError(
-			`Created tmux session "${name}" but failed to retrieve PID: ${pidResult.stderr.trim()}`,
+			`Created tmux session "${name}" but failed to retrieve PID: ${pidResult?.stderr.trim() ?? "unknown error"}`,
 			{ agentName: name },
 		);
 	}
@@ -485,7 +502,12 @@ export async function capturePaneContent(name: string, lines = 50): Promise<stri
  * Delegates all readiness detection to the provided `detectReady` callback,
  * making this function runtime-agnostic. The callback inspects pane content
  * and returns a ReadyState phase: "loading" (keep waiting), "dialog" (send
- * Enter to dismiss, then continue), or "ready" (return true).
+ * the requested action, then continue), or "ready" (return true).
+ *
+ * Dialog actions that type raw text (for example Claude Code's `type:2`
+ * bypass confirmation) are retried if the same dialog is still visible on
+ * later polls. This avoids one-shot startup flakes when tmux or the TUI drops
+ * the first keypress during initialization.
  *
  * @param name - Tmux session name to poll
  * @param detectReady - Callback that inspects pane content and returns ReadyState
@@ -500,18 +522,28 @@ export async function waitForTuiReady(
 	pollIntervalMs = 500,
 ): Promise<boolean> {
 	const maxAttempts = Math.ceil(timeoutMs / pollIntervalMs);
-	let dialogHandled = false;
+	const handledDialogs = new Map<string, number>();
+	const typedDialogRetryPolls = Math.max(2, Math.ceil(1_000 / pollIntervalMs));
 
 	for (let i = 0; i < maxAttempts; i++) {
 		const content = await capturePaneContent(name);
 		if (content !== null) {
 			const state = detectReady(content);
 
-			if (state.phase === "dialog" && !dialogHandled) {
-				await sendKeys(name, "");
-				dialogHandled = true;
-				await Bun.sleep(pollIntervalMs);
-				continue;
+			if (state.phase === "dialog") {
+				const lastHandledAttempt = handledDialogs.get(state.action);
+				const shouldRetryTypedDialog =
+					state.action.startsWith("type:") &&
+					lastHandledAttempt !== undefined &&
+					i - lastHandledAttempt >= typedDialogRetryPolls;
+				const shouldHandleDialog = lastHandledAttempt === undefined || shouldRetryTypedDialog;
+
+				if (shouldHandleDialog) {
+					await handleDialogAction(name, state.action, pollIntervalMs);
+					handledDialogs.set(state.action, i);
+					await Bun.sleep(pollIntervalMs);
+					continue;
+				}
 			}
 
 			if (state.phase === "ready") {
@@ -542,25 +574,81 @@ export async function ensureTmuxAvailable(): Promise<void> {
 }
 
 /**
- * Send keys to a tmux session.
+ * Send keys to a tmux session, with retry for WSL2 pane registration race.
+ *
+ * On WSL2, tmux occasionally reports "can't find pane" immediately after session
+ * creation even though the session exists. This is a timing issue where the pane
+ * hasn't been fully registered yet. We retry with backoff to handle this.
  *
  * @param name - Session name to send keys to
  * @param keys - The keys/text to send
- * @throws AgentError if the session does not exist or send fails
+ * @param maxRetries - Maximum retry attempts for transient pane errors (default 3)
+ * @throws AgentError if the session does not exist or send fails after retries
  */
-export async function sendKeys(name: string, keys: string): Promise<void> {
+export async function sendKeys(name: string, keys: string, maxRetries = 3): Promise<void> {
 	// Flatten newlines to spaces — multiline text via tmux send-keys causes
 	// Claude Code's TUI to receive embedded Enter keystrokes which prevent
 	// the final "Enter" from triggering message submission (overstory-y2ob).
 	const flatKeys = keys.replace(/\n/g, " ");
-	const { exitCode, stderr } = await runCommand([
-		"tmux",
-		"send-keys",
-		"-t",
-		name,
-		flatKeys,
-		"Enter",
-	]);
+
+	for (let attempt = 0; attempt <= maxRetries; attempt++) {
+		const { exitCode, stderr } = await runCommand([
+			"tmux",
+			"send-keys",
+			"-t",
+			name,
+			flatKeys,
+			"Enter",
+		]);
+
+		if (exitCode === 0) {
+			return;
+		}
+
+		const trimmedStderr = stderr.trim();
+
+		if (trimmedStderr.includes("no server running")) {
+			throw new AgentError(
+				`Tmux server is not running (cannot reach session "${name}"). This often happens when running as root (UID 0) or when tmux crashed. Original error: ${trimmedStderr}`,
+				{ agentName: name },
+			);
+		}
+
+		// "can't find pane" is a transient race condition on WSL2 — the session
+		// exists but the pane hasn't been fully registered yet. Retry with backoff.
+		if (trimmedStderr.includes("can't find pane") || trimmedStderr.includes("cant find pane")) {
+			if (attempt < maxRetries) {
+				const delayMs = 250 * (attempt + 1);
+				await Bun.sleep(delayMs);
+				continue;
+			}
+			// Exhausted retries — report as pane-specific error
+			throw new AgentError(
+				`Tmux pane for session "${name}" not found after ${maxRetries + 1} attempts. On WSL2, this can indicate a tmux startup race condition. Try increasing the retry count or adding a delay after session creation.`,
+				{ agentName: name },
+			);
+		}
+
+		if (
+			trimmedStderr.includes("session not found") ||
+			trimmedStderr.includes("can't find session") ||
+			trimmedStderr.includes("cant find session")
+		) {
+			throw new AgentError(
+				`Tmux session "${name}" does not exist. The agent may have crashed or been killed before receiving input.`,
+				{ agentName: name },
+			);
+		}
+
+		throw new AgentError(`Failed to send keys to tmux session "${name}": ${trimmedStderr}`, {
+			agentName: name,
+		});
+	}
+}
+
+async function sendRawKeys(name: string, keys: string): Promise<void> {
+	const flatKeys = keys.replace(/\n/g, " ");
+	const { exitCode, stderr } = await runCommand(["tmux", "send-keys", "-t", name, flatKeys]);
 
 	if (exitCode !== 0) {
 		const trimmedStderr = stderr.trim();
@@ -587,4 +675,19 @@ export async function sendKeys(name: string, keys: string): Promise<void> {
 			agentName: name,
 		});
 	}
+}
+
+async function handleDialogAction(
+	name: string,
+	action: string,
+	pollIntervalMs: number,
+): Promise<void> {
+	if (action.startsWith("type:")) {
+		await sendRawKeys(name, action.slice("type:".length));
+		await Bun.sleep(Math.min(pollIntervalMs, 250));
+		await sendKeys(name, "");
+		return;
+	}
+
+	await sendKeys(name, action === "Enter" ? "" : action);
 }

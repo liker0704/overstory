@@ -187,11 +187,13 @@ async function startSupervisor(opts: {
 			env: {
 				...runtime.buildEnv(resolvedModel),
 				OVERSTORY_AGENT_NAME: opts.name,
+				OVERSTORY_TASK_ID: opts.task,
 			},
 		});
 		const pid = await createSession(tmuxSession, projectRoot, spawnCmd, {
 			...runtime.buildEnv(resolvedModel),
 			OVERSTORY_AGENT_NAME: opts.name,
+			OVERSTORY_TASK_ID: opts.task,
 		});
 
 		// Wait for Claude Code TUI to render before sending input

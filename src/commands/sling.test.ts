@@ -22,6 +22,7 @@ import {
 	extractMulchRecordIds,
 	generateAgentName,
 	getCurrentBranch,
+	getSharedWritableDirs,
 	inferDomainsFromFiles,
 	isRunningAsRoot,
 	parentHasScouts,
@@ -340,6 +341,17 @@ describe("shouldShowScoutWarning", () => {
 
 	test("returns true with empty sessions and a parent (no scouts ever spawned)", () => {
 		expect(shouldShowScoutWarning("builder", "lead-alpha", empty, false, false)).toBe(true);
+	});
+});
+
+describe("getSharedWritableDirs", () => {
+	test("returns only .overstory for non-lead agents", () => {
+		expect(getSharedWritableDirs("/repo", "builder")).toEqual(["/repo/.overstory"]);
+		expect(getSharedWritableDirs("/repo", "scout")).toEqual(["/repo/.overstory"]);
+	});
+
+	test("includes canonical .git for lead agents", () => {
+		expect(getSharedWritableDirs("/repo", "lead")).toEqual(["/repo/.overstory", "/repo/.git"]);
 	});
 });
 
@@ -1003,6 +1015,27 @@ describe("sling provider env injection building blocks", () => {
 		expect(combined.ANTHROPIC_API_KEY).toBe("");
 		expect(combined.OVERSTORY_AGENT_NAME).toBe("test-builder");
 		expect(combined.OVERSTORY_WORKTREE_PATH).toBe("/tmp/wt");
+	});
+
+	test("env dict from resolveModel can be spread with OVERSTORY_TASK_ID", () => {
+		const config = makeConfig(
+			{ builder: "openrouter/anthropic/claude-3-5-sonnet" },
+			{ openrouter: { type: "gateway", baseUrl: "https://openrouter.ai/api/v1" } },
+		);
+		const manifest = makeManifest();
+
+		const { env } = resolveModel(config, manifest, "builder", "sonnet");
+		// Simulates the spread in slingCommand: { ...env, OVERSTORY_AGENT_NAME: name, OVERSTORY_WORKTREE_PATH: wt, OVERSTORY_TASK_ID: taskId }
+		const combined: Record<string, string> = {
+			...(env ?? {}),
+			OVERSTORY_AGENT_NAME: "test-builder",
+			OVERSTORY_WORKTREE_PATH: "/tmp/wt",
+			OVERSTORY_TASK_ID: "overstory-1234",
+		};
+
+		expect(combined.OVERSTORY_AGENT_NAME).toBe("test-builder");
+		expect(combined.OVERSTORY_WORKTREE_PATH).toBe("/tmp/wt");
+		expect(combined.OVERSTORY_TASK_ID).toBe("overstory-1234");
 	});
 
 	test("resolveModel returns no env for native anthropic provider", () => {

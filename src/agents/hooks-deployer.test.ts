@@ -8,6 +8,7 @@ import {
 	buildBashFileGuardScript,
 	buildBashPathBoundaryScript,
 	buildPathBoundaryGuardScript,
+	buildTrackerCloseGuardScript,
 	deployHooks,
 	escapeForSingleQuotedShell,
 	extractQualityGatePrefixes,
@@ -15,6 +16,7 @@ import {
 	getCapabilityGuards,
 	getDangerGuards,
 	getPathBoundaryGuards,
+	getTrackerCloseGuards,
 	isOverstoryHookEntry,
 	PATH_PREFIX,
 } from "./hooks-deployer.ts";
@@ -468,9 +470,9 @@ describe("deployHooks", () => {
 		expect(writeBlockGuard).toBeDefined();
 		expect(writeBlockGuard.hooks[0].command).toContain('"decision":"block"');
 
-		// Should have multiple Bash guards: danger guard + file guard + universal push guard
+		// Should have multiple Bash guards: danger guard + file guard + tracker close guard + universal push guard
 		const bashGuards = preToolUse.filter((h: { matcher: string }) => h.matcher === "Bash");
-		expect(bashGuards.length).toBe(3); // danger guard + file guard + universal push guard
+		expect(bashGuards.length).toBe(4); // danger guard + file guard + tracker close guard + universal push guard
 	});
 
 	test("reviewer capability adds same guards as scout", async () => {
@@ -512,9 +514,9 @@ describe("deployHooks", () => {
 		expect(guardMatchers).toContain("NotebookEdit");
 		expect(guardMatchers).toContain("Bash");
 
-		// Should have 3 Bash guards: danger guard + file guard + universal push guard
+		// Should have 4 Bash guards: danger guard + file guard + tracker close guard + universal push guard
 		const bashGuards = preToolUse.filter((h: { matcher: string }) => h.matcher === "Bash");
-		expect(bashGuards.length).toBe(3);
+		expect(bashGuards.length).toBe(4);
 	});
 
 	test("builder capability gets path boundary + Bash danger + Bash path boundary guards + native team tool blocks", async () => {
@@ -544,9 +546,9 @@ describe("deployHooks", () => {
 		expect(writeGuards[0].hooks[0].command).toContain("OVERSTORY_WORKTREE_PATH");
 		expect(writeGuards[0].hooks[0].command).not.toContain("cannot modify files");
 
-		// Builder should have 3 Bash guards: danger guard + path boundary guard + universal push guard
+		// Builder should have 4 Bash guards: danger guard + path boundary guard + tracker close guard + universal push guard
 		const bashGuards = preToolUse.filter((h: { matcher: string }) => h.matcher === "Bash");
-		expect(bashGuards.length).toBe(3);
+		expect(bashGuards.length).toBe(4);
 		// One should be the danger guard (checks git push)
 		const dangerGuard = bashGuards.find(
 			(h: { hooks: Array<{ command: string }> }) =>
@@ -1607,7 +1609,7 @@ describe("structural enforcement integration", () => {
 
 		// Find the bash file guard (the second Bash entry, after the danger guard)
 		const bashGuards = preToolUse.filter((h: { matcher: string }) => h.matcher === "Bash");
-		expect(bashGuards.length).toBe(3);
+		expect(bashGuards.length).toBe(4);
 
 		// The file guard (second Bash guard) should whitelist git add/commit
 		const fileGuard = bashGuards[1];
@@ -2070,8 +2072,8 @@ describe("bash path boundary integration", () => {
 		const preToolUse = parsed.hooks.PreToolUse;
 
 		const bashGuards = preToolUse.filter((h: { matcher: string }) => h.matcher === "Bash");
-		// Should have 3 Bash guards: danger guard + path boundary guard + universal push guard
-		expect(bashGuards.length).toBe(3);
+		// Should have 4 Bash guards: danger guard + path boundary guard + tracker close guard + universal push guard
+		expect(bashGuards.length).toBe(4);
 
 		// Find the path boundary guard
 		const pathGuard = bashGuards.find((h: { hooks: Array<{ command: string }> }) =>
@@ -2092,7 +2094,7 @@ describe("bash path boundary integration", () => {
 		const preToolUse = parsed.hooks.PreToolUse;
 
 		const bashGuards = preToolUse.filter((h: { matcher: string }) => h.matcher === "Bash");
-		expect(bashGuards.length).toBe(3);
+		expect(bashGuards.length).toBe(4);
 
 		const pathGuard = bashGuards.find((h: { hooks: Array<{ command: string }> }) =>
 			h.hooks[0]?.command?.includes("Bash path boundary violation"),
@@ -2110,9 +2112,9 @@ describe("bash path boundary integration", () => {
 		const parsed = JSON.parse(content);
 		const preToolUse = parsed.hooks.PreToolUse;
 
-		// Scout gets danger guard + file guard + universal push guard (3 Bash guards), but NOT path boundary
+		// Scout gets danger guard + file guard + tracker close guard + universal push guard (4 Bash guards), but NOT path boundary
 		const bashGuards = preToolUse.filter((h: { matcher: string }) => h.matcher === "Bash");
-		expect(bashGuards.length).toBe(3);
+		expect(bashGuards.length).toBe(4);
 
 		const pathGuard = bashGuards.find((h: { hooks: Array<{ command: string }> }) =>
 			h.hooks[0]?.command?.includes("Bash path boundary violation"),
@@ -2398,6 +2400,177 @@ describe("PATH prefix in deployed hooks", () => {
 		const cmd = parsed.hooks.SessionStart[0].hooks[0].command as string;
 		// Should use $HOME not a hardcoded path like /Users/...
 		expect(cmd).toContain("$HOME");
+	});
+});
+
+describe("buildTrackerCloseGuardScript", () => {
+	test("returns a string containing key patterns", () => {
+		const script = buildTrackerCloseGuardScript();
+		expect(typeof script).toBe("string");
+		expect(script.length).toBeGreaterThan(0);
+		expect(script).toContain("sd");
+		expect(script).toContain("bd");
+		expect(script).toContain("close");
+		expect(script).toContain("update");
+	});
+
+	test("contains ENV_GUARD prefix", () => {
+		const script = buildTrackerCloseGuardScript();
+		expect(script).toContain('[ -z "$OVERSTORY_AGENT_NAME" ] && exit 0;');
+	});
+
+	test("contains OVERSTORY_TASK_ID early-exit check", () => {
+		const script = buildTrackerCloseGuardScript();
+		expect(script).toContain('[ -z "$OVERSTORY_TASK_ID" ] && exit 0;');
+	});
+
+	test("blocks sd close with wrong ID", async () => {
+		const script = buildTrackerCloseGuardScript();
+		const input = JSON.stringify({ command: "sd close other-task" });
+		const proc = Bun.spawn(["sh", "-c", script], {
+			stdin: new TextEncoder().encode(input),
+			stdout: "pipe",
+			stderr: "pipe",
+			env: { ...process.env, OVERSTORY_AGENT_NAME: "test-agent", OVERSTORY_TASK_ID: "my-task" },
+		});
+		const output = await new Response(proc.stdout).text();
+		await proc.exited;
+		const parsed = JSON.parse(output.trim());
+		expect(parsed.decision).toBe("block");
+		expect(parsed.reason).toContain("other-task");
+		expect(parsed.reason).toContain("my-task");
+	});
+
+	test("allows sd close with matching ID", async () => {
+		const script = buildTrackerCloseGuardScript();
+		const input = JSON.stringify({ command: "sd close my-task" });
+		const proc = Bun.spawn(["sh", "-c", script], {
+			stdin: new TextEncoder().encode(input),
+			stdout: "pipe",
+			stderr: "pipe",
+			env: { ...process.env, OVERSTORY_AGENT_NAME: "test-agent", OVERSTORY_TASK_ID: "my-task" },
+		});
+		const output = await new Response(proc.stdout).text();
+		await proc.exited;
+		expect(output.trim()).toBe("");
+	});
+
+	test("blocks bd close with wrong ID", async () => {
+		const script = buildTrackerCloseGuardScript();
+		const input = JSON.stringify({ command: "bd close other-task" });
+		const proc = Bun.spawn(["sh", "-c", script], {
+			stdin: new TextEncoder().encode(input),
+			stdout: "pipe",
+			stderr: "pipe",
+			env: { ...process.env, OVERSTORY_AGENT_NAME: "test-agent", OVERSTORY_TASK_ID: "my-task" },
+		});
+		const output = await new Response(proc.stdout).text();
+		await proc.exited;
+		const parsed = JSON.parse(output.trim());
+		expect(parsed.decision).toBe("block");
+		expect(parsed.reason).toContain("other-task");
+	});
+
+	test("blocks sd update --status with wrong ID", async () => {
+		const script = buildTrackerCloseGuardScript();
+		const input = JSON.stringify({ command: "sd update other-task --status in_progress" });
+		const proc = Bun.spawn(["sh", "-c", script], {
+			stdin: new TextEncoder().encode(input),
+			stdout: "pipe",
+			stderr: "pipe",
+			env: { ...process.env, OVERSTORY_AGENT_NAME: "test-agent", OVERSTORY_TASK_ID: "my-task" },
+		});
+		const output = await new Response(proc.stdout).text();
+		await proc.exited;
+		const parsed = JSON.parse(output.trim());
+		expect(parsed.decision).toBe("block");
+		expect(parsed.reason).toContain("other-task");
+	});
+
+	test("exits early when OVERSTORY_TASK_ID is empty (coordinator/monitor)", async () => {
+		const script = buildTrackerCloseGuardScript();
+		const input = JSON.stringify({ command: "sd close coordinator-task" });
+		const proc = Bun.spawn(["sh", "-c", script], {
+			stdin: new TextEncoder().encode(input),
+			stdout: "pipe",
+			stderr: "pipe",
+			env: { ...process.env, OVERSTORY_AGENT_NAME: "coordinator", OVERSTORY_TASK_ID: "" },
+		});
+		const output = await new Response(proc.stdout).text();
+		await proc.exited;
+		expect(output.trim()).toBe("");
+	});
+});
+
+describe("getTrackerCloseGuards", () => {
+	test("returns exactly 1 Bash guard entry", () => {
+		const guards = getTrackerCloseGuards();
+		expect(guards).toHaveLength(1);
+		expect(guards[0]?.matcher).toBe("Bash");
+	});
+
+	test("guard hook type is command", () => {
+		const guards = getTrackerCloseGuards();
+		expect(guards[0]?.hooks[0]?.type).toBe("command");
+	});
+
+	test("guard command contains OVERSTORY_TASK_ID check", () => {
+		const guards = getTrackerCloseGuards();
+		const command = guards[0]?.hooks[0]?.command ?? "";
+		expect(command).toContain("OVERSTORY_TASK_ID");
+	});
+
+	test("guard command includes ENV_GUARD prefix", () => {
+		const guards = getTrackerCloseGuards();
+		const command = guards[0]?.hooks[0]?.command ?? "";
+		expect(command).toContain('[ -z "$OVERSTORY_AGENT_NAME" ] && exit 0;');
+	});
+});
+
+describe("deployHooks tracker close guard integration", () => {
+	let tempDir: string;
+
+	beforeEach(async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "overstory-tracker-close-test-"));
+	});
+
+	afterEach(async () => {
+		await cleanupTempDir(tempDir);
+	});
+
+	test("deployHooks includes tracker close guard in PreToolUse for builder", async () => {
+		const worktreePath = join(tempDir, "builder-tc-wt");
+		await deployHooks(worktreePath, "builder-tc", "builder");
+
+		const content = await Bun.file(join(worktreePath, ".claude", "settings.local.json")).text();
+		const parsed = JSON.parse(content);
+		const preToolUse = parsed.hooks.PreToolUse;
+
+		const trackerGuard = preToolUse.find(
+			(h: { matcher: string; hooks: Array<{ command: string }> }) =>
+				h.matcher === "Bash" && h.hooks[0]?.command?.includes("OVERSTORY_TASK_ID"),
+		);
+		expect(trackerGuard).toBeDefined();
+		expect(trackerGuard.hooks[0].command).toContain("OVERSTORY_TASK_ID");
+	});
+
+	test("deployHooks includes tracker close guard in PreToolUse for all capabilities", async () => {
+		const capabilities = ["builder", "scout", "reviewer", "lead", "merger", "coordinator"];
+
+		for (const cap of capabilities) {
+			const wt = join(tempDir, `${cap}-tc-wt`);
+			await deployHooks(wt, `${cap}-tc`, cap);
+
+			const content = await Bun.file(join(wt, ".claude", "settings.local.json")).text();
+			const parsed = JSON.parse(content);
+			const preToolUse = parsed.hooks.PreToolUse;
+
+			const trackerGuard = preToolUse.find(
+				(h: { matcher: string; hooks: Array<{ command: string }> }) =>
+					h.matcher === "Bash" && h.hooks[0]?.command?.includes("OVERSTORY_TASK_ID"),
+			);
+			expect(trackerGuard).toBeDefined();
+		}
 	});
 });
 

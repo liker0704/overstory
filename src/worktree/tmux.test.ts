@@ -242,6 +242,53 @@ describe("createSession", () => {
 		const tmuxCmd = cmd[7] as string;
 		expect(tmuxCmd).toContain("echo test");
 	});
+
+	test("retries list-panes on transient failure", async () => {
+		let callCount = 0;
+		spawnSpy.mockImplementation(() => {
+			callCount++;
+			if (callCount === 1) {
+				// which overstory
+				return mockSpawnResult("/usr/local/bin/overstory\n", "", 0);
+			}
+			if (callCount === 2) {
+				// tmux new-session
+				return mockSpawnResult("", "", 0);
+			}
+			if (callCount === 3) {
+				// First list-panes fails (WSL2 race)
+				return mockSpawnResult("", "can't find pane\n", 1);
+			}
+			// Second list-panes succeeds
+			return mockSpawnResult("42\n", "", 0);
+		});
+
+		const pid = await createSession("retry-session", "/work/dir", "echo hello");
+		expect(pid).toBe(42);
+		// which + new-session + list-panes(fail) + list-panes(ok)
+		expect(spawnSpy).toHaveBeenCalledTimes(4);
+	});
+
+	test("throws after exhausting all list-panes retries", async () => {
+		let callCount = 0;
+		spawnSpy.mockImplementation(() => {
+			callCount++;
+			if (callCount === 1) {
+				// which overstory
+				return mockSpawnResult("/usr/local/bin/overstory\n", "", 0);
+			}
+			if (callCount === 2) {
+				// tmux new-session
+				return mockSpawnResult("", "", 0);
+			}
+			// All list-panes attempts fail
+			return mockSpawnResult("", "can't find pane\n", 1);
+		});
+
+		await expect(
+			createSession("retry-exhaust", "/work/dir", "echo hello", undefined, 2),
+		).rejects.toThrow(/failed to retrieve PID/);
+	});
 });
 
 describe("listSessions", () => {
@@ -946,6 +993,38 @@ describe("sendKeys", () => {
 		spawnSpy.mockImplementation(() => mockSpawnResult("", "some other error\n", 1));
 		await expect(sendKeys("overstory-agent-fake", "hello")).rejects.toThrow(/Failed to send keys/);
 	});
+
+	test("retries on transient 'can't find pane' error", async () => {
+		let callCount = 0;
+		spawnSpy.mockImplementation(() => {
+			callCount++;
+			if (callCount === 1) {
+				// First send-keys fails with transient pane error
+				return mockSpawnResult("", "can't find pane\n", 1);
+			}
+			// Second attempt succeeds
+			return mockSpawnResult("", "", 0);
+		});
+
+		await sendKeys("overstory-retry-agent", "hello world");
+		expect(spawnSpy).toHaveBeenCalledTimes(2);
+	});
+
+	test("does not retry on permanent 'session not found' error", async () => {
+		spawnSpy.mockImplementation(() => mockSpawnResult("", "cant find session: gone-agent\n", 1));
+
+		await expect(sendKeys("gone-agent", "hello", 3)).rejects.toThrow(/does not exist/);
+		// Only called once — no retries for permanent errors
+		expect(spawnSpy).toHaveBeenCalledTimes(1);
+	});
+
+	test("throws after exhausting retries on transient error", async () => {
+		spawnSpy.mockImplementation(() => mockSpawnResult("", "can't find pane\n", 1));
+
+		await expect(sendKeys("overstory-exhaust", "hello", 2)).rejects.toThrow(/not found after/);
+		// Initial + 2 retries = 3 calls
+		expect(spawnSpy).toHaveBeenCalledTimes(3);
+	});
 });
 
 describe("capturePaneContent", () => {
@@ -1006,6 +1085,13 @@ describe("capturePaneContent", () => {
 
 /** Claude-like detectReady for tests — matches the existing hardcoded behavior. */
 function claudeDetectReady(paneContent: string): ReadyState {
+	if (
+		paneContent.includes("WARNING: Claude Code running in Bypass Permissions mode") &&
+		paneContent.includes("1. No, exit") &&
+		paneContent.includes("2. Yes, I accept")
+	) {
+		return { phase: "dialog", action: "type:2" };
+	}
 	if (paneContent.includes("trust this folder")) {
 		return { phase: "dialog", action: "Enter" };
 	}
@@ -1223,6 +1309,70 @@ describe("waitForTuiReady", () => {
 		expect(sendKeysCalls).toHaveLength(1);
 		const trustCall = sendKeysCalls[0];
 		expect(trustCall).toEqual(["tmux", "send-keys", "-t", "overstory-agent", "", "Enter"]);
+	});
+
+	test("detects bypass permissions dialog and types 2 before Enter", async () => {
+		const sendKeysCalls: string[][] = [];
+		let captureCallCount = 0;
+		spawnSpy.mockImplementation((...args: unknown[]) => {
+			const cmd = args[0] as string[];
+			if (cmd[1] === "capture-pane") {
+				captureCallCount++;
+				if (captureCallCount === 1) {
+					return mockSpawnResult(
+						"WARNING: Claude Code running in Bypass Permissions mode\n❯ 1. No, exit\n2. Yes, I accept",
+						"",
+						0,
+					);
+				}
+				return mockSpawnResult('Try "help"\nshift+tab', "", 0);
+			}
+			if (cmd[1] === "send-keys") {
+				sendKeysCalls.push(cmd);
+				return mockSpawnResult("", "", 0);
+			}
+			return mockSpawnResult("", "", 0);
+		});
+
+		const ready = await waitForTuiReady("overstory-agent", claudeDetectReady, 10_000, 500);
+
+		expect(ready).toBe(true);
+		expect(sendKeysCalls).toHaveLength(2);
+		expect(sendKeysCalls[0]).toEqual(["tmux", "send-keys", "-t", "overstory-agent", "2"]);
+		expect(sendKeysCalls[1]).toEqual(["tmux", "send-keys", "-t", "overstory-agent", "", "Enter"]);
+	});
+
+	test("retries typed bypass dialog action when the same dialog persists", async () => {
+		const sendKeysCalls: string[][] = [];
+		let captureCallCount = 0;
+		spawnSpy.mockImplementation((...args: unknown[]) => {
+			const cmd = args[0] as string[];
+			if (cmd[1] === "capture-pane") {
+				captureCallCount++;
+				if (captureCallCount <= 3) {
+					return mockSpawnResult(
+						"WARNING: Claude Code running in Bypass Permissions mode\n❯ 1. No, exit\n2. Yes, I accept",
+						"",
+						0,
+					);
+				}
+				return mockSpawnResult('Try "help"\nshift+tab', "", 0);
+			}
+			if (cmd[1] === "send-keys") {
+				sendKeysCalls.push(cmd);
+				return mockSpawnResult("", "", 0);
+			}
+			return mockSpawnResult("", "", 0);
+		});
+
+		const ready = await waitForTuiReady("overstory-agent", claudeDetectReady, 10_000, 500);
+
+		expect(ready).toBe(true);
+		expect(sendKeysCalls).toHaveLength(4);
+		expect(sendKeysCalls[0]).toEqual(["tmux", "send-keys", "-t", "overstory-agent", "2"]);
+		expect(sendKeysCalls[1]).toEqual(["tmux", "send-keys", "-t", "overstory-agent", "", "Enter"]);
+		expect(sendKeysCalls[2]).toEqual(["tmux", "send-keys", "-t", "overstory-agent", "2"]);
+		expect(sendKeysCalls[3]).toEqual(["tmux", "send-keys", "-t", "overstory-agent", "", "Enter"]);
 	});
 
 	test("handles trust dialog only once (trustHandled flag)", async () => {

@@ -622,6 +622,48 @@ describe("edge cases", () => {
 });
 
 // ============================================================
+// SessionStore migration: coordinator_name in runs table
+// ============================================================
+
+describe("createSessionStore migrates runs table coordinator_name", () => {
+	test("opens successfully when existing runs table lacks coordinator_name", async () => {
+		// Close the store created by beforeEach so we can recreate the DB manually.
+		store.close();
+
+		const { Database: Db } = await import("bun:sqlite");
+		const legacyDb = new Db(dbPath);
+		// Drop runs table and recreate WITHOUT coordinator_name (simulates pre-migration DB).
+		legacyDb.exec("DROP TABLE IF EXISTS runs");
+		legacyDb.exec(`
+			CREATE TABLE runs (
+				id TEXT PRIMARY KEY,
+				started_at TEXT NOT NULL,
+				completed_at TEXT,
+				agent_count INTEGER NOT NULL DEFAULT 0,
+				coordinator_session_id TEXT,
+				status TEXT NOT NULL DEFAULT 'active'
+			)
+		`);
+		legacyDb.exec(
+			"INSERT INTO runs (id, started_at, status) VALUES ('legacy-run', '2026-01-01T00:00:00.000Z', 'active')",
+		);
+		legacyDb.close();
+
+		// createSessionStore should migrate the table and create indexes without error.
+		const migratedStore = createSessionStore(dbPath);
+		try {
+			// Verify the store works (no "no such column" error).
+			expect(migratedStore.getAll()).toBeArray();
+		} finally {
+			migratedStore.close();
+		}
+
+		// Re-assign so afterEach cleanup works.
+		store = createSessionStore(join(tempDir, "unused.db"));
+	});
+});
+
+// ============================================================
 // RunStore Tests
 // ============================================================
 
@@ -923,6 +965,142 @@ describe("RunStore", () => {
 
 			const sessions = store.getByRun("run-2026-02-13T10:00:00.000Z");
 			expect(sessions).toHaveLength(1);
+		});
+	});
+
+	// === coordinatorName ===
+
+	describe("coordinatorName", () => {
+		test("creates run with coordinatorName and retrieves it", () => {
+			runStore.createRun(makeRun({ coordinatorName: "coordinator" }));
+			const result = runStore.getRun("run-2026-02-13T10:00:00.000Z");
+			expect(result?.coordinatorName).toBe("coordinator");
+		});
+
+		test("creates run with null coordinatorName", () => {
+			runStore.createRun(makeRun({ coordinatorName: null }));
+			const result = runStore.getRun("run-2026-02-13T10:00:00.000Z");
+			expect(result?.coordinatorName).toBeNull();
+		});
+
+		test("creates run without coordinatorName defaults to null", () => {
+			runStore.createRun(makeRun());
+			const result = runStore.getRun("run-2026-02-13T10:00:00.000Z");
+			expect(result?.coordinatorName).toBeNull();
+		});
+	});
+
+	// === getActiveRunForCoordinator ===
+
+	describe("getActiveRunForCoordinator", () => {
+		test("returns the active run for the given coordinator", () => {
+			runStore.createRun(
+				makeRun({
+					id: "run-coord-a",
+					coordinatorName: "coordinator-a",
+					startedAt: "2026-02-13T10:00:00.000Z",
+				}),
+			);
+			runStore.createRun(
+				makeRun({
+					id: "run-coord-b",
+					coordinatorName: "coordinator-b",
+					startedAt: "2026-02-13T11:00:00.000Z",
+				}),
+			);
+
+			const result = runStore.getActiveRunForCoordinator("coordinator-a");
+			expect(result?.id).toBe("run-coord-a");
+		});
+
+		test("returns null when no active run for coordinator", () => {
+			runStore.createRun(makeRun({ id: "run-coord-a", coordinatorName: "coordinator-a" }));
+			runStore.completeRun("run-coord-a", "completed");
+
+			const result = runStore.getActiveRunForCoordinator("coordinator-a");
+			expect(result).toBeNull();
+		});
+
+		test("returns null for unknown coordinator", () => {
+			runStore.createRun(makeRun({ id: "run-coord-a", coordinatorName: "coordinator-a" }));
+			const result = runStore.getActiveRunForCoordinator("other-coordinator");
+			expect(result).toBeNull();
+		});
+
+		test("returns most recent active run when coordinator has multiple", () => {
+			runStore.createRun(
+				makeRun({
+					id: "run-early",
+					coordinatorName: "coordinator",
+					startedAt: "2026-02-13T08:00:00.000Z",
+				}),
+			);
+			runStore.createRun(
+				makeRun({
+					id: "run-late",
+					coordinatorName: "coordinator",
+					startedAt: "2026-02-13T12:00:00.000Z",
+				}),
+			);
+
+			const result = runStore.getActiveRunForCoordinator("coordinator");
+			expect(result?.id).toBe("run-late");
+		});
+
+		test("ignores runs for other coordinators", () => {
+			runStore.createRun(makeRun({ id: "run-a", coordinatorName: "coordinator-a" }));
+			runStore.createRun(
+				makeRun({
+					id: "run-b",
+					coordinatorName: "coordinator-b",
+					startedAt: "2026-02-13T11:00:00.000Z",
+				}),
+			);
+
+			const result = runStore.getActiveRunForCoordinator("coordinator-a");
+			expect(result?.id).toBe("run-a");
+			expect(result?.coordinatorName).toBe("coordinator-a");
+		});
+	});
+
+	// === migration: coordinator_name column ===
+
+	describe("migration: coordinator_name column", () => {
+		test("adds coordinator_name column to existing runs table without it", async () => {
+			// Create a store, close it, then manually drop the coordinator_name column
+			// by creating a fresh DB without it, simulating a pre-migration schema.
+			runStore.close();
+
+			const { Database: Db } = await import("bun:sqlite");
+			const legacyDb = new Db(dbPath);
+			legacyDb.exec("DROP TABLE IF EXISTS runs");
+			legacyDb.exec(`
+				CREATE TABLE runs (
+					id TEXT PRIMARY KEY,
+					started_at TEXT NOT NULL,
+					completed_at TEXT,
+					agent_count INTEGER NOT NULL DEFAULT 0,
+					coordinator_session_id TEXT,
+					status TEXT NOT NULL DEFAULT 'active'
+				)
+			`);
+			legacyDb.exec(
+				"INSERT INTO runs (id, started_at, status) VALUES ('legacy-run', '2026-01-01T00:00:00.000Z', 'active')",
+			);
+			legacyDb.close();
+
+			// Opening a new RunStore should run the migration and add coordinator_name
+			const migratedStore = createRunStore(dbPath);
+			try {
+				const run = migratedStore.getRun("legacy-run");
+				expect(run).not.toBeNull();
+				expect(run?.coordinatorName).toBeNull();
+			} finally {
+				migratedStore.close();
+			}
+
+			// Re-assign store so afterEach cleanup doesn't double-close
+			runStore = createRunStore(join(tempDir, "unused-run.db"));
 		});
 	});
 

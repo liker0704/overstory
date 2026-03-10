@@ -523,6 +523,25 @@ async function startCoordinator(
 			OVERSTORY_AGENT_NAME: COORDINATOR_NAME,
 		});
 
+		// Create a run for this coordinator session BEFORE recording the session,
+		// so the session can reference the run ID from the start.
+		const sessionId = `session-${Date.now()}-${COORDINATOR_NAME}`;
+		const runId = `run-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+		const runStore = createRunStore(join(overstoryDir, "sessions.db"));
+		try {
+			runStore.createRun({
+				id: runId,
+				startedAt: new Date().toISOString(),
+				coordinatorSessionId: sessionId,
+				coordinatorName: COORDINATOR_NAME,
+				status: "active",
+			});
+		} finally {
+			runStore.close();
+		}
+		// Write current-run.txt for backward compatibility with ov sling and other consumers.
+		await Bun.write(join(overstoryDir, "current-run.txt"), runId);
+
 		// Record session BEFORE sending the beacon so that hook-triggered
 		// updateLastActivity() can find the entry and transition booting->working.
 		// Without this, a race exists: hooks fire before the session is persisted,
@@ -540,7 +559,7 @@ async function startCoordinator(
 			pid,
 			parentAgent: null, // Top of hierarchy
 			depth: 0,
-			runId: null,
+			runId,
 			startedAt: new Date().toISOString(),
 			lastActivity: new Date().toISOString(),
 			escalationLevel: 0,
@@ -579,7 +598,12 @@ async function startCoordinator(
 					{ agentName: COORDINATOR_NAME },
 				);
 			}
-			// Session is alive but TUI didn't render in time — proceed with warning
+			await tmux.killSession(tmuxSession);
+			store.updateState(COORDINATOR_NAME, "completed");
+			throw new AgentError(
+				`Coordinator tmux session "${tmuxSession}" did not become ready during startup. Claude Code may still be waiting on an interactive dialog or initializing too slowly.`,
+				{ agentName: COORDINATOR_NAME },
+			);
 		}
 		await Bun.sleep(1_000);
 

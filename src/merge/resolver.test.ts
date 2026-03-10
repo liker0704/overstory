@@ -22,6 +22,7 @@ import type { MergeEntry, ParsedConflictPattern } from "../types.ts";
 import {
 	buildConflictHistory,
 	createMergeResolver,
+	hasContentfulCanonical,
 	looksLikeProse,
 	parseConflictPatterns,
 	resolveConflictsUnion,
@@ -84,6 +85,20 @@ async function setupContentConflict(dir: string, baseBranch: string): Promise<vo
 	await commitFile(dir, "src/test.ts", "feature content\n");
 	await runGitInDir(dir, ["checkout", baseBranch]);
 	await commitFile(dir, "src/test.ts", "main modified content\n");
+}
+
+/**
+ * Set up a conflict where the canonical (HEAD) side is empty in the conflict marker.
+ * Main deletes a shared line; feature replaces it. Git produces a conflict with an
+ * empty HEAD side, so hasContentfulCanonical returns false and auto-resolve can safely
+ * keep the incoming content.
+ */
+async function setupEmptyCanonicalConflict(dir: string, baseBranch: string): Promise<void> {
+	await commitFile(dir, "src/test.ts", "line1\nshared line\nline3\n");
+	await runGitInDir(dir, ["checkout", "-b", "feature-branch"]);
+	await commitFile(dir, "src/test.ts", "line1\nnew content\nline3\n");
+	await runGitInDir(dir, ["checkout", baseBranch]);
+	await commitFile(dir, "src/test.ts", "line1\nline3\n"); // main deletes "shared line"
 }
 
 /**
@@ -431,11 +446,13 @@ describe("createMergeResolver", () => {
 	});
 
 	describe("Tier 1 fail -> Tier 2: Auto-resolve", () => {
-		test("auto-resolves conflicts keeping incoming changes with correct content", async () => {
+		test("auto-resolves conflicts when canonical side is empty (keeps incoming)", async () => {
 			const repoDir = await createTempGitRepo();
 			try {
 				const defaultBranch = await getDefaultBranch(repoDir);
-				await setupContentConflict(repoDir, defaultBranch);
+				// Use empty-canonical setup: main deletes a line, feature replaces it.
+				// The conflict marker has an empty HEAD side, so auto-resolve is safe.
+				await setupEmptyCanonicalConflict(repoDir, defaultBranch);
 
 				const entry = makeTestEntry({
 					branchName: "feature-branch",
@@ -453,11 +470,12 @@ describe("createMergeResolver", () => {
 				expect(result.tier).toBe("auto-resolve");
 				expect(result.entry.status).toBe("merged");
 				expect(result.entry.resolvedTier).toBe("auto-resolve");
+				expect(result.warnings).toEqual([]);
 
 				// The resolved file should contain the incoming (feature branch) content
 				const file = Bun.file(join(repoDir, "src/test.ts"));
 				const content = await file.text();
-				expect(content).toBe("feature content\n");
+				expect(content).toContain("new content");
 			} finally {
 				await cleanupTempDir(repoDir);
 			}
@@ -688,6 +706,7 @@ describe("createMergeResolver", () => {
 			expect(result).toHaveProperty("tier");
 			expect(result).toHaveProperty("conflictFiles");
 			expect(result).toHaveProperty("errorMessage");
+			expect(result).toHaveProperty("warnings");
 		});
 
 		test("failed result preserves original entry fields", async () => {
@@ -806,6 +825,117 @@ describe("createMergeResolver", () => {
 		});
 	});
 
+	describe("hasContentfulCanonical", () => {
+		test("returns true when canonical side has content", () => {
+			const content = [
+				"<<<<<<< HEAD\n",
+				"canonical content\n",
+				"=======\n",
+				"incoming content\n",
+				">>>>>>> feature-branch\n",
+			].join("");
+			expect(hasContentfulCanonical(content)).toBe(true);
+		});
+
+		test("returns false when canonical side is empty", () => {
+			const content = [
+				"<<<<<<< HEAD\n",
+				"=======\n",
+				"incoming content\n",
+				">>>>>>> feature-branch\n",
+			].join("");
+			expect(hasContentfulCanonical(content)).toBe(false);
+		});
+
+		test("returns false when canonical is whitespace only", () => {
+			const content = [
+				"<<<<<<< HEAD\n",
+				"   \n",
+				"\t\n",
+				"=======\n",
+				"incoming content\n",
+				">>>>>>> feature-branch\n",
+			].join("");
+			expect(hasContentfulCanonical(content)).toBe(false);
+		});
+
+		test("returns false when no conflict markers", () => {
+			expect(hasContentfulCanonical("no conflicts here\n")).toBe(false);
+			expect(hasContentfulCanonical("")).toBe(false);
+		});
+
+		test("returns true if ANY block has canonical content (multiple blocks)", () => {
+			const block1 = "<<<<<<< HEAD\n=======\nonly incoming\n>>>>>>> branch\n";
+			const block2 = "<<<<<<< HEAD\ncanonical content\n=======\nincoming\n>>>>>>> branch\n";
+			const content = `${block1}middle\n${block2}`;
+			expect(hasContentfulCanonical(content)).toBe(true);
+		});
+	});
+
+	describe("auto-resolve: content protection", () => {
+		test("auto-resolve skips files with contentful canonical, result includes warning", async () => {
+			const repoDir = await createTempGitRepo();
+			try {
+				const defaultBranch = await getDefaultBranch(repoDir);
+				// setupContentConflict: both canonical and incoming have content
+				await setupContentConflict(repoDir, defaultBranch);
+
+				const entry = makeTestEntry({
+					branchName: "feature-branch",
+					filesModified: ["src/test.ts"],
+				});
+
+				// AI and reimagine disabled — should FAIL because auto-resolve correctly refuses
+				const resolver = createMergeResolver({
+					aiResolveEnabled: false,
+					reimagineEnabled: false,
+				});
+
+				const result = await resolver.resolve(entry, defaultBranch, repoDir);
+
+				expect(result.success).toBe(false);
+				expect(result.warnings.length).toBeGreaterThan(0);
+				expect(result.warnings[0]).toContain("src/test.ts");
+			} finally {
+				await cleanupTempDir(repoDir);
+			}
+		});
+	});
+
+	describe("untracked files: no silent commit", () => {
+		test("untracked overlapping files are deleted, not committed", async () => {
+			const repoDir = await createTempGitRepo();
+			try {
+				const defaultBranch = await getDefaultBranch(repoDir);
+				await setupCleanMerge(repoDir, defaultBranch);
+
+				// Place an untracked file at the path the feature branch will bring in
+				await Bun.write(`${repoDir}/src/feature-file.ts`, "local untracked content\n");
+
+				const entry = makeTestEntry({
+					branchName: "feature-branch",
+					filesModified: ["src/feature-file.ts"],
+				});
+
+				const resolver = createMergeResolver({
+					aiResolveEnabled: false,
+					reimagineEnabled: false,
+				});
+
+				const result = await resolver.resolve(entry, defaultBranch, repoDir);
+
+				expect(result.success).toBe(true);
+				expect(result.warnings.some((w) => w.includes("src/feature-file.ts"))).toBe(true);
+
+				// Verify git log does NOT contain the "commit untracked files before merge" commit
+				const log = await runGitInDir(repoDir, ["log", "--oneline"]);
+				expect(log).not.toContain("commit untracked files before merge");
+			} finally {
+				await cleanupTempDir(repoDir);
+			}
+		});
+	});
+
 	describe("Tier 3: AI-resolve prose rejection", () => {
 		test("rejects prose output and falls through to failure", async () => {
 			const repoDir = await createTempGitRepo();
@@ -858,7 +988,8 @@ describe("createMergeResolver", () => {
 			const repoDir = await createTempGitRepo();
 			try {
 				const defaultBranch = await getDefaultBranch(repoDir);
-				await setupContentConflict(repoDir, defaultBranch);
+				// Use empty-canonical setup so auto-resolve completes successfully
+				await setupEmptyCanonicalConflict(repoDir, defaultBranch);
 
 				const entry = makeTestEntry({
 					branchName: "feature-branch",
@@ -884,7 +1015,8 @@ describe("createMergeResolver", () => {
 			const repoDir = await createTempGitRepo();
 			try {
 				const defaultBranch = await getDefaultBranch(repoDir);
-				await setupContentConflict(repoDir, defaultBranch);
+				// Use empty-canonical setup so auto-resolve completes successfully
+				await setupEmptyCanonicalConflict(repoDir, defaultBranch);
 
 				const entry = makeTestEntry({
 					branchName: "feature-branch",
@@ -1014,7 +1146,8 @@ describe("createMergeResolver", () => {
 			const repoDir = await createTempGitRepo();
 			try {
 				const defaultBranch = await getDefaultBranch(repoDir);
-				await setupContentConflict(repoDir, defaultBranch);
+				// Use empty-canonical setup so auto-resolve completes successfully
+				await setupEmptyCanonicalConflict(repoDir, defaultBranch);
 
 				const entry = makeTestEntry({
 					branchName: "feature-branch",
@@ -1709,7 +1842,8 @@ describe("createMergeResolver", () => {
 			const repoDir = await createTempGitRepo();
 			try {
 				const defaultBranch = await getDefaultBranch(repoDir);
-				await setupContentConflict(repoDir, defaultBranch);
+				// Use empty-canonical setup so auto-resolve completes successfully
+				await setupEmptyCanonicalConflict(repoDir, defaultBranch);
 
 				const entry = makeTestEntry({
 					branchName: "feature-branch",

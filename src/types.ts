@@ -434,6 +434,8 @@ export interface MergeResult {
 	tier: ResolutionTier;
 	conflictFiles: string[];
 	errorMessage: string | null;
+	/** Warnings about files where auto-resolve was skipped to prevent content loss. */
+	warnings: string[];
 }
 
 /** Parsed conflict pattern from a single mulch record. */
@@ -629,12 +631,15 @@ export interface Run {
 	completedAt: string | null;
 	agentCount: number;
 	coordinatorSessionId: string | null;
+	coordinatorName: string | null; // which coordinator owns this run
 	status: RunStatus;
 }
 
 /** Input for creating a new run. */
-export type InsertRun = Omit<Run, "completedAt" | "agentCount"> & {
+export type InsertRun = Omit<Run, "completedAt" | "agentCount" | "coordinatorName"> & {
 	agentCount?: number;
+	/** Which coordinator owns this run. Defaults to null when not provided. */
+	coordinatorName?: string | null;
 };
 
 /** Interface for run management operations. */
@@ -645,6 +650,8 @@ export interface RunStore {
 	getRun(id: string): Run | null;
 	/** Get the most recently started active run. */
 	getActiveRun(): Run | null;
+	/** Get the most recently started active run for a specific coordinator. */
+	getActiveRunForCoordinator(coordinatorName: string): Run | null;
 	/** List runs, optionally limited. */
 	listRuns(opts?: { limit?: number; status?: RunStatus }): Run[];
 	/** Increment agent count for a run. */

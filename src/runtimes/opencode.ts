@@ -46,6 +46,9 @@ import type {
 export class OpenCodeRuntime implements AgentRuntime {
 	readonly id = "opencode";
 
+	/** Stability level. OpenCode adapter is experimental — not fully validated. */
+	readonly stability = "experimental" as const;
+
 	/**
 	 * Relative path to the instruction file within a worktree.
 	 * OpenCode reads instructions from its config's `instructions` array,
