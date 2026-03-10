@@ -17,6 +17,8 @@ const BASE_METRICS: EvalMetrics = {
 	totalOutputTokens: 500,
 	estimatedCostUsd: 0.05,
 	nudgesSent: 1,
+	runtimeSwaps: 0,
+	medianSessionDurationMs: 30_000,
 };
 
 describe("evaluateAssertions", () => {

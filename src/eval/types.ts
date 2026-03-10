@@ -96,6 +96,10 @@ export interface EvalMetrics {
 	estimatedCostUsd: number;
 	/** Number of nudges sent. */
 	nudgesSent: number;
+	/** Number of runtime swaps (e.g. watchdog rate-limit swaps). */
+	runtimeSwaps: number;
+	/** Median session duration in ms across all agents. */
+	medianSessionDurationMs: number;
 }
 
 /** Final result of an eval run. */
