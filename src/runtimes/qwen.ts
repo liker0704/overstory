@@ -97,14 +97,15 @@ export class QwenRuntime implements AgentRuntime {
 	/**
 	 * Build the argv array for a headless one-shot Qwen invocation.
 	 *
-	 * Returns an argv array suitable for `Bun.spawn()`. The `-p` flag
-	 * triggers headless mode. `--yolo` auto-approves tool calls.
+	 * Returns an argv array suitable for `Bun.spawn()`. Uses positional
+	 * prompt (not deprecated `-p`). `--yolo` auto-approves tool calls.
 	 */
 	buildPrintCommand(prompt: string, model?: string): string[] {
-		const cmd = ["qwen", "--yolo", "-p", prompt];
+		const cmd = ["qwen", "--yolo"];
 		if (model !== undefined) {
 			cmd.push("--model", model);
 		}
+		cmd.push(prompt);
 		return cmd;
 	}
 

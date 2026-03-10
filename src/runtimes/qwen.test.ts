@@ -170,7 +170,7 @@ describe("QwenRuntime", () => {
 	describe("buildPrintCommand", () => {
 		test("basic command without model", () => {
 			const argv = runtime.buildPrintCommand("Summarize this diff");
-			expect(argv).toEqual(["qwen", "--yolo", "-p", "Summarize this diff"]);
+			expect(argv).toEqual(["qwen", "--yolo", "Summarize this diff"]);
 		});
 
 		test("command with model override", () => {
@@ -178,10 +178,9 @@ describe("QwenRuntime", () => {
 			expect(argv).toEqual([
 				"qwen",
 				"--yolo",
-				"-p",
-				"Classify this error",
 				"--model",
 				"qwen-coder-plus",
+				"Classify this error",
 			]);
 		});
 
@@ -190,10 +189,15 @@ describe("QwenRuntime", () => {
 			expect(argv).not.toContain("--model");
 		});
 
-		test("prompt is positional after -p", () => {
+		test("prompt is last element (positional argument)", () => {
 			const prompt = "My test prompt";
 			const argv = runtime.buildPrintCommand(prompt);
-			expect(argv[3]).toBe(prompt);
+			expect(argv[argv.length - 1]).toBe(prompt);
+		});
+
+		test("does not use deprecated -p flag", () => {
+			const argv = runtime.buildPrintCommand("Hello");
+			expect(argv).not.toContain("-p");
 		});
 	});
 
