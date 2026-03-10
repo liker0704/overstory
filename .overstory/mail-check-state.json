@@ -9,12 +9,14 @@
 	"sling-rollback-lead": 1772806485021,
 	"merge-cleanup-lead": 1772806835893,
 	"init-commit-builder": 1772806688503,
-	"coordinator": 1772922006172,
+	"coordinator": 1773162876192,
 	"watchdog-fix-lead": 1772806961528,
 	"fix-uncommitted-state": 1772806896551,
 	"github-tracker-lead": 1772920501752,
 	"github-tracker-builder": 1772920117031,
 	"github-config-builder": 1772920401215,
 	"github-autopull-lead": 1772921840617,
-	"autopull-builder": 1772921599749
+	"autopull-builder": 1772921599749,
+	"upstream-merge-lead": 1773162879537,
+	"upstream-merger": 1773162835231
 }
