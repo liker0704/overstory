@@ -34,6 +34,8 @@ export function renderReport(result: EvalResult): string {
 	lines.push(`  Queue pending:     ${m.mergeQueuePending}`);
 	lines.push(`  Tasks completed:   ${m.tasksCompleted}`);
 	lines.push(`  Nudges sent:       ${m.nudgesSent}`);
+	lines.push(`  Runtime swaps:     ${m.runtimeSwaps}`);
+	lines.push(`  Median duration:   ${formatDuration(m.medianSessionDurationMs)}`);
 	lines.push(`  Estimated cost:    $${m.estimatedCostUsd.toFixed(2)}`);
 	lines.push("");
 

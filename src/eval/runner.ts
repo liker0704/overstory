@@ -133,6 +133,7 @@ function collectMetrics(fixtureRoot: string, durationMs: number): EvalMetrics {
 	let completedAgents = 0;
 	let zombieCount = 0;
 	let stallCount = 0;
+	let runtimeSwaps = 0;
 
 	const sessionsDbPath = join(ovDir, "sessions.db");
 	if (existsSync(sessionsDbPath)) {
@@ -144,6 +145,7 @@ function collectMetrics(fixtureRoot: string, durationMs: number): EvalMetrics {
 				completedAgents = all.filter((s) => s.state === "completed").length;
 				zombieCount = all.filter((s) => s.state === "zombie").length;
 				stallCount = all.filter((s) => s.state === "stalled").length;
+				runtimeSwaps = all.filter((s) => s.originalRuntime !== null).length;
 			} finally {
 				sessionStore.close();
 			}
@@ -152,10 +154,11 @@ function collectMetrics(fixtureRoot: string, durationMs: number): EvalMetrics {
 		}
 	}
 
-	// Metrics (tokens/cost)
+	// Metrics (tokens/cost/duration)
 	let totalInputTokens = 0;
 	let totalOutputTokens = 0;
 	let estimatedCostUsd = 0;
+	let medianSessionDurationMs = 0;
 
 	const metricsDbPath = join(ovDir, "metrics.db");
 	if (existsSync(metricsDbPath)) {
@@ -167,6 +170,17 @@ function collectMetrics(fixtureRoot: string, durationMs: number): EvalMetrics {
 					totalInputTokens += s.inputTokens ?? 0;
 					totalOutputTokens += s.outputTokens ?? 0;
 					estimatedCostUsd += s.estimatedCostUsd ?? 0;
+				}
+				const durations = sessions
+					.map((s) => s.durationMs)
+					.filter((d): d is number => d > 0)
+					.sort((a, b) => a - b);
+				if (durations.length > 0) {
+					const mid = Math.floor(durations.length / 2);
+					medianSessionDurationMs =
+						durations.length % 2 === 1
+							? (durations[mid] ?? 0)
+							: ((durations[mid - 1] ?? 0) + (durations[mid] ?? 0)) / 2;
 				}
 			} finally {
 				metricsStore.close();
@@ -239,6 +253,8 @@ function collectMetrics(fixtureRoot: string, durationMs: number): EvalMetrics {
 		totalInputTokens,
 		totalOutputTokens,
 		estimatedCostUsd,
+		runtimeSwaps,
+		medianSessionDurationMs,
 	};
 }
 
