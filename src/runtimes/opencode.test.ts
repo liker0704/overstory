@@ -93,7 +93,11 @@ describe("OpenCodeRuntime", () => {
 		});
 
 		test("provider/model names pass through with --model", () => {
-			for (const model of ["openai/gpt-5.3-codex", "openrouter/gpt-5", "anthropic/claude-opus-4.6"]) {
+			for (const model of [
+				"openai/gpt-5.3-codex",
+				"openrouter/gpt-5",
+				"anthropic/claude-opus-4.6",
+			]) {
 				const opts: SpawnOpts = {
 					model,
 					permissionMode: "bypass",

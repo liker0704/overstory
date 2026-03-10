@@ -315,14 +315,11 @@ function createDefaultAutoPull(projectRoot: string): NonNullable<CoordinatorDeps
 			}
 
 			// Spawn the poller as a detached background process
-			const proc = Bun.spawn(
-				["bun", "run", pollerScript, "--project-root", projectRoot],
-				{
-					cwd: projectRoot,
-					stdout: "ignore",
-					stderr: "ignore",
-				},
-			);
+			const proc = Bun.spawn(["bun", "run", pollerScript, "--project-root", projectRoot], {
+				cwd: projectRoot,
+				stdout: "ignore",
+				stderr: "ignore",
+			});
 			const pid = proc.pid;
 			await Bun.write(join(projectRoot, ".overstory", "autopull.pid"), String(pid));
 			return { pid };
@@ -506,11 +503,11 @@ async function startCoordinator(
 		if (await agentDefFile.exists()) {
 			appendSystemPromptFile = agentDefPath;
 		}
-		const sessionId = crypto.randomUUID();
+		const runtimeSessionId = crypto.randomUUID();
 		const spawnCmd = runtime.buildSpawnCommand({
 			model: resolvedModel.model,
 			permissionMode: "bypass",
-			sessionId,
+			sessionId: runtimeSessionId,
 			cwd: projectRoot,
 			appendSystemPromptFile,
 			env: {
@@ -565,7 +562,7 @@ async function startCoordinator(
 			escalationLevel: 0,
 			stalledSince: null,
 			rateLimitedSince: null,
-			runtimeSessionId: sessionId,
+			runtimeSessionId: runtimeSessionId,
 			transcriptPath: null,
 			originalRuntime: null,
 		};
@@ -1387,10 +1384,7 @@ export function createCoordinatorCommand(deps: CoordinatorDeps = {}): Command {
 		.option("--no-attach", "Never attach to tmux session after start")
 		.option("--watchdog", "Auto-start watchdog daemon with coordinator")
 		.option("--monitor", "Auto-start Tier 2 monitor agent with coordinator")
-		.option(
-			"--auto-pull",
-			"Auto-start GitHub Issues poller (requires taskTracker.github config)",
-		)
+		.option("--auto-pull", "Auto-start GitHub Issues poller (requires taskTracker.github config)")
 		.option("--json", "Output as JSON")
 		.action(
 			async (opts: {

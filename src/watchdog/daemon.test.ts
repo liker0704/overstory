@@ -843,7 +843,7 @@ describe("daemon tick", () => {
 			escalationLevel: 0,
 			stalledSince: null,
 			transcriptPath: null,
-		originalRuntime: null,
+			originalRuntime: null,
 		});
 
 		writeSessionsToStore(tempRoot, [session]);

@@ -20,7 +20,6 @@ const runtimes = new Map<string, () => AgentRuntime>([
 	["copilot", () => new CopilotRuntime()],
 	["cursor", () => new CursorRuntime()],
 	["gemini", () => new GeminiRuntime()],
-	["opencode", () => new OpenCodeRuntime()],
 	["sapling", () => new SaplingRuntime()],
 	["opencode", () => new OpenCodeRuntime()],
 ]);
@@ -42,7 +41,6 @@ export function getAllRuntimes(): AgentRuntime[] {
 		new CopilotRuntime(),
 		new CursorRuntime(),
 		new GeminiRuntime(),
-		new OpenCodeRuntime(),
 		new SaplingRuntime(),
 		new OpenCodeRuntime(),
 	];

@@ -5,18 +5,18 @@
  * GitHub API calls (gh CLI) are injected via the GhRunner interface.
  */
 
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createMailStore } from "../mail/store.ts";
+import type { GitHubPollerConfig } from "../types.ts";
 import {
 	type GhRawIssue,
 	type GhRunner,
 	type PollerTickResult,
 	runPollerTick,
 } from "./github-poller.ts";
-import type { GitHubPollerConfig } from "../types.ts";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -59,7 +59,9 @@ function makeIssue(number: number, title = `Issue ${number}`): GhRawIssue {
  * Build a GhRunner mock from a handler map.
  * Keys match the first argument after "issue" (e.g., "list", "edit").
  */
-function buildGhRunner(handlers: Record<string, (args: string[]) => { stdout: string; exitCode: number }>): GhRunner {
+function buildGhRunner(
+	handlers: Record<string, (args: string[]) => { stdout: string; exitCode: number }>,
+): GhRunner {
 	return async (args) => {
 		// args[0] = "issue", args[1] = subcommand
 		const sub = args[1] ?? "";

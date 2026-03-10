@@ -125,16 +125,7 @@ async function pruneDispatched(
 ): Promise<void> {
 	if (Object.keys(state.dispatched).length === 0) return;
 
-	const args = [
-		"issue",
-		"list",
-		"--label",
-		activeLabel,
-		"--state",
-		"open",
-		"--json",
-		"number",
-	];
+	const args = ["issue", "list", "--label", activeLabel, "--state", "open", "--json", "number"];
 	if (owner && repo) {
 		args.push("--repo", `${owner}/${repo}`);
 	}
@@ -391,9 +382,7 @@ if (import.meta.main) {
 	}
 
 	runPollerDaemon(projectRoot).catch((err) => {
-		process.stderr.write(
-			`[autopull] Fatal: ${err instanceof Error ? err.message : String(err)}\n`,
-		);
+		process.stderr.write(`[autopull] Fatal: ${err instanceof Error ? err.message : String(err)}\n`);
 		process.exit(1);
 	});
 }

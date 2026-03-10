@@ -75,9 +75,7 @@ export class CodexRuntime implements AgentRuntime {
 	 * to restore full conversation context from the previous session.
 	 */
 	buildSpawnCommand(opts: SpawnOpts): string {
-		const modelFlag = CodexRuntime.SKIP_MODEL_FLAG.has(opts.model)
-			? ""
-			: ` --model ${opts.model}`;
+		const modelFlag = CodexRuntime.SKIP_MODEL_FLAG.has(opts.model) ? "" : ` --model ${opts.model}`;
 
 		let cmd: string;
 		if (opts.resumeSessionId) {
@@ -215,9 +213,7 @@ export class CodexRuntime implements AgentRuntime {
 				// token_count: cumulative totals — assignment, not +=
 				if (ptype === "token_count") {
 					const info = payload.info as Record<string, unknown> | undefined;
-					const total = info?.total_token_usage as
-						| Record<string, number | undefined>
-						| undefined;
+					const total = info?.total_token_usage as Record<string, number | undefined> | undefined;
 					if (total) {
 						if (typeof total.input_tokens === "number") {
 							inputTokens = total.input_tokens;
@@ -279,10 +275,7 @@ export class CodexRuntime implements AgentRuntime {
 	 * the spawn timestamp. Extracts the UUID from the `session_meta` event
 	 * (always the first line of a rollout file).
 	 */
-	async discoverSessionId(
-		_worktreePath: string,
-		spawnedAfter: number,
-	): Promise<string | null> {
+	async discoverSessionId(_worktreePath: string, spawnedAfter: number): Promise<string | null> {
 		try {
 			const home = process.env.HOME ?? "";
 			if (home.length === 0) return null;
@@ -384,9 +377,7 @@ export class CodexRuntime implements AgentRuntime {
 				// Assistant text: response_item > message with output_text
 				if (responsePayload && responsePayload.type === "message") {
 					const role = responsePayload.role as string | undefined;
-					const contentArr = responsePayload.content as
-						| Array<Record<string, unknown>>
-						| undefined;
+					const contentArr = responsePayload.content as Array<Record<string, unknown>> | undefined;
 					if (role === "assistant" && Array.isArray(contentArr)) {
 						let text = "";
 						for (const block of contentArr) {

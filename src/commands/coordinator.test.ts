@@ -1325,10 +1325,7 @@ describe("watchdog integration", () => {
 			// Override config to disable tier0 so watchdog won't auto-start
 			const configPath = join(tempDir, ".overstory", "config.yaml");
 			const originalConfig = await Bun.file(configPath).text();
-			await Bun.write(
-				configPath,
-				[originalConfig, "  tier0Enabled: false"].join("\n"),
-			);
+			await Bun.write(configPath, [originalConfig, "  tier0Enabled: false"].join("\n"));
 
 			const { deps, watchdogCalls } = makeDeps({}, { startSuccess: true });
 			const originalSleep = Bun.sleep;
