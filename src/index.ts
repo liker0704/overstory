@@ -23,6 +23,7 @@ import { createErrorsCommand } from "./commands/errors.ts";
 import { createEvalCommand } from "./commands/eval.ts";
 import { createFeedCommand } from "./commands/feed.ts";
 import { createGroupCommand } from "./commands/group.ts";
+import { createHealthCommand } from "./commands/health.ts";
 import { createHooksCommand } from "./commands/hooks.ts";
 import { initCommand } from "./commands/init.ts";
 import { createInspectCommand } from "./commands/inspect.ts";
@@ -32,6 +33,7 @@ import { mailCommand } from "./commands/mail.ts";
 import { mergeCommand } from "./commands/merge.ts";
 import { createMetricsCommand } from "./commands/metrics.ts";
 import { createMonitorCommand } from "./commands/monitor.ts";
+import { createNextImprovementCommand } from "./commands/next-improvement.ts";
 import { nudgeCommand } from "./commands/nudge.ts";
 import { primeCommand } from "./commands/prime.ts";
 import { createReplayCommand } from "./commands/replay.ts";
@@ -104,7 +106,9 @@ const COMMANDS = [
 	"run",
 	"costs",
 	"eval",
+	"health",
 	"metrics",
+	"next-improvement",
 	"update",
 	"upgrade",
 	"completions",
@@ -417,6 +421,9 @@ program.addCommand(createRunCommand());
 
 program.addCommand(createCostsCommand());
 program.addCommand(createEvalCommand());
+
+program.addCommand(createHealthCommand());
+program.addCommand(createNextImprovementCommand());
 
 program.addCommand(createMetricsCommand());
 
