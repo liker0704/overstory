@@ -9,7 +9,7 @@
 	"sling-rollback-lead": 1772806485021,
 	"merge-cleanup-lead": 1772806835893,
 	"init-commit-builder": 1772806688503,
-	"coordinator": 1773168474096,
+	"coordinator": 1773174507617,
 	"watchdog-fix-lead": 1772806961528,
 	"fix-uncommitted-state": 1772806896551,
 	"github-tracker-lead": 1772920501752,
@@ -34,5 +34,8 @@
 	"eval-rebase-lead": 1773167710811,
 	"eval-rebase-builder": 1773167591826,
 	"eval-scenarios-lead": 1773168137215,
-	"eval-scenarios-builder": 1773168085927
+	"eval-scenarios-builder": 1773168085927,
+	"eval-gaps-lead": 1773174338951,
+	"eval-metrics-builder": 1773174152051,
+	"eval-commands-builder": 1773174282708
 }
