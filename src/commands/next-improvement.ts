@@ -8,7 +8,7 @@
 import { join } from "node:path";
 import { Command } from "commander";
 import { loadConfig } from "../config.ts";
-import { generateRecommendations } from "../health/recommendations.ts";
+import { selectRecommendation } from "../health/recommendations.ts";
 import { renderRecommendation } from "../health/render.ts";
 import { computeScore } from "../health/score.ts";
 import { collectSignals } from "../health/signals.ts";
@@ -18,7 +18,7 @@ import { thickSeparator } from "../logging/theme.ts";
 
 export interface NextImprovementOptions {
 	json?: boolean;
-	/** Scope to a specific run ID. */
+	/** Scope to a specific run ID (informational, not currently filtered). */
 	run?: string;
 	/** Show all recommendations instead of just the top one. */
 	all?: boolean;
@@ -29,7 +29,6 @@ export interface NextImprovementOptions {
  */
 export async function executeNextImprovement(opts: NextImprovementOptions): Promise<void> {
 	const json = opts.json ?? false;
-	const showAll = opts.all ?? false;
 
 	let config: Awaited<ReturnType<typeof loadConfig>>;
 	try {
@@ -49,7 +48,7 @@ export async function executeNextImprovement(opts: NextImprovementOptions): Prom
 
 	let signals: ReturnType<typeof collectSignals>;
 	try {
-		signals = collectSignals({ overstoryDir, config, runId: opts.run });
+		signals = collectSignals({ overstoryDir });
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
 		if (json) {
@@ -62,10 +61,11 @@ export async function executeNextImprovement(opts: NextImprovementOptions): Prom
 	}
 
 	const score = computeScore(signals);
-	const recommendations = generateRecommendations(score, config);
+	const recommendation = selectRecommendation(score);
+	const recommendations = recommendation !== null ? [recommendation] : [];
 
 	if (json) {
-		const selected = showAll ? recommendations : recommendations.slice(0, 1);
+		const selected = opts.all ? recommendations : recommendations.slice(0, 1);
 		jsonOutput("next-improvement", {
 			recommendations: selected,
 			score: { overall: score.overall, grade: score.grade },
@@ -86,8 +86,8 @@ export async function executeNextImprovement(opts: NextImprovementOptions): Prom
 		return;
 	}
 
-	const toRender = showAll ? recommendations : recommendations.slice(0, 1);
-	const headerLabel = showAll
+	const toRender = opts.all ? recommendations : recommendations.slice(0, 1);
+	const headerLabel = opts.all
 		? `All Recommendations (${recommendations.length})`
 		: "Top Recommendation";
 	process.stdout.write(`  ${color.bold(headerLabel)}\n`);

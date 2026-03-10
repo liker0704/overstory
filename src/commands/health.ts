@@ -9,15 +9,16 @@
 import { join } from "node:path";
 import { Command } from "commander";
 import { loadConfig } from "../config.ts";
-import { renderComparison, renderHealthScore } from "../health/render.ts";
-import { compareSnapshots, computeScore } from "../health/score.ts";
+import { selectRecommendation } from "../health/recommendations.ts";
+import { renderHealthScore } from "../health/render.ts";
+import { computeScore } from "../health/score.ts";
 import { collectSignals } from "../health/signals.ts";
 import type { HealthSnapshot } from "../health/types.ts";
 import { jsonError, jsonOutput } from "../json.ts";
 
 export interface HealthOptions {
 	json?: boolean;
-	/** Scope signals to a specific run ID. */
+	/** Scope signals to a specific run ID (informational, not currently filtered). */
 	run?: string;
 	/** Path to a previous snapshot JSON file for comparison. */
 	compare?: string;
@@ -47,7 +48,7 @@ export async function executeHealth(opts: HealthOptions): Promise<void> {
 
 	let signals: ReturnType<typeof collectSignals>;
 	try {
-		signals = collectSignals({ overstoryDir, config, runId: opts.run });
+		signals = collectSignals({ overstoryDir });
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
 		if (json) {
@@ -60,22 +61,25 @@ export async function executeHealth(opts: HealthOptions): Promise<void> {
 	}
 
 	const score = computeScore(signals);
+	const recommendation = selectRecommendation(score);
+
+	const snapshot: HealthSnapshot = {
+		score,
+		recommendation,
+		savedAt: new Date().toISOString(),
+	};
 
 	// Optional comparison against previous snapshot
-	let comparison: ReturnType<typeof compareSnapshots> | undefined;
+	let comparisonDelta: number | undefined;
 	if (opts.compare) {
 		try {
 			const file = Bun.file(opts.compare);
 			const text = await file.text();
 			const prev = JSON.parse(text) as HealthSnapshot;
-			comparison = compareSnapshots(score.snapshot, prev);
+			comparisonDelta = score.overall - prev.score.overall;
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
-			if (json) {
-				jsonError("health", `Failed to load comparison snapshot: ${msg}`);
-			} else {
-				process.stderr.write(`Warning: could not load snapshot for comparison: ${msg}\n`);
-			}
+			process.stderr.write(`Warning: could not load snapshot for comparison: ${msg}\n`);
 			// Non-fatal — continue without comparison
 		}
 	}
@@ -88,18 +92,19 @@ export async function executeHealth(opts: HealthOptions): Promise<void> {
 				collectedAt: score.collectedAt,
 			},
 			signals: score.signals,
-			snapshot: score.snapshot,
+			snapshot,
 		};
-		if (comparison !== undefined) {
-			out.comparison = comparison;
+		if (comparisonDelta !== undefined) {
+			out.comparison = { overallDelta: comparisonDelta };
 		}
 		jsonOutput("health", out);
 		return;
 	}
 
 	renderHealthScore(score);
-	if (comparison !== undefined) {
-		renderComparison(comparison);
+	if (comparisonDelta !== undefined) {
+		const sign = comparisonDelta > 0 ? "+" : "";
+		process.stdout.write(`\n  Score delta vs previous snapshot: ${sign}${comparisonDelta}\n`);
 	}
 }
 
