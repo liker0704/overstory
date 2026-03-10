@@ -9,7 +9,7 @@
 	"sling-rollback-lead": 1772806485021,
 	"merge-cleanup-lead": 1772806835893,
 	"init-commit-builder": 1772806688503,
-	"coordinator": 1773163756133,
+	"coordinator": 1773166658965,
 	"watchdog-fix-lead": 1772806961528,
 	"fix-uncommitted-state": 1772806896551,
 	"github-tracker-lead": 1772920501752,
@@ -26,5 +26,9 @@
 	"dashboard-fix-lead": 1773152311975,
 	"upstream-merge-lead": 1773162893749,
 	"tmux-fix-lead": 1773163577521,
-	"tmux-attach-builder": 1773163548016
+	"tmux-attach-builder": 1773163548016,
+	"eval-core-lead": 1773166657276,
+	"eval-types-builder": 1773165321683,
+	"eval-runner-builder": 1773165798787,
+	"eval-reconcile-builder": 1773166621692
 }

@@ -912,5 +912,16 @@
 		"status": "active",
 		"createdAt": "2026-03-10T17:20:25.517Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-6e0a08fd",
+		"name": "ov-eval",
+		"memberIssueIds": [
+			"overstory-a597",
+			"overstory-e0f3"
+		],
+		"status": "active",
+		"createdAt": "2026-03-10T17:45:40.766Z",
+		"completedAt": null
 	}
 ]
