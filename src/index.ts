@@ -20,6 +20,7 @@ import { createDashboardCommand } from "./commands/dashboard.ts";
 import { createDoctorCommand } from "./commands/doctor.ts";
 import { createEcosystemCommand } from "./commands/ecosystem.ts";
 import { createErrorsCommand } from "./commands/errors.ts";
+import { createEvalCommand } from "./commands/eval.ts";
 import { createFeedCommand } from "./commands/feed.ts";
 import { createGroupCommand } from "./commands/group.ts";
 import { createHooksCommand } from "./commands/hooks.ts";
@@ -102,6 +103,7 @@ const COMMANDS = [
 	"resume",
 	"run",
 	"costs",
+	"eval",
 	"metrics",
 	"update",
 	"upgrade",
@@ -414,6 +416,7 @@ program.addCommand(createResumeCommand());
 program.addCommand(createRunCommand());
 
 program.addCommand(createCostsCommand());
+program.addCommand(createEvalCommand());
 
 program.addCommand(createMetricsCommand());
 
