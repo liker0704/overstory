@@ -902,5 +902,15 @@
 		"status": "active",
 		"createdAt": "2026-03-10T14:11:29.988Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-060562dd",
+		"name": "tmux-fixes",
+		"memberIssueIds": [
+			"overstory-88e2"
+		],
+		"status": "active",
+		"createdAt": "2026-03-10T17:20:25.517Z",
+		"completedAt": null
 	}
 ]
