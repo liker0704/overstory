@@ -9,6 +9,7 @@ import { CursorRuntime } from "./cursor.ts";
 import { GeminiRuntime } from "./gemini.ts";
 import { OpenCodeRuntime } from "./opencode.ts";
 import { PiRuntime } from "./pi.ts";
+import { QwenRuntime } from "./qwen.ts";
 import { SaplingRuntime } from "./sapling.ts";
 import type { AgentRuntime } from "./types.ts";
 
@@ -22,6 +23,7 @@ const runtimes = new Map<string, () => AgentRuntime>([
 	["gemini", () => new GeminiRuntime()],
 	["sapling", () => new SaplingRuntime()],
 	["opencode", () => new OpenCodeRuntime()],
+	["qwen", () => new QwenRuntime()],
 ]);
 
 /**
@@ -43,6 +45,7 @@ export function getAllRuntimes(): AgentRuntime[] {
 		new GeminiRuntime(),
 		new SaplingRuntime(),
 		new OpenCodeRuntime(),
+		new QwenRuntime(),
 	];
 }
 
