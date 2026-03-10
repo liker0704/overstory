@@ -289,7 +289,7 @@ describe("QwenRuntime", () => {
 			expect(content).toBe("# Agent Overlay\nTask spec here.");
 		});
 
-		test("writes .qwen/settings.json with context.fileName", async () => {
+		test("writes .qwen/settings.json with context.fileName and hooks", async () => {
 			const worktreePath = join(tempDir, "worktree");
 
 			await runtime.deployConfig(
@@ -299,11 +299,16 @@ describe("QwenRuntime", () => {
 			);
 
 			const settingsPath = join(worktreePath, ".qwen", "settings.json");
-			const settings = await Bun.file(settingsPath).json();
-			expect(settings).toEqual({ context: { fileName: "AGENTS.md" } });
+			const settings = (await Bun.file(settingsPath).json()) as Record<string, unknown>;
+			expect(settings.context).toEqual({ fileName: "AGENTS.md" });
+			expect(settings.hooks).toBeDefined();
+			const hooks = settings.hooks as Record<string, unknown[]>;
+			expect(hooks.BeforeTool).toBeDefined();
+			expect(hooks.AfterTool).toBeDefined();
+			expect(hooks.SessionStart).toBeDefined();
 		});
 
-		test("no-op when overlay is undefined", async () => {
+		test("deploys hooks even when overlay is undefined", async () => {
 			const worktreePath = join(tempDir, "worktree");
 
 			await runtime.deployConfig(worktreePath, undefined, {
@@ -314,8 +319,10 @@ describe("QwenRuntime", () => {
 
 			const agentsExists = await Bun.file(join(worktreePath, "AGENTS.md")).exists();
 			expect(agentsExists).toBe(false);
-			const settingsExists = await Bun.file(join(worktreePath, ".qwen", "settings.json")).exists();
-			expect(settingsExists).toBe(false);
+			const settingsPath = join(worktreePath, ".qwen", "settings.json");
+			const settings = (await Bun.file(settingsPath).json()) as Record<string, unknown>;
+			expect(settings.context).toEqual({ fileName: "AGENTS.md" });
+			expect(settings.hooks).toBeDefined();
 		});
 
 		test("creates nested directories if needed", async () => {
@@ -329,6 +336,64 @@ describe("QwenRuntime", () => {
 
 			const exists = await Bun.file(join(worktreePath, "AGENTS.md")).exists();
 			expect(exists).toBe(true);
+		});
+	});
+
+	describe("deployConfig hooks content", () => {
+		let tempDir: string;
+
+		beforeEach(async () => {
+			tempDir = await mkdtemp(join(tmpdir(), "overstory-qwen-hooks-"));
+		});
+
+		afterEach(async () => {
+			await rm(tempDir, { recursive: true, force: true });
+		});
+
+		test("BeforeTool guards use Gemini tool names (write_file, replace, run_shell_command)", async () => {
+			const worktreePath = join(tempDir, "worktree");
+			await runtime.deployConfig(
+				worktreePath,
+				{ content: "# Overlay" },
+				{ agentName: "test-builder", capability: "builder", worktreePath },
+			);
+
+			const settings = (await Bun.file(join(worktreePath, ".qwen", "settings.json")).json()) as Record<string, unknown>;
+			const hooks = settings.hooks as Record<string, Array<{ matcher?: string }>> | undefined;
+			const beforeTool = hooks?.BeforeTool ?? [];
+			const matchers = beforeTool.map((e) => e.matcher).filter(Boolean);
+			expect(matchers).toContain("write_file");
+			expect(matchers).toContain("replace");
+			expect(matchers).toContain("run_shell_command");
+			expect(matchers).not.toContain("Write");
+			expect(matchers).not.toContain("Edit");
+			expect(matchers).not.toContain("Bash");
+		});
+
+		test("guard scripts use 'deny' not 'block' for decisions", async () => {
+			const worktreePath = join(tempDir, "worktree");
+			await runtime.deployConfig(
+				worktreePath,
+				{ content: "# Overlay" },
+				{ agentName: "test-builder", capability: "builder", worktreePath },
+			);
+
+			const text = await Bun.file(join(worktreePath, ".qwen", "settings.json")).text();
+			expect(text).toContain("deny");
+			expect(text).not.toMatch(/"decision":"block"/);
+			expect(text).not.toMatch(/decision\\\\?":\\\\?"block/);
+		});
+
+		test("non-implementation capability blocks write_file and replace", async () => {
+			const worktreePath = join(tempDir, "worktree");
+			await runtime.deployConfig(
+				worktreePath,
+				{ content: "# Overlay" },
+				{ agentName: "test-scout", capability: "scout", worktreePath },
+			);
+
+			const text = await Bun.file(join(worktreePath, ".qwen", "settings.json")).text();
+			expect(text).toContain("scout agents cannot modify files");
 		});
 	});
 

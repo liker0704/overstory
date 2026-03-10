@@ -4,7 +4,7 @@
 // Key characteristics:
 // - TUI: `qwen` maintains an interactive Ink-based TUI in tmux (forked from Gemini CLI)
 // - Instruction file: AGENTS.md (configured via .qwen/settings.json context.fileName)
-// - No hooks: Qwen Code has no hook/guard mechanism
+// - Hooks: Qwen Code v0.12.0+ supports hooks via .qwen/settings.json (Gemini fork format)
 // - Auto-approve: `--yolo` flag for full auto-approve mode
 // - Headless: `qwen -p "prompt"` for one-shot calls
 // - Resume: `--resume <sessionId>` or `--continue` (latest)
@@ -12,6 +12,7 @@
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ResolvedModel } from "../types.ts";
+import { generateGeminiHooks } from "./gemini-guards.ts";
 import type {
 	AgentRuntime,
 	HooksDef,
@@ -110,31 +111,47 @@ export class QwenRuntime implements AgentRuntime {
 	}
 
 	/**
-	 * Deploy per-agent instructions to a worktree.
+	 * Deploy per-agent instructions and guards to a worktree.
 	 *
 	 * Writes the overlay to `AGENTS.md` and creates `.qwen/settings.json`
-	 * with `context.fileName: "AGENTS.md"` so Qwen discovers it.
+	 * with `context.fileName: "AGENTS.md"` and hooks for guard enforcement.
 	 *
-	 * No hooks are deployed — Qwen Code has no hook mechanism.
+	 * Hooks are always deployed (even when overlay is undefined) so that
+	 * coordinator/supervisor agents at the project root still get guards.
 	 */
 	async deployConfig(
 		worktreePath: string,
 		overlay: OverlayContent | undefined,
-		_hooks: HooksDef,
+		hooks: HooksDef,
 	): Promise<void> {
-		if (!overlay) return;
+		if (overlay) {
+			const agentsPath = join(worktreePath, this.instructionPath);
+			await mkdir(dirname(agentsPath), { recursive: true });
+			await Bun.write(agentsPath, overlay.content);
+		}
 
-		const agentsPath = join(worktreePath, this.instructionPath);
-		await mkdir(dirname(agentsPath), { recursive: true });
-		await Bun.write(agentsPath, overlay.content);
-
-		// Configure Qwen to read AGENTS.md instead of default QWEN.md
+		const qwenHooks = generateGeminiHooks(hooks);
 		const settingsDir = join(worktreePath, ".qwen");
 		await mkdir(settingsDir, { recursive: true });
-		await Bun.write(
-			join(settingsDir, "settings.json"),
-			JSON.stringify({ context: { fileName: "AGENTS.md" } }, null, 2),
-		);
+
+		// Merge: keep context.fileName config, add hooks
+		const settingsPath = join(settingsDir, "settings.json");
+		let existing: Record<string, unknown> = {};
+		const existingFile = Bun.file(settingsPath);
+		if (await existingFile.exists()) {
+			try {
+				existing = (await existingFile.json()) as Record<string, unknown>;
+			} catch {
+				// Malformed — start fresh
+			}
+		}
+		const { hooks: _existingHooks, ...nonHooksKeys } = existing;
+		const merged = {
+			context: { fileName: "AGENTS.md" },
+			...nonHooksKeys,
+			...qwenHooks,
+		};
+		await Bun.write(settingsPath, `${JSON.stringify(merged, null, "\t")}\n`);
 	}
 
 	/**

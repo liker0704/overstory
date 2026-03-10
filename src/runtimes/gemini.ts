@@ -4,7 +4,7 @@
 // Key characteristics:
 // - TUI: `gemini` maintains an interactive Ink-based TUI in tmux
 // - Instruction file: GEMINI.md (read automatically from workspace root)
-// - No hooks: Gemini CLI has no hook/guard mechanism (like Copilot)
+// - Hooks: Gemini CLI v0.26.0+ supports BeforeTool/AfterTool hooks via .gemini/settings.json
 // - Sandbox: `--sandbox` flag + `--approval-mode yolo` for bypass
 // - Headless: `gemini -p "prompt"` for one-shot calls
 // - Transcripts: `--output-format stream-json` produces NDJSON events
@@ -12,6 +12,7 @@
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ResolvedModel } from "../types.ts";
+import { generateGeminiHooks } from "./gemini-guards.ts";
 import type {
 	AgentRuntime,
 	HooksDef,
@@ -28,9 +29,8 @@ import type {
  * Gemini maintains an interactive Ink-based TUI, similar to Copilot.
  *
  * Security: Gemini CLI supports `--sandbox` for filesystem isolation
- * (Seatbelt on macOS, container-based on Linux) but has no hook/guard
- * mechanism for per-tool interception. The `_hooks` parameter in
- * `deployConfig` is unused.
+ * (Seatbelt on macOS, container-based on Linux). Hooks (v0.26.0+) provide
+ * BeforeTool/AfterTool interception for guard deployment.
  *
  * Instructions are delivered via `GEMINI.md` (Gemini's native context
  * file convention), which the CLI reads automatically from the workspace.
@@ -96,30 +96,44 @@ export class GeminiRuntime implements AgentRuntime {
 	}
 
 	/**
-	 * Deploy per-agent instructions to a worktree.
+	 * Deploy per-agent instructions and guards to a worktree.
 	 *
 	 * Writes the overlay to `GEMINI.md` in the worktree root (Gemini's
-	 * native context file convention). The CLI reads GEMINI.md automatically
-	 * when starting in a directory that contains one.
+	 * native context file convention). Deploys hooks to `.gemini/settings.json`
+	 * for guard enforcement (path boundary, dangerous commands, capability-based).
 	 *
-	 * The `hooks` parameter is unused — Gemini CLI has no hook mechanism
-	 * for per-tool interception. Security depends on `--sandbox` and
-	 * `--approval-mode` flags instead.
-	 *
-	 * @param worktreePath - Absolute path to the agent's git worktree
-	 * @param overlay - Overlay content to write as GEMINI.md, or undefined to skip
-	 * @param _hooks - Unused for Gemini runtime
+	 * Hooks are always deployed (even when overlay is undefined) so that
+	 * coordinator/supervisor agents at the project root still get guards.
 	 */
 	async deployConfig(
 		worktreePath: string,
 		overlay: OverlayContent | undefined,
-		_hooks: HooksDef,
+		hooks: HooksDef,
 	): Promise<void> {
-		if (!overlay) return;
+		if (overlay) {
+			const geminiPath = join(worktreePath, this.instructionPath);
+			await mkdir(dirname(geminiPath), { recursive: true });
+			await Bun.write(geminiPath, overlay.content);
+		}
 
-		const geminiPath = join(worktreePath, this.instructionPath);
-		await mkdir(dirname(geminiPath), { recursive: true });
-		await Bun.write(geminiPath, overlay.content);
+		const geminiHooks = generateGeminiHooks(hooks);
+		const settingsDir = join(worktreePath, ".gemini");
+		await mkdir(settingsDir, { recursive: true });
+
+		// Merge with existing settings if present
+		const settingsPath = join(settingsDir, "settings.json");
+		let existing: Record<string, unknown> = {};
+		const existingFile = Bun.file(settingsPath);
+		if (await existingFile.exists()) {
+			try {
+				existing = (await existingFile.json()) as Record<string, unknown>;
+			} catch {
+				// Malformed — start fresh
+			}
+		}
+		const { hooks: _existingHooks, ...nonHooksKeys } = existing;
+		const merged = { ...nonHooksKeys, ...geminiHooks };
+		await Bun.write(settingsPath, `${JSON.stringify(merged, null, "\t")}\n`);
 	}
 
 	/**

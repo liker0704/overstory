@@ -156,7 +156,7 @@ describe("GeminiRuntime", () => {
 			expect(await file.text()).toBe("# Task\nBuild the feature.");
 		});
 
-		test("no-op when overlay is undefined", async () => {
+		test("deploys hooks even when overlay is undefined", async () => {
 			await runtime.deployConfig(tempDir, undefined, {
 				agentName: "test-agent",
 				capability: "coordinator",
@@ -165,9 +165,15 @@ describe("GeminiRuntime", () => {
 
 			const file = Bun.file(join(tempDir, "GEMINI.md"));
 			expect(await file.exists()).toBe(false);
+
+			// Hooks should still be deployed
+			const settingsFile = Bun.file(join(tempDir, ".gemini", "settings.json"));
+			expect(await settingsFile.exists()).toBe(true);
+			const settings = (await settingsFile.json()) as Record<string, unknown>;
+			expect(settings.hooks).toBeDefined();
 		});
 
-		test("hooks parameter is unused (no guard deployment)", async () => {
+		test("deploys hooks with guard entries to .gemini/settings.json", async () => {
 			await runtime.deployConfig(
 				tempDir,
 				{ content: "# Instructions" },
@@ -175,23 +181,46 @@ describe("GeminiRuntime", () => {
 					agentName: "my-builder",
 					capability: "builder",
 					worktreePath: tempDir,
-					qualityGates: [
-						{ command: "bun test", name: "tests", description: "all tests must pass" },
-					],
 				},
 			);
 
-			// Only GEMINI.md should exist — no settings files or guard extensions.
 			const geminiFile = Bun.file(join(tempDir, "GEMINI.md"));
 			expect(await geminiFile.exists()).toBe(true);
 
-			// No Claude Code settings file.
-			const settingsFile = Bun.file(join(tempDir, ".claude", "settings.local.json"));
-			expect(await settingsFile.exists()).toBe(false);
+			const settingsFile = Bun.file(join(tempDir, ".gemini", "settings.json"));
+			expect(await settingsFile.exists()).toBe(true);
+			const settings = (await settingsFile.json()) as Record<string, unknown>;
+			const hooks = settings.hooks as Record<string, Array<{ matcher?: string }>> | undefined;
+			expect(hooks).toBeDefined();
+			const beforeTool = hooks?.BeforeTool ?? [];
+			const afterTool = hooks?.AfterTool ?? [];
+			const sessionStart = hooks?.SessionStart ?? [];
+			expect(beforeTool.length).toBeGreaterThan(0);
+			expect(afterTool.length).toBeGreaterThan(0);
+			expect(sessionStart.length).toBeGreaterThan(0);
 
-			// No Pi guard extension.
-			const piGuardFile = Bun.file(join(tempDir, ".pi", "extensions", "overstory-guard.ts"));
-			expect(await piGuardFile.exists()).toBe(false);
+			// Verify Gemini tool names used
+			const matchers = beforeTool.map((e) => e.matcher).filter(Boolean);
+			expect(matchers).toContain("write_file");
+			expect(matchers).toContain("replace");
+			expect(matchers).toContain("run_shell_command");
+
+			// No Claude Code settings file
+			const claudeFile = Bun.file(join(tempDir, ".claude", "settings.local.json"));
+			expect(await claudeFile.exists()).toBe(false);
+		});
+
+		test("guard scripts use deny not block", async () => {
+			await runtime.deployConfig(
+				tempDir,
+				{ content: "# Instructions" },
+				{ agentName: "my-builder", capability: "builder", worktreePath: tempDir },
+			);
+
+			const text = await Bun.file(join(tempDir, ".gemini", "settings.json")).text();
+			expect(text).toContain("deny");
+			expect(text).not.toMatch(/"decision":"block"/);
+			expect(text).not.toMatch(/decision\\\\?":\\\\?"block/);
 		});
 
 		test("overwrites existing GEMINI.md", async () => {
