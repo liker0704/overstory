@@ -40,7 +40,13 @@ import { openSessionStore } from "../sessions/compat.ts";
 import type { SessionStore } from "../sessions/store.ts";
 import { createTrackerClient, resolveBackend } from "../tracker/factory.ts";
 import type { TrackerIssue } from "../tracker/types.ts";
-import type { EventStore, MailMessage, StoredEvent } from "../types.ts";
+import type {
+	AgentSession,
+	EventStore,
+	MailMessage,
+	OverstoryConfig,
+	StoredEvent,
+} from "../types.ts";
 import { evaluateHealth } from "../watchdog/health.ts";
 import { isProcessAlive } from "../worktree/tmux.ts";
 import { getCachedTmuxSessions, getCachedWorktrees, type StatusData } from "./status.ts";
@@ -296,6 +302,14 @@ interface TrackerCache {
 let trackerCache: TrackerCache | null = null;
 const TRACKER_CACHE_TTL_MS = 10_000; // 10 seconds
 
+/** Session data cached between ticks — stale-on-error fallback. */
+interface SessionDataCache {
+	sessions: AgentSession[];
+}
+
+/** Module-level session cache (persists across poll ticks, used as fallback on SQLite errors). */
+let sessionDataCache: SessionDataCache | null = null;
+
 interface DashboardData {
 	currentRunId?: string | null;
 	status: StatusData;
@@ -309,6 +323,8 @@ interface DashboardData {
 	tasks: TrackerIssue[];
 	recentEvents: StoredEvent[];
 	feedColorMap: Map<string, (s: string) => string>;
+	/** Runtime config for resolving per-capability runtime names in the agent panel. */
+	runtimeConfig?: OverstoryConfig["runtime"];
 }
 
 /**
@@ -336,9 +352,17 @@ async function loadDashboardData(
 	runId?: string | null,
 	thresholds?: { staleMs: number; zombieMs: number },
 	eventBuffer?: EventBuffer,
+	runtimeConfig?: OverstoryConfig["runtime"],
 ): Promise<DashboardData> {
-	// Get all sessions from the pre-opened session store
-	const allSessions = stores.sessionStore.getAll();
+	// Get all sessions from the pre-opened session store — fall back to cache on SQLite errors.
+	let allSessions: AgentSession[];
+	try {
+		allSessions = stores.sessionStore.getAll();
+		sessionDataCache = { sessions: allSessions };
+	} catch {
+		// SQLite lock contention or I/O error — use last known sessions
+		allSessions = sessionDataCache?.sessions ?? [];
+	}
 
 	// Get worktrees and tmux sessions via cached subprocess helpers
 	const worktrees = await getCachedWorktrees(root);
@@ -347,18 +371,22 @@ async function loadDashboardData(
 	// Evaluate health for active agents using the same logic as the watchdog.
 	const tmuxSessionNames = new Set(tmuxSessions.map((s) => s.name));
 	const healthThresholds = thresholds ?? { staleMs: 300_000, zombieMs: 600_000 };
-	for (const session of allSessions) {
-		if (session.state === "completed") continue;
-		const tmuxAlive = tmuxSessionNames.has(session.tmuxSession);
-		const check = evaluateHealth(session, tmuxAlive, healthThresholds);
-		if (check.state !== session.state) {
-			try {
-				stores.sessionStore.updateState(session.agentName, check.state);
-				session.state = check.state;
-			} catch {
-				// Best effort: don't fail dashboard if update fails
+	try {
+		for (const session of allSessions) {
+			if (session.state === "completed") continue;
+			const tmuxAlive = tmuxSessionNames.has(session.tmuxSession);
+			const check = evaluateHealth(session, tmuxAlive, healthThresholds);
+			if (check.state !== session.state) {
+				try {
+					stores.sessionStore.updateState(session.agentName, check.state);
+					session.state = check.state;
+				} catch {
+					// Best effort: don't fail dashboard if update fails
+				}
 			}
 		}
+	} catch {
+		// Best effort: evaluateHealth loop should not crash the dashboard
 	}
 
 	// If run-scoped, filter agents to only those belonging to the current run.
@@ -519,6 +547,7 @@ async function loadDashboardData(
 		tasks,
 		recentEvents,
 		feedColorMap,
+		runtimeConfig,
 	};
 }
 
@@ -534,6 +563,18 @@ function renderHeader(width: number, interval: number, currentRunId?: string | n
 	const line = left + " ".repeat(Math.max(0, padding)) + right;
 	const separator = horizontalLine(width, BOX.topLeft, BOX.horizontal, BOX.topRight);
 	return `${line}\n${separator}`;
+}
+
+/**
+ * Resolve the runtime name for a given capability from config.
+ * Mirrors the lookup chain in runtimes/registry.ts getRuntime():
+ *   capabilities[cap] > runtime.default > "claude"
+ */
+function resolveRuntimeName(
+	capability: string,
+	runtimeConfig?: OverstoryConfig["runtime"],
+): string {
+	return runtimeConfig?.capabilities?.[capability] ?? runtimeConfig?.default ?? "claude";
 }
 
 /**
@@ -556,7 +597,7 @@ export function renderAgentPanel(
 	output += `${CURSOR.cursorTo(startRow, 1)}${headerLine}${headerPadding}${dimBox.vertical}\n`;
 
 	// Column headers
-	const colStr = `${dimBox.vertical} St Name            Capability    State      Task ID          Duration  Live `;
+	const colStr = `${dimBox.vertical} St Name            Capability    Runtime   State      Task ID          Duration  Live `;
 	const colPadding = " ".repeat(
 		Math.max(0, leftWidth - visibleLength(colStr) - visibleLength(dimBox.vertical)),
 	);
@@ -588,6 +629,8 @@ export function renderAgentPanel(
 		const stateColorFn = stateColor(agent.state);
 		const name = accent(pad(truncate(agent.agentName, 15), 15));
 		const capability = pad(truncate(agent.capability, 12), 12);
+		const runtimeName = resolveRuntimeName(agent.capability, data.runtimeConfig);
+		const runtime = pad(truncate(runtimeName, 8), 8);
 		const state = pad(agent.state, 10);
 		const taskId = accent(pad(truncate(agent.taskId, 16), 16));
 		const endTime =
@@ -602,7 +645,7 @@ export function renderAgentPanel(
 			: data.status.tmuxSessions.some((s) => s.name === agent.tmuxSession);
 		const aliveDot = alive ? color.green(">") : color.red("x");
 
-		const lineContent = `${dimBox.vertical} ${stateColorFn(icon)}  ${name} ${capability} ${stateColorFn(state)} ${taskId} ${durationPadded} ${aliveDot}    `;
+		const lineContent = `${dimBox.vertical} ${stateColorFn(icon)}  ${name} ${capability} ${color.dim(runtime)} ${stateColorFn(state)} ${taskId} ${durationPadded} ${aliveDot}    `;
 		const linePadding = " ".repeat(
 			Math.max(0, leftWidth - visibleLength(lineContent) - visibleLength(dimBox.vertical)),
 		);
@@ -1020,10 +1063,33 @@ async function executeDashboard(opts: DashboardOpts): Promise<void> {
 		process.exit(0);
 	});
 
-	// Poll loop
+	// Poll loop — errors are caught per-tick so transient DB failures never crash the dashboard.
+	let lastGoodData: DashboardData | null = null;
+	let lastErrorMsg: string | null = null;
 	while (running) {
-		const data = await loadDashboardData(root, stores, runId, thresholds, eventBuffer);
-		renderDashboard(data, interval);
+		try {
+			const data = await loadDashboardData(
+				root,
+				stores,
+				runId,
+				thresholds,
+				eventBuffer,
+				config.runtime,
+			);
+			lastGoodData = data;
+			lastErrorMsg = null;
+			renderDashboard(data, interval);
+		} catch (err) {
+			// Render last good frame so the TUI stays alive, then show the error inline.
+			if (lastGoodData) {
+				renderDashboard(lastGoodData, interval);
+			}
+			lastErrorMsg = err instanceof Error ? err.message : String(err);
+			const w = process.stdout.columns ?? 100;
+			const h = process.stdout.rows ?? 30;
+			const errLine = `${CURSOR.cursorTo(h, 1)}\x1b[31m⚠ DB error (retrying):\x1b[0m ${truncate(lastErrorMsg, w - 30)}`;
+			process.stdout.write(errLine);
+		}
 		await Bun.sleep(interval);
 	}
 }

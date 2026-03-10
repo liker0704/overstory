@@ -8,11 +8,11 @@
  * Requires tmux to be available on the system.
  */
 
+import { Database } from "bun:sqlite";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Database } from "bun:sqlite";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { openSessionStore } from "../sessions/compat.ts";
 import type { AgentSession, OverstoryConfig } from "../types.ts";
 import { createSession, isSessionAlive, killSession } from "../worktree/tmux.ts";
@@ -163,9 +163,9 @@ sleep 300
 		// 7. Run a single watchdog tick — should detect rate limit and attempt swap
 		//    Swap will use real tmux.createSession for the new runtime, but we
 		//    DI _tmux on swap to capture the swap call instead of spawning gemini.
-		let swapCalled = false;
-		let swapTarget = "";
-		let newTmuxName = "";
+		const swapCalled = false;
+		const swapTarget = "";
+		const newTmuxName = "";
 
 		await runDaemonTick({
 			root: tempDir,
@@ -248,7 +248,6 @@ sleep 300
 			expect(handoffText).toContain("claude → gemini");
 			expect(handoffText).toContain("TEST-1");
 		}
-
 	}, 15_000);
 
 	test("rate limit detection sets rateLimitedSince timestamp", async () => {

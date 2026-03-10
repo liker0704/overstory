@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.7] - 2026-03-10
+
+### Added
+
+#### Cursor CLI Runtime Adapter
+- **`src/runtimes/cursor.ts`** — new runtime adapter for [Cursor CLI](https://cursor.com/docs/cli/overview) (`agent` binary), implementing the `AgentRuntime` interface with TUI spawning via tmux, `.cursor/rules/overstory.md` instruction delivery, `--yolo` permission bypass, and headless one-shot mode — thanks to **@XavierChevalier** (#104, #66)
+- **`src/runtimes/cursor.test.ts`** — comprehensive test suite (497 lines) covering spawn command building, overlay generation, readiness detection, and transcript parsing
+
+#### Runtime Stability Classification
+- **`stability` field on `AgentRuntime`** — new `"stable" | "beta" | "experimental"` field on the runtime interface; Claude and Sapling marked `stable`, Pi and Codex as `beta`, Copilot/Gemini/OpenCode/Cursor as `experimental`
+- Stability surfaced in `ov agents` and runtime documentation
+
+#### Per-Coordinator Run Isolation
+- **Per-coordinator session tracking** — `SessionStore` now tracks `coordinator_name` per session with auto-migration for existing databases, enabling isolated run tracking when multiple coordinators operate in the same project
+- **`OVERSTORY_TASK_ID` env var** — slung agents now receive their task ID as an environment variable; tracker `close` commands are guarded to prevent agents from closing issues outside their assigned scope
+
+#### Dashboard Runtime Column
+- **Runtime column in dashboard agent panel** — the live TUI dashboard now shows which runtime each agent is using (e.g., `claude`, `cursor`, `sapling`) — thanks to **@mustafamagdy** (#99)
+
+### Fixed
+
+- **Dashboard crash on SQLite lock contention** — `ov dashboard` no longer crashes when concurrent agents cause `SQLITE_BUSY`; database reads are wrapped with retry logic
+- **Silent content loss in merge auto-resolve** — merge resolver Tier 2 (hunk-level) no longer silently drops non-conflicting content when resolving conflicts; the entire file is now preserved correctly
+- **`ov init` ENOENT on spawner calls** — `spawner()` calls for ecosystem tool detection are now wrapped in try/catch to prevent crashes when `mulch`/`sd`/`cn` CLIs are not installed
+- **Shift+tab false positive in `detectReady`** — the `hasStatusBar` check no longer matches shift+tab escape sequences as a status bar indicator, preventing premature ready detection
+- **Claude bypass dialog and Codex shared state** — Claude runtime's `detectReady()` now recognizes the "bypass" dialog phase; Codex runtime correctly handles `sharedWritableDirs` spawn option — thanks to **@Ilanbux** (#101)
+- **Tmux pane retry for WSL2 race condition** — `capturePaneContent()` and `sendKeys()` now retry on transient tmux failures caused by WSL2 timing issues — thanks to **@arosstale** (#78)
+- **Fish shell tmux spawn** — tmux session commands are now wrapped in `/bin/bash -c` to prevent failures when the user's default shell is fish
+- **`coordinator_name` column migration** — `createSessionStore()` now auto-migrates existing `sessions` tables to add the `coordinator_name` column without data loss
+
+### Testing
+
+- 3364 tests across 100 files (7924 `expect()` calls)
+- New: `src/runtimes/cursor.test.ts`, `src/commands/ecosystem.test.ts`
+
 ## [0.8.6] - 2026-03-06
 
 ### Added
@@ -1511,7 +1546,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Biome configuration for formatting and linting
 - TypeScript strict mode with `noUncheckedIndexedAccess`
 
-[Unreleased]: https://github.com/jayminwest/overstory/compare/v0.8.6...HEAD
+[Unreleased]: https://github.com/jayminwest/overstory/compare/v0.8.7...HEAD
+[0.8.7]: https://github.com/jayminwest/overstory/compare/v0.8.6...v0.8.7
 [0.8.6]: https://github.com/jayminwest/overstory/compare/v0.8.5...v0.8.6
 [0.8.5]: https://github.com/jayminwest/overstory/compare/v0.8.4...v0.8.5
 [0.8.4]: https://github.com/jayminwest/overstory/compare/v0.8.3...v0.8.4

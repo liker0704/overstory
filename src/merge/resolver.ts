@@ -11,6 +11,7 @@
  * Disabled tiers are skipped. Uses Bun.spawn for all subprocess calls.
  */
 
+import { unlinkSync } from "node:fs";
 import { MergeError } from "../errors.ts";
 import type { MulchClient } from "../mulch/client.ts";
 import { getRuntime } from "../runtimes/registry.ts";
@@ -185,6 +186,24 @@ export function resolveConflictsUnion(content: string): string | null {
 }
 
 /**
+ * Detect if any conflict block has non-whitespace content on the canonical (HEAD) side.
+ * Returns true if auto-resolving with keep-incoming would silently discard canonical content.
+ * Use this before calling resolveConflictsKeepIncoming to prevent data loss.
+ */
+export function hasContentfulCanonical(content: string): boolean {
+	const conflictPattern = /^<{7} .+\n([\s\S]*?)^={7}\n([\s\S]*?)^>{7} .+\n?/gm;
+	let match = conflictPattern.exec(content);
+	while (match !== null) {
+		const canonical = match[1] ?? "";
+		if (canonical.trim().length > 0) {
+			return true;
+		}
+		match = conflictPattern.exec(content);
+	}
+	return false;
+}
+
+/**
  * Check if a file has the `merge=union` gitattribute set.
  * Returns true if `git check-attr merge -- <file>` ends with ": merge: union".
  */
@@ -231,12 +250,15 @@ async function tryCleanMerge(
 /**
  * Tier 2: Auto-resolve conflicts by keeping incoming (agent) changes.
  * Parses conflict markers and keeps the content between ======= and >>>>>>>.
+ * Skips files where the canonical side has non-whitespace content to prevent
+ * silent data loss — those files are escalated to higher tiers.
  */
 async function tryAutoResolve(
 	conflictFiles: string[],
 	repoRoot: string,
-): Promise<{ success: boolean; remainingConflicts: string[] }> {
+): Promise<{ success: boolean; remainingConflicts: string[]; contentDropWarnings: string[] }> {
 	const remainingConflicts: string[] = [];
+	const contentDropWarnings: string[] = [];
 
 	for (const file of conflictFiles) {
 		const filePath = `${repoRoot}/${file}`;
@@ -244,6 +266,18 @@ async function tryAutoResolve(
 		try {
 			const content = await readFile(filePath);
 			const isUnion = await checkMergeUnion(repoRoot, file);
+
+			// For non-union files, check if the canonical side has content.
+			// If it does, auto-resolving would silently discard that content.
+			// Escalate to a higher tier instead.
+			if (!isUnion && hasContentfulCanonical(content)) {
+				contentDropWarnings.push(
+					`auto-resolve skipped for ${file}: canonical side has content that would be discarded`,
+				);
+				remainingConflicts.push(file);
+				continue;
+			}
+
 			const resolved = isUnion
 				? resolveConflictsUnion(content)
 				: resolveConflictsKeepIncoming(content);
@@ -265,12 +299,12 @@ async function tryAutoResolve(
 	}
 
 	if (remainingConflicts.length > 0) {
-		return { success: false, remainingConflicts };
+		return { success: false, remainingConflicts, contentDropWarnings };
 	}
 
 	// All files resolved — commit
 	const { exitCode } = await runGit(repoRoot, ["commit", "--no-edit"]);
-	return { success: exitCode === 0, remainingConflicts };
+	return { success: exitCode === 0, remainingConflicts, contentDropWarnings };
 }
 
 /**
@@ -689,13 +723,15 @@ export function createMergeResolver(options: {
 				didStash = true;
 			}
 
+			const warnings: string[] = [];
 			let lastTier: ResolutionTier = "clean-merge";
 			let conflictFiles: string[] = [];
 
 			try {
-				// Commit untracked files overlapping entry.filesModified before merging.
+				// Delete untracked files overlapping entry.filesModified before merging.
 				// git merge refuses to run if untracked files in the working tree would
-				// be overwritten by the incoming branch.
+				// be overwritten by the incoming branch. Deleting them lets the merge
+				// proceed and bring in the branch version.
 				const { stdout: untrackedOut } = await runGit(repoRoot, [
 					"ls-files",
 					"--others",
@@ -707,9 +743,18 @@ export function createMergeResolver(options: {
 					.filter((f) => f.length > 0);
 				const entryFileSet = new Set(entry.filesModified);
 				const overlappingUntracked = untrackedFiles.filter((f) => entryFileSet.has(f));
-				if (overlappingUntracked.length > 0) {
-					await runGit(repoRoot, ["add", ...overlappingUntracked]);
-					await runGit(repoRoot, ["commit", "-m", "chore: commit untracked files before merge"]);
+				for (const file of overlappingUntracked) {
+					const filePath = `${repoRoot}/${file}`;
+					try {
+						if (await Bun.file(filePath).exists()) {
+							unlinkSync(filePath);
+						}
+						warnings.push(
+							`untracked file deleted before merge: ${file} (branch version will be used)`,
+						);
+					} catch {
+						// Ignore errors removing untracked files
+					}
 				}
 
 				// Tier 1: Clean merge
@@ -732,6 +777,7 @@ export function createMergeResolver(options: {
 						tier: "clean-merge",
 						conflictFiles: [],
 						errorMessage: null,
+						warnings,
 					};
 				}
 				conflictFiles = cleanResult.conflictFiles;
@@ -750,6 +796,9 @@ export function createMergeResolver(options: {
 				if (!history.skipTiers.includes("auto-resolve")) {
 					lastTier = "auto-resolve";
 					const autoResult = await tryAutoResolve(conflictFiles, repoRoot);
+					if (autoResult.contentDropWarnings.length > 0) {
+						warnings.push(...autoResult.contentDropWarnings);
+					}
 					if (autoResult.success) {
 						if (options.mulchClient) {
 							recordConflictPattern(
@@ -777,6 +826,7 @@ export function createMergeResolver(options: {
 							tier: "auto-resolve",
 							conflictFiles,
 							errorMessage: null,
+							warnings,
 						};
 					}
 					conflictFiles = autoResult.remainingConflicts;
@@ -812,6 +862,7 @@ export function createMergeResolver(options: {
 							tier: "ai-resolve",
 							conflictFiles,
 							errorMessage: null,
+							warnings,
 						};
 					}
 					conflictFiles = aiResult.remainingConflicts;
@@ -847,6 +898,7 @@ export function createMergeResolver(options: {
 							tier: "reimagine",
 							conflictFiles: [],
 							errorMessage: null,
+							warnings,
 						};
 					}
 				}
@@ -868,6 +920,7 @@ export function createMergeResolver(options: {
 					tier: lastTier,
 					conflictFiles,
 					errorMessage: `All enabled resolution tiers failed (last attempted: ${lastTier})`,
+					warnings,
 				};
 			} finally {
 				if (didStash) {

@@ -284,6 +284,61 @@ export function buildBashFileGuardScript(
 }
 
 /**
+ * Build a PreToolUse guard script that prevents agents from closing or updating
+ * issues they don't own.
+ *
+ * Guards against two patterns:
+ * - `sd/bd close <id>` — blocks if <id> != $OVERSTORY_TASK_ID
+ * - `sd/bd update <id> --status` — blocks if <id> != $OVERSTORY_TASK_ID
+ *
+ * Agents without OVERSTORY_TASK_ID (coordinator, monitor) exit early and are unaffected.
+ */
+export function buildTrackerCloseGuardScript(): string {
+	const script = [
+		// Only enforce for overstory agent sessions
+		ENV_GUARD,
+		// Skip if task ID is not set (coordinator/monitor have no task)
+		'[ -z "$OVERSTORY_TASK_ID" ] && exit 0;',
+		"read -r INPUT;",
+		// Extract command value from JSON
+		'CMD=$(echo "$INPUT" | sed \'s/.*"command": *"\\([^"]*\\)".*/\\1/\');',
+		// Check for sd/bd close <id>
+		"if echo \"$CMD\" | grep -qE '^\\s*(sd|bd)\\s+close\\s'; then",
+		"  ISSUE_ID=$(echo \"$CMD\" | sed -E 's/^[[:space:]]*(sd|bd)[[:space:]]+close[[:space:]]+([^ ]+).*/\\2/');",
+		'  if [ "$ISSUE_ID" != "$OVERSTORY_TASK_ID" ]; then',
+		'    echo "{\\"decision\\":\\"block\\",\\"reason\\":\\"Cannot close issue $ISSUE_ID — agents may only close their own task ($OVERSTORY_TASK_ID). Report completion via worker_done mail to your parent instead.\\"}";',
+		"    exit 0;",
+		"  fi;",
+		"fi;",
+		// Check for sd/bd update <id> --status
+		"if echo \"$CMD\" | grep -qE '^\\s*(sd|bd)\\s+update\\s.*--status'; then",
+		"  ISSUE_ID=$(echo \"$CMD\" | sed -E 's/^[[:space:]]*(sd|bd)[[:space:]]+update[[:space:]]+([^ ]+).*/\\2/');",
+		'  if [ "$ISSUE_ID" != "$OVERSTORY_TASK_ID" ]; then',
+		'    echo "{\\"decision\\":\\"block\\",\\"reason\\":\\"Cannot update issue $ISSUE_ID — agents may only update their own task ($OVERSTORY_TASK_ID).\\"}";',
+		"    exit 0;",
+		"  fi;",
+		"fi;",
+	].join(" ");
+	return script;
+}
+
+/**
+ * Generate a PreToolUse guard that blocks tracker close/update for foreign issues.
+ *
+ * Returns a single Bash matcher entry. Applied to ALL agent capabilities
+ * so that no agent can accidentally close the coordinator's dispatch issue.
+ * Agents without OVERSTORY_TASK_ID (coordinator, monitor) are unaffected.
+ */
+export function getTrackerCloseGuards(): HookEntry[] {
+	return [
+		{
+			matcher: "Bash",
+			hooks: [{ type: "command", command: buildTrackerCloseGuardScript() }],
+		},
+	];
+}
+
+/**
  * Capabilities that are allowed to modify files via Bash commands.
  * These get the Bash path boundary guard instead of a blanket file-modification block.
  */
@@ -539,7 +594,8 @@ export async function deployHooks(
 	const pathGuards = getPathBoundaryGuards();
 	const dangerGuards = getDangerGuards(agentName);
 	const capabilityGuards = getCapabilityGuards(capability, qualityGates);
-	const allGuards = [...pathGuards, ...dangerGuards, ...capabilityGuards];
+	const trackerCloseGuards = getTrackerCloseGuards();
+	const allGuards = [...pathGuards, ...dangerGuards, ...capabilityGuards, ...trackerCloseGuards];
 
 	if (allGuards.length > 0) {
 		const preToolUse = config.hooks.PreToolUse ?? [];

@@ -42,8 +42,11 @@ import { createWorktree, rollbackWorktree } from "../worktree/manager.ts";
 import { spawnHeadlessAgent } from "../worktree/process.ts";
 import {
 	capturePaneContent,
+	checkSessionState,
 	createSession,
 	ensureTmuxAvailable,
+	isSessionAlive,
+	killSession,
 	sendKeys,
 	waitForTuiReady,
 } from "../worktree/tmux.ts";
@@ -272,6 +275,27 @@ export function shouldShowScoutWarning(
 	if (noScoutCheck) return false;
 	if (skipScout) return false;
 	return !parentHasScouts(sessions, parentAgent);
+}
+
+/**
+ * Resolve which canonical repo directories should be writable to an
+ * interactive agent runtime in addition to its worktree sandbox.
+ *
+ * All interactive agents need `.overstory` so they can access shared mail,
+ * metrics, and session state. Only `lead` agents need canonical `.git`
+ * because they can spawn child worktrees from inside the runtime.
+ *
+ * @param projectRoot - Absolute path to the canonical repository root
+ * @param capability - Capability being launched
+ */
+export function getSharedWritableDirs(projectRoot: string, capability: string): string[] {
+	const sharedWritableDirs = [join(projectRoot, ".overstory")];
+
+	if (capability === "lead") {
+		sharedWritableDirs.push(join(projectRoot, ".git"));
+	}
+
+	return sharedWritableDirs;
 }
 
 /**
@@ -569,47 +593,63 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 	// 4. Resolve or create run_id for this spawn
 	const overstoryDir = join(config.project.root, ".overstory");
 	const currentRunPath = join(overstoryDir, "current-run.txt");
-	let runId: string;
-
-	const currentRunFile = Bun.file(currentRunPath);
-	if (await currentRunFile.exists()) {
-		runId = (await currentRunFile.text()).trim();
-	} else {
-		runId = `run-${new Date().toISOString().replace(/[:.]/g, "-")}`;
-		const runStore = createRunStore(join(overstoryDir, "sessions.db"));
-		try {
-			runStore.createRun({
-				id: runId,
-				startedAt: new Date().toISOString(),
-				coordinatorSessionId: null,
-				status: "active",
-			});
-		} finally {
-			runStore.close();
-		}
-		await Bun.write(currentRunPath, runId);
-	}
-
-	// 4b. Check per-run session limit
-	if (config.agents.maxSessionsPerRun > 0) {
-		const runCheckStore = createRunStore(join(overstoryDir, "sessions.db"));
-		try {
-			const run = runCheckStore.getRun(runId);
-			if (run && checkRunSessionLimit(config.agents.maxSessionsPerRun, run.agentCount)) {
-				throw new AgentError(
-					`Run session limit reached: ${run.agentCount}/${config.agents.maxSessionsPerRun} agents spawned in run "${runId}". ` +
-						`Increase agents.maxSessionsPerRun in config.yaml or start a new run.`,
-					{ agentName: name },
-				);
-			}
-		} finally {
-			runCheckStore.close();
-		}
-	}
 
 	// 5. Check name uniqueness and concurrency limit against active sessions
+	// (Session store opened here so we can also use it for parent run ID inheritance in step 4.)
 	const { store } = openSessionStore(overstoryDir);
 	try {
+		// 4a. Resolve run ID: inherit from parent → current-run.txt fallback → create new.
+		// Parent inheritance ensures child agents belong to the same run as their coordinator.
+		const runId = await (async (): Promise<string> => {
+			if (parentAgent) {
+				const parentSession = store.getByName(parentAgent);
+				if (parentSession?.runId) {
+					return parentSession.runId;
+				}
+			}
+
+			// Fallback: read current-run.txt (backward compat with single-coordinator setups).
+			const currentRunFile = Bun.file(currentRunPath);
+			if (await currentRunFile.exists()) {
+				const text = (await currentRunFile.text()).trim();
+				if (text) return text;
+			}
+
+			// Create a new run if none exists.
+			const newRunId = `run-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+			const runStore = createRunStore(join(overstoryDir, "sessions.db"));
+			try {
+				runStore.createRun({
+					id: newRunId,
+					startedAt: new Date().toISOString(),
+					coordinatorSessionId: null,
+					coordinatorName: null,
+					status: "active",
+				});
+			} finally {
+				runStore.close();
+			}
+			await Bun.write(currentRunPath, newRunId);
+			return newRunId;
+		})();
+
+		// 4b. Check per-run session limit
+		if (config.agents.maxSessionsPerRun > 0) {
+			const runCheckStore = createRunStore(join(overstoryDir, "sessions.db"));
+			try {
+				const run = runCheckStore.getRun(runId);
+				if (run && checkRunSessionLimit(config.agents.maxSessionsPerRun, run.agentCount)) {
+					throw new AgentError(
+						`Run session limit reached: ${run.agentCount}/${config.agents.maxSessionsPerRun} agents spawned in run "${runId}". ` +
+							`Increase agents.maxSessionsPerRun in config.yaml or start a new run.`,
+						{ agentName: name },
+					);
+				}
+			} finally {
+				runCheckStore.close();
+			}
+		}
+
 		const activeSessions = store.getActive();
 		if (activeSessions.length >= config.agents.maxConcurrent) {
 			throw new AgentError(
@@ -858,6 +898,7 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 					...runtime.buildEnv(resolvedModel),
 					OVERSTORY_AGENT_NAME: name,
 					OVERSTORY_WORKTREE_PATH: worktreePath,
+					OVERSTORY_TASK_ID: taskId,
 				};
 				const argv = runtime.buildDirectSpawn({
 					cwd: worktreePath,
@@ -950,16 +991,19 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 					permissionMode: "bypass",
 					sessionId,
 					cwd: worktreePath,
+					sharedWritableDirs: getSharedWritableDirs(config.project.root, capability),
 					env: {
 						...runtime.buildEnv(resolvedModel),
 						OVERSTORY_AGENT_NAME: name,
 						OVERSTORY_WORKTREE_PATH: worktreePath,
+						OVERSTORY_TASK_ID: taskId,
 					},
 				});
 				const pid = await createSession(tmuxSessionName, worktreePath, spawnCmd, {
 					...runtime.buildEnv(resolvedModel),
 					OVERSTORY_AGENT_NAME: name,
 					OVERSTORY_WORKTREE_PATH: worktreePath,
+					OVERSTORY_TASK_ID: taskId,
 				});
 
 				// 13. Record session BEFORE sending the beacon so that hook-triggered
@@ -1009,7 +1053,31 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 				// Wait for Claude Code TUI to render before sending input.
 				// Polling capture-pane is more reliable than a fixed sleep because
 				// TUI init time varies by machine load and model state.
-				await waitForTuiReady(tmuxSessionName, (content) => runtime.detectReady(content));
+				const tuiReady = await waitForTuiReady(tmuxSessionName, (content) =>
+					runtime.detectReady(content),
+				);
+				if (!tuiReady) {
+					const alive = await isSessionAlive(tmuxSessionName);
+					store.updateState(name, "completed");
+
+					if (alive) {
+						await killSession(tmuxSessionName);
+						throw new AgentError(
+							`Agent tmux session "${tmuxSessionName}" did not become ready during startup. The runtime may still be waiting on an interactive dialog or initializing too slowly.`,
+							{ agentName: name },
+						);
+					}
+
+					const sessionState = await checkSessionState(tmuxSessionName);
+					const detail =
+						sessionState === "no_server"
+							? "The tmux server is no longer running. It may have crashed or been killed externally."
+							: "The agent process may have crashed or exited immediately before the TUI became ready.";
+					throw new AgentError(
+						`Agent tmux session "${tmuxSessionName}" died during startup. ${detail}`,
+						{ agentName: name },
+					);
+				}
 				// Buffer for the input handler to attach after initial render
 				await Bun.sleep(1_000);
 

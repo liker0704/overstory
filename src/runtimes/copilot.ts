@@ -28,6 +28,9 @@ export class CopilotRuntime implements AgentRuntime {
 	/** Unique identifier for this runtime. */
 	readonly id = "copilot";
 
+	/** Stability level. Copilot adapter is experimental — not fully validated. */
+	readonly stability = "experimental" as const;
+
 	/** Relative path to the instruction file within a worktree. */
 	readonly instructionPath = ".github/copilot-instructions.md";
 

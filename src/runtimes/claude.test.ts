@@ -276,19 +276,35 @@ describe("ClaudeRuntime", () => {
 			expect(state).toEqual({ phase: "ready" });
 		});
 
-		test("returns ready for prompt indicator + shift+tab", () => {
+		test("returns loading for prompt indicator + shift+tab (no bypass permissions)", () => {
+			// shift+tab appears in ALL Claude Code sessions — it must NOT trigger ready
 			const state = runtime.detectReady("Claude Code\n\u276f\nshift+tab to chat");
-			expect(state).toEqual({ phase: "ready" });
+			expect(state).toEqual({ phase: "loading" });
 		});
 
-		test('returns ready for Try " + shift+tab', () => {
+		test('returns loading for Try " + shift+tab (no bypass permissions)', () => {
+			// False-positive scenario: shift+tab alone is not a reliable readiness signal
 			const state = runtime.detectReady('Try "help"\nshift+tab');
-			expect(state).toEqual({ phase: "ready" });
+			expect(state).toEqual({ phase: "loading" });
 		});
 
 		test("returns dialog for trust dialog", () => {
 			const state = runtime.detectReady("Do you trust this folder? trust this folder");
 			expect(state).toEqual({ phase: "dialog", action: "Enter" });
+		});
+
+		test("returns dialog for bypass permissions confirmation", () => {
+			const state = runtime.detectReady(
+				"WARNING: Claude Code running in Bypass Permissions mode\n❯ 1. No, exit\n2. Yes, I accept",
+			);
+			expect(state).toEqual({ phase: "dialog", action: "type:2" });
+		});
+
+		test("bypass permissions confirmation takes precedence over ready indicators", () => {
+			const state = runtime.detectReady(
+				"WARNING: Claude Code running in Bypass Permissions mode\n❯ 1. No, exit\n2. Yes, I accept\nbypass permissions",
+			);
+			expect(state).toEqual({ phase: "dialog", action: "type:2" });
 		});
 
 		test("trust dialog takes precedence over ready indicators", () => {
@@ -678,9 +694,10 @@ describe("ClaudeRuntime integration: detectReady matches pre-refactor tmux behav
 		expect(state.phase).toBe("ready");
 	});
 
-	test("ready: 'Try \"help\"' + 'shift+tab'", () => {
+	test("loading: 'Try \"help\"' + 'shift+tab' (no bypass permissions — false-positive fix)", () => {
+		// shift+tab appears in all Claude Code sessions, must not trigger ready without bypass permissions
 		const state = runtime.detectReady('Try "help"\nshift+tab');
-		expect(state.phase).toBe("ready");
+		expect(state.phase).toBe("loading");
 	});
 
 	test("not ready: only prompt (no status bar)", () => {
@@ -697,6 +714,14 @@ describe("ClaudeRuntime integration: detectReady matches pre-refactor tmux behav
 		const state = runtime.detectReady("Do you trust this folder? trust this folder");
 		expect(state.phase).toBe("dialog");
 		expect((state as { phase: "dialog"; action: string }).action).toBe("Enter");
+	});
+
+	test("dialog: bypass permissions confirmation", () => {
+		const state = runtime.detectReady(
+			"WARNING: Claude Code running in Bypass Permissions mode\n❯ 1. No, exit\n2. Yes, I accept",
+		);
+		expect(state.phase).toBe("dialog");
+		expect((state as { phase: "dialog"; action: string }).action).toBe("type:2");
 	});
 });
 
@@ -753,7 +778,7 @@ describe("ClaudeRuntime integration: registry resolves 'claude' as default", () 
 	test("getRuntime rejects unknown runtimes", async () => {
 		const { getRuntime } = await import("./registry.ts");
 		expect(() => getRuntime("aider")).toThrow('Unknown runtime: "aider"');
-		expect(() => getRuntime("cursor")).toThrow('Unknown runtime: "cursor"');
+		expect(() => getRuntime("nonexistent")).toThrow('Unknown runtime: "nonexistent"');
 	});
 });
 

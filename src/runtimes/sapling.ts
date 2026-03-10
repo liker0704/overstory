@@ -345,6 +345,9 @@ export class SaplingRuntime implements AgentRuntime {
 	/** Unique identifier for this runtime. */
 	readonly id = "sapling";
 
+	/** Stability level. Sapling is the primary headless runtime. */
+	readonly stability = "stable" as const;
+
 	/** Relative path to the instruction file within a worktree. */
 	readonly instructionPath = "SAPLING.md";
 

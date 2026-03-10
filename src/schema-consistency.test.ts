@@ -91,6 +91,7 @@ describe("SQL schema consistency", () => {
 			const expected = [
 				"agent_count",
 				"completed_at",
+				"coordinator_name",
 				"coordinator_session_id",
 				"id",
 				"started_at",

@@ -5,6 +5,7 @@ import type { OverstoryConfig } from "../types.ts";
 import { ClaudeRuntime } from "./claude.ts";
 import { CodexRuntime } from "./codex.ts";
 import { CopilotRuntime } from "./copilot.ts";
+import { CursorRuntime } from "./cursor.ts";
 import { GeminiRuntime } from "./gemini.ts";
 import { OpenCodeRuntime } from "./opencode.ts";
 import { PiRuntime } from "./pi.ts";
@@ -17,8 +18,8 @@ const runtimes = new Map<string, () => AgentRuntime>([
 	["codex", () => new CodexRuntime()],
 	["pi", () => new PiRuntime()],
 	["copilot", () => new CopilotRuntime()],
+	["cursor", () => new CursorRuntime()],
 	["gemini", () => new GeminiRuntime()],
-	["opencode", () => new OpenCodeRuntime()],
 	["sapling", () => new SaplingRuntime()],
 	["opencode", () => new OpenCodeRuntime()],
 ]);
@@ -38,8 +39,8 @@ export function getAllRuntimes(): AgentRuntime[] {
 		new CodexRuntime(),
 		new PiRuntime(),
 		new CopilotRuntime(),
+		new CursorRuntime(),
 		new GeminiRuntime(),
-		new OpenCodeRuntime(),
 		new SaplingRuntime(),
 		new OpenCodeRuntime(),
 	];
