@@ -194,6 +194,26 @@ export class GroupError extends OverstoryError {
 }
 
 /**
+ * Raised when eval scenario loading or assertion evaluation fails.
+ * Examples: missing scenario.yaml, invalid assertions.yaml, unknown assertion kind.
+ */
+export class EvalScenarioError extends OverstoryError {
+	readonly scenarioPath: string | null;
+
+	constructor(
+		message: string,
+		context?: {
+			scenarioPath?: string;
+			cause?: Error;
+		},
+	) {
+		super(message, "EVAL_ERROR", { cause: context?.cause });
+		this.name = "EvalScenarioError";
+		this.scenarioPath = context?.scenarioPath ?? null;
+	}
+}
+
+/**
  * Raised when session lifecycle operations fail.
  * Examples: checkpoint save/restore failures, handoff failures.
  */
