@@ -1,0 +1,13 @@
+assertions:
+  - kind: min_workers_spawned
+    label: "At least 2 builders spawned"
+    expected: 2
+  - kind: tasks_completed
+    label: "Both tasks completed"
+    expected: 2
+  - kind: merge_queue_empty
+    label: "Merge queue drained"
+    expected: true
+  - kind: no_zombies
+    label: "No zombie agents"
+    expected: true

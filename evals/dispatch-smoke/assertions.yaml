@@ -1,0 +1,13 @@
+assertions:
+  - kind: min_workers_spawned
+    label: "At least 2 workers spawned"
+    expected: 2
+  - kind: tasks_completed
+    label: "Both tasks completed"
+    expected: 2
+  - kind: no_zombies
+    label: "No zombie agents"
+    expected: true
+  - kind: max_stall_rate
+    label: "No stalled agents"
+    expected: 0.0

@@ -8,6 +8,7 @@ domains:
   - overstory
   - ecosystem
   - tracker
+  - evals
 governance:
   max_entries: 100
   warn_entries: 150
