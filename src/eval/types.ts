@@ -60,12 +60,10 @@ export interface EvalScenario {
 /** Runtime config for an eval run (combines scenario + CLI options). */
 export interface EvalRunConfig {
 	scenario: EvalScenario;
-	/** Run ID (auto-generated UUID). */
 	runId: string;
-	/** Absolute path to the fixture repo created for this run. */
 	fixtureRepoPath: string;
-	/** Whether to produce JSON output. */
-	json: boolean;
+	scenarioPath: string;
+	timeoutMs?: number;
 }
 
 /** Collected metrics from an eval run, derived from existing SQLite stores. */
@@ -111,8 +109,8 @@ export interface EvalResult {
 	metrics: EvalMetrics;
 	assertions: AssertionResult[];
 	passed: boolean;
-	/** Summary line. */
-	summary: string;
+	timedOut: boolean;
+	fixtureRoot?: string;
 }
 
 /** Paths to artifact files written by the store. */
