@@ -1227,7 +1227,7 @@ describe("getDangerGuards", () => {
 	test("guard command includes env var guard prefix", () => {
 		const guards = getDangerGuards("test-agent");
 		const command = guards[0]?.hooks[0]?.command ?? "";
-		expect(command).toContain('[ -z "$OVERSTORY_AGENT_NAME" ] && exit 0;');
+		expect(command).toContain('[ -z "$OVERSTORY_AGENT_NAME" ]');
 	});
 
 	test("all capabilities get Bash danger guards in deployed hooks", async () => {
@@ -1446,7 +1446,7 @@ describe("buildBashFileGuardScript", () => {
 
 	test("includes env var guard prefix", () => {
 		const script = buildBashFileGuardScript("scout");
-		expect(script).toMatch(/^\[ -z "\$OVERSTORY_AGENT_NAME" \] && exit 0;/);
+		expect(script).toMatch(/^if \[ -z "\$OVERSTORY_AGENT_NAME" \]/);
 	});
 
 	test("accepts extra safe prefixes for coordinator", () => {
@@ -2040,7 +2040,7 @@ describe("getBashPathBoundaryGuards", () => {
 	test("guard command includes env var guard prefix", () => {
 		const guards = getBashPathBoundaryGuards();
 		const command = guards[0]?.hooks[0]?.command ?? "";
-		expect(command).toContain('[ -z "$OVERSTORY_AGENT_NAME" ] && exit 0;');
+		expect(command).toContain('[ -z "$OVERSTORY_AGENT_NAME" ]');
 	});
 
 	test("guard blocks paths outside worktree", () => {
@@ -2523,7 +2523,7 @@ describe("getTrackerCloseGuards", () => {
 	test("guard command includes ENV_GUARD prefix", () => {
 		const guards = getTrackerCloseGuards();
 		const command = guards[0]?.hooks[0]?.command ?? "";
-		expect(command).toContain('[ -z "$OVERSTORY_AGENT_NAME" ] && exit 0;');
+		expect(command).toContain('[ -z "$OVERSTORY_AGENT_NAME" ]');
 	});
 });
 

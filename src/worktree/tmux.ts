@@ -7,9 +7,43 @@
  * and enables project-scoped cleanup (overstory-pcef).
  */
 
-import { dirname, resolve } from "node:path";
+import { existsSync, unlinkSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { AgentError } from "../errors.ts";
 import type { ReadyState } from "../runtimes/types.ts";
+
+/** Path to the agent env file relative to the agent's cwd (.claude/.agent-env). */
+const AGENT_ENV_FILENAME = ".agent-env";
+const AGENT_ENV_DIR = ".claude";
+
+/**
+ * Write an agent env file so hooks can recover env vars after process restarts.
+ *
+ * Written to `.claude/.agent-env` in the agent's cwd (project root for
+ * coordinator/monitor, worktree root for workers). Sourced by hook guards
+ * via `. .claude/.agent-env` — a shell builtin with 0 forks (~0.03ms).
+ */
+export async function writeAgentEnvFile(cwd: string, env: Record<string, string>): Promise<void> {
+	const lines = Object.entries(env).map(([k, v]) => `export ${k}="${v}"`);
+	const content = `${lines.join("\n")}\n`;
+	const filePath = join(cwd, AGENT_ENV_DIR, AGENT_ENV_FILENAME);
+	await Bun.write(filePath, content);
+}
+
+/**
+ * Remove the agent env file on session stop/cleanup.
+ * Silently ignores missing files.
+ */
+export function removeAgentEnvFile(cwd: string): void {
+	const filePath = join(cwd, AGENT_ENV_DIR, AGENT_ENV_FILENAME);
+	try {
+		if (existsSync(filePath)) {
+			unlinkSync(filePath);
+		}
+	} catch {
+		// Best-effort cleanup — ignore errors
+	}
+}
 
 /**
  * Detect the directory containing the overstory binary.
@@ -131,6 +165,13 @@ export async function createSession(
 		throw new AgentError(`Failed to create tmux session "${name}": ${stderr.trim()}`, {
 			agentName: name,
 		});
+	}
+
+	// Write env file so hooks can recover env vars after process restarts
+	// (e.g. Claude Code context compaction). The file is sourced by hook
+	// guards via `. .claude/.agent-env` — a shell builtin with 0 forks.
+	if (env) {
+		await writeAgentEnvFile(cwd, env);
 	}
 
 	// Retrieve the actual PID of the process running inside the tmux pane.

@@ -30,6 +30,7 @@ Thumbs.db
 
 # Environment
 .env
+.claude/.agent-env
 
 # Test artifacts
 coverage/

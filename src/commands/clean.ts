@@ -37,6 +37,7 @@ import {
 	killProcessTree,
 	killSession,
 	listSessions,
+	removeAgentEnvFile,
 } from "../worktree/tmux.ts";
 
 export interface CleanOptions {
@@ -511,6 +512,11 @@ async function cleanSingleAgent(
 			} catch {
 				// Best effort
 			}
+		}
+
+		// Clean up agent env file
+		if (session.worktreePath) {
+			removeAgentEnvFile(session.worktreePath);
 		}
 
 		// Remove worktree (force)

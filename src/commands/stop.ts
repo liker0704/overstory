@@ -19,7 +19,13 @@ import { jsonOutput } from "../json.ts";
 import { printSuccess, printWarning } from "../logging/color.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import { removeWorktree } from "../worktree/manager.ts";
-import { isProcessAlive, isSessionAlive, killProcessTree, killSession } from "../worktree/tmux.ts";
+import {
+	isProcessAlive,
+	isSessionAlive,
+	killProcessTree,
+	killSession,
+	removeAgentEnvFile,
+} from "../worktree/tmux.ts";
 
 export interface StopOptions {
 	force?: boolean;
@@ -137,6 +143,9 @@ export async function stopCommand(
 					tmuxKilled = true;
 				}
 			}
+
+			// Clean up agent env file (used by hooks for env var recovery)
+			removeAgentEnvFile(session.worktreePath);
 
 			// Mark session as completed
 			store.updateState(agentName, "completed");

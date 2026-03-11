@@ -73,8 +73,17 @@ function getTemplatePath(): string {
  * ensures hooks only activate for overstory-managed agent sessions
  * (which have OVERSTORY_AGENT_NAME set in their environment) and are
  * no-ops for the user's own Claude Code session.
+ *
+ * If OVERSTORY_AGENT_NAME is unset (e.g. after context compaction where
+ * the process restarts without the original exports), falls back to sourcing
+ * `.claude/.agent-env` — a file written by createSession() containing all
+ * OVERSTORY_* exports. Uses shell builtin `. file` (0 forks, ~0.03ms).
  */
-const ENV_GUARD = '[ -z "$OVERSTORY_AGENT_NAME" ] && exit 0;';
+const ENV_GUARD =
+	'if [ -z "$OVERSTORY_AGENT_NAME" ]; then ' +
+	"[ -f .claude/.agent-env ] && . .claude/.agent-env; " +
+	'[ -z "$OVERSTORY_AGENT_NAME" ] && exit 0; ' +
+	"fi;";
 
 /**
  * PATH setup prefix for hook commands.
