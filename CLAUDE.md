@@ -51,9 +51,12 @@ Purpose-built messaging via `bun:sqlite` in `.overstory/mail.db`. WAL mode for c
 ```
 overstory/                        # This repo (the overstory tool itself)
   src/
-    index.ts                      # CLI entry point (Commander.js program, 35 commands)
+    index.ts                      # CLI entry point (Commander.js program, 39 commands)
     types.ts                      # ALL shared types and interfaces
     config.ts                     # Config loader + defaults + validation
+    config-schema.ts              # Config schema version constants + known fields
+    config-migrate.ts             # Config version detection + migration pipeline
+    config-validate.ts            # Strict unknown-field validation
     errors.ts                     # Custom error types (extend OverstoryError)
     json.ts                       # Standardized JSON envelope helpers (jsonOutput/jsonError)
     commands/                     # One file per CLI subcommand
@@ -86,6 +89,10 @@ overstory/                        # This repo (the overstory tool itself)
       run.ts                      # ov run list/show/complete
       stop.ts                     # ov stop (terminate agent)
       costs.ts                    # ov costs (token/cost analysis)
+      eval.ts                     # ov eval run/show/list/compare (orchestration eval)
+      health.ts                   # ov health (operational health scoring)
+      next-improvement.ts         # ov next-improvement (recommendation engine)
+      review.ts                   # ov review sessions/session/handoffs/specs/stale
       metrics.ts                  # ov metrics
       ecosystem.ts                # ov ecosystem (os-eco tool dashboard)
       update.ts                   # ov update (refresh managed files)
@@ -117,6 +124,8 @@ overstory/                        # This repo (the overstory tool itself)
       factory.ts                  # createTrackerClient(), resolveBackend(), trackerCliName()
       beads.ts                    # Beads (bd) backend adapter
       seeds.ts                    # Seeds (sd) backend adapter
+      github.ts                   # GitHub Issues backend adapter (via gh CLI)
+      github-poller.ts            # Autonomous GitHub Issues polling loop
     mail/
       store.ts                    # SQLite mail storage (bun:sqlite, WAL mode)
       client.ts                   # Mail operations (send/check/list/read/reply)
@@ -155,6 +164,28 @@ overstory/                        # This repo (the overstory tool itself)
       summary.ts                  # Metrics reporting
       pricing.ts                  # Runtime-agnostic pricing + cost estimation
       transcript.ts               # Claude Code transcript JSONL parser
+    eval/                         # Scenario-based orchestration evaluation
+      types.ts                    # EvalScenario, EvalResult, EvalMetrics, Assertion types
+      scenario.ts                 # YAML scenario loader
+      assertions.ts               # 8 assertion kinds (agents, completion, cost, etc.)
+      runner.ts                   # End-to-end eval orchestration
+      store.ts                    # Artifact writer (summary.json, metrics, logs)
+      report.ts                   # Human-readable + JSON report rendering
+    health/                       # Operational health scoring
+      types.ts                    # HealthSignal, HealthScore, Recommendation types
+      signals.ts                  # Signal collection from existing stores
+      score.ts                    # Weighted health score model
+      recommendations.ts          # Deterministic recommendation engine
+      render.ts                   # Health report renderer
+    review/                       # Coordination quality review contour
+      types.ts                    # ReviewRecord, DimensionScore, ReviewSubjectType
+      dimensions.ts               # Dimension scoring logic (6 dimensions)
+      store.ts                    # SQLite ReviewStore (reviews.db)
+      staleness.ts                # Staleness detection via SHA-256 file hashing
+      analyzers/                  # Subject-specific analyzers
+        session.ts                # Session quality analyzer
+        handoff.ts                # Handoff quality analyzer
+        spec.ts                   # Spec quality analyzer
     doctor/                       # Modular health check system
       *.ts                        # 11 check categories (see `ov doctor --help`)
   agents/                         # Base agent definitions (the HOW)
@@ -167,6 +198,10 @@ overstory/                        # This repo (the overstory tool itself)
     coordinator.md                # Top-level orchestrator (spawns leads only, depth 0)
     orchestrator.md               # Multi-repo coordinator of coordinators (no worktree)
     monitor.md                    # Tier 2 continuous fleet patrol (no worktree)
+  evals/                          # Built-in eval scenarios
+    dispatch-smoke/               # Basic dispatch test scenario
+    merge-smoke/                  # Merge pipeline test scenario
+    watchdog-recovery/            # Watchdog recovery test scenario
   templates/
     CLAUDE.md.tmpl                # Template for orchestrator CLAUDE.md
     overlay.md.tmpl               # Template for per-worker overlay
@@ -197,6 +232,7 @@ target-project/
     sessions.db                   # SQLite sessions + runs (gitignored, WAL mode)
     events.db                     # SQLite events/timelines (gitignored, WAL mode)
     metrics.db                    # SQLite metrics (gitignored, WAL mode)
+    reviews.db                    # SQLite review records (gitignored, WAL mode)
 ```
 
 ## Coding Conventions
@@ -485,6 +521,41 @@ ov costs                          Token/cost analysis and breakdown
 
 ov metrics                       Show session metrics
   --last <n>  --json
+```
+
+### Evaluation & Quality
+
+```
+ov eval <sub>                    Scenario-based orchestration evaluation
+  run <scenario>                         Run an eval scenario against a fixture repo
+    --json                               JSON output
+    --timeout <ms>                       Override scenario timeout (ms)
+  show <run-id>                          Show results of a previous eval run
+    --json                               JSON output
+  list                                   List all past eval runs
+    --json                               JSON output
+  compare <run-a> <run-b>               Compare two eval runs side-by-side
+    --json                               JSON output
+
+ov health                        Operational health score and signals
+  --json                                 JSON output
+
+ov next-improvement              Top recommendation from health scoring
+  --json                                 JSON output
+
+ov review <sub>                  Deterministic quality review
+  sessions                               Review recent completed sessions
+    --recent <n>                         Number of sessions (default: 10)
+    --json                               JSON output
+  session <session-id>                   Review a single session by agent name or ID
+    --json                               JSON output
+  handoffs                               Review recent session handoffs
+    --recent <n>                         Number of handoffs (default: 10)
+    --json                               JSON output
+  specs                                  Review all spec files in .overstory/specs/
+    --json                               JSON output
+  stale                                  Check and mark stale reviews
+    --json                               JSON output
 ```
 
 ### Infrastructure
