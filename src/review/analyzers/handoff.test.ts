@@ -1,6 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import type { SessionCheckpoint, SessionHandoff } from "../../types.ts";
+import type { DimensionScore } from "../types.ts";
 import { analyzeHandoff, type HandoffReviewInput } from "./handoff.ts";
+
+/** Find a dimension by name, throwing if missing (test helper). */
+function dim(dimensions: DimensionScore[], name: string): DimensionScore {
+	const found = dimensions.find((d) => d.dimension === name);
+	if (!found) throw new Error(`Dimension "${name}" not found`);
+	return found;
+}
 
 function makeCheckpoint(overrides: Partial<SessionCheckpoint> = {}): SessionCheckpoint {
 	return {
@@ -67,10 +75,8 @@ describe("analyzeHandoff", () => {
 		};
 		const compactionResult = analyzeHandoff(compactionInput);
 		const crashResult = analyzeHandoff(crashInput);
-		const compactionCC = compactionResult.dimensions.find(
-			(d) => d.dimension === "correctness-confidence",
-		)!;
-		const crashCC = crashResult.dimensions.find((d) => d.dimension === "correctness-confidence")!;
+		const compactionCC = dim(compactionResult.dimensions, "correctness-confidence");
+		const crashCC = dim(crashResult.dimensions, "correctness-confidence");
 		expect(compactionCC.score).toBeGreaterThan(crashCC.score);
 	});
 
@@ -85,8 +91,8 @@ describe("analyzeHandoff", () => {
 			handoff: makeHandoff(emptyCheckpoint),
 			checkpoint: emptyCheckpoint,
 		});
-		const goodAction = goodResult.dimensions.find((d) => d.dimension === "actionability")!;
-		const emptyAction = emptyResult.dimensions.find((d) => d.dimension === "actionability")!;
+		const goodAction = dim(goodResult.dimensions, "actionability");
+		const emptyAction = dim(emptyResult.dimensions, "actionability");
 		expect(goodAction.score).toBeGreaterThan(emptyAction.score);
 	});
 
@@ -98,8 +104,8 @@ describe("analyzeHandoff", () => {
 			handoff: makeHandoff(withoutPaths),
 			checkpoint: withoutPaths,
 		});
-		const withAction = withResult.dimensions.find((d) => d.dimension === "actionability")!;
-		const withoutAction = withoutResult.dimensions.find((d) => d.dimension === "actionability")!;
+		const withAction = dim(withResult.dimensions, "actionability");
+		const withoutAction = dim(withoutResult.dimensions, "actionability");
 		expect(withAction.score).toBeGreaterThan(withoutAction.score);
 	});
 
@@ -107,7 +113,7 @@ describe("analyzeHandoff", () => {
 		const checkpoint = makeCheckpoint({ progressSummary: "" });
 		const input: HandoffReviewInput = { handoff: makeHandoff(checkpoint), checkpoint };
 		const result = analyzeHandoff(input);
-		const sn = result.dimensions.find((d) => d.dimension === "signal-to-noise")!;
+		const sn = dim(result.dimensions, "signal-to-noise");
 		expect(sn.score).toBe(0);
 	});
 
@@ -124,8 +130,8 @@ describe("analyzeHandoff", () => {
 			handoff: makeHandoff(goodCheckpoint),
 			checkpoint: goodCheckpoint,
 		});
-		const longSN = longResult.dimensions.find((d) => d.dimension === "signal-to-noise")!;
-		const goodSN = goodResult.dimensions.find((d) => d.dimension === "signal-to-noise")!;
+		const longSN = dim(longResult.dimensions, "signal-to-noise");
+		const goodSN = dim(goodResult.dimensions, "signal-to-noise");
 		expect(goodSN.score).toBeGreaterThan(longSN.score);
 	});
 
@@ -140,8 +146,8 @@ describe("analyzeHandoff", () => {
 			handoff: makeHandoff(sparseCheckpoint),
 			checkpoint: sparseCheckpoint,
 		});
-		const fullComp = fullResult.dimensions.find((d) => d.dimension === "completeness")!;
-		const sparseComp = sparseResult.dimensions.find((d) => d.dimension === "completeness")!;
+		const fullComp = dim(fullResult.dimensions, "completeness");
+		const sparseComp = dim(sparseResult.dimensions, "completeness");
 		expect(fullComp.score).toBeGreaterThan(sparseComp.score);
 	});
 

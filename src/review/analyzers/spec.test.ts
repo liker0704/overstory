@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import type { DimensionScore } from "../types.ts";
 import { analyzeSpec, type SpecReviewInput } from "./spec.ts";
+
+/** Find a dimension by name, throwing if missing (test helper). */
+function dim(dimensions: DimensionScore[], name: string): DimensionScore {
+	const found = dimensions.find((d) => d.dimension === name);
+	if (!found) throw new Error(`Dimension "${name}" not found`);
+	return found;
+}
 
 const FULL_SPEC = `# Spec: Some Feature
 
@@ -58,18 +66,16 @@ describe("analyzeSpec", () => {
 		const fullResult = analyzeSpec({ specPath: "specs/full.md", content: FULL_SPEC });
 		const minimalResult = analyzeSpec({ specPath: "specs/min.md", content: MINIMAL_SPEC });
 		expect(fullResult.overallScore).toBeGreaterThan(minimalResult.overallScore);
-		const fullAction = fullResult.dimensions.find((d) => d.dimension === "actionability")!;
-		const minAction = minimalResult.dimensions.find((d) => d.dimension === "actionability")!;
+		const fullAction = dim(fullResult.dimensions, "actionability");
+		const minAction = dim(minimalResult.dimensions, "actionability");
 		expect(fullAction.score).toBeGreaterThan(minAction.score);
 	});
 
 	test("spec with dependencies section scores higher coordination-fit", () => {
 		const withDepsResult = analyzeSpec({ specPath: "specs/full.md", content: FULL_SPEC });
 		const noDepsResult = analyzeSpec({ specPath: "specs/min.md", content: MINIMAL_SPEC });
-		const withDepsCoord = withDepsResult.dimensions.find(
-			(d) => d.dimension === "coordination-fit",
-		)!;
-		const noDepsCoord = noDepsResult.dimensions.find((d) => d.dimension === "coordination-fit")!;
+		const withDepsCoord = dim(withDepsResult.dimensions, "coordination-fit");
+		const noDepsCoord = dim(noDepsResult.dimensions, "coordination-fit");
 		expect(withDepsCoord.score).toBeGreaterThan(noDepsCoord.score);
 	});
 
@@ -78,8 +84,8 @@ describe("analyzeSpec", () => {
 		const withoutObj = `## Something\nDo stuff.\n`;
 		const withResult = analyzeSpec({ specPath: "a.md", content: withObj });
 		const withoutResult = analyzeSpec({ specPath: "b.md", content: withoutObj });
-		const withClarity = withResult.dimensions.find((d) => d.dimension === "clarity")!;
-		const withoutClarity = withoutResult.dimensions.find((d) => d.dimension === "clarity")!;
+		const withClarity = dim(withResult.dimensions, "clarity");
+		const withoutClarity = dim(withoutResult.dimensions, "clarity");
 		expect(withClarity.score).toBeGreaterThan(withoutClarity.score);
 	});
 
@@ -88,10 +94,8 @@ describe("analyzeSpec", () => {
 		const withoutTsRef = `Some feature\nDo some stuff somewhere.\n`;
 		const withResult = analyzeSpec({ specPath: "a.md", content: withTsRef });
 		const withoutResult = analyzeSpec({ specPath: "b.md", content: withoutTsRef });
-		const withCC = withResult.dimensions.find((d) => d.dimension === "correctness-confidence")!;
-		const withoutCC = withoutResult.dimensions.find(
-			(d) => d.dimension === "correctness-confidence",
-		)!;
+		const withCC = dim(withResult.dimensions, "correctness-confidence");
+		const withoutCC = dim(withoutResult.dimensions, "correctness-confidence");
 		expect(withCC.score).toBeGreaterThan(withoutCC.score);
 	});
 
@@ -99,15 +103,15 @@ describe("analyzeSpec", () => {
 		const result = analyzeSpec({ specPath: "empty.md", content: "" });
 		expect(result.overallScore).toBeGreaterThanOrEqual(0);
 		expect(result.overallScore).toBeLessThanOrEqual(100);
-		const completeness = result.dimensions.find((d) => d.dimension === "completeness")!;
+		const completeness = dim(result.dimensions, "completeness");
 		expect(completeness.score).toBe(0);
 	});
 
 	test("full spec scores higher completeness than minimal spec", () => {
 		const fullResult = analyzeSpec({ specPath: "full.md", content: FULL_SPEC });
 		const minResult = analyzeSpec({ specPath: "min.md", content: MINIMAL_SPEC });
-		const fullComp = fullResult.dimensions.find((d) => d.dimension === "completeness")!;
-		const minComp = minResult.dimensions.find((d) => d.dimension === "completeness")!;
+		const fullComp = dim(fullResult.dimensions, "completeness");
+		const minComp = dim(minResult.dimensions, "completeness");
 		expect(fullComp.score).toBeGreaterThan(minComp.score);
 	});
 

@@ -657,7 +657,7 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 							root,
 							session,
 							targetRuntimeName: rateLimitConfig.swapRuntime,
-							config: options.config!,
+							config: options.config as OverstoryConfig,
 							paneContext: swapPaneContent,
 						});
 						if (result.success) {

@@ -72,7 +72,7 @@ describe("staleness", () => {
 
 		test("fileHashes keys match WATCHED_SURFACES for the subject type", async () => {
 			const state = await computeStalenessState(tempDir, "handoff");
-			const expectedKeys = WATCHED_SURFACES["handoff"].slice().sort();
+			const expectedKeys = WATCHED_SURFACES.handoff.slice().sort();
 			expect(Object.keys(state.fileHashes).sort()).toEqual(expectedKeys);
 		});
 

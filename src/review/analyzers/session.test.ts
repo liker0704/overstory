@@ -1,6 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentSession, SessionCheckpoint } from "../../types.ts";
+import type { DimensionScore } from "../types.ts";
 import { analyzeSession, type SessionReviewInput } from "./session.ts";
+
+/** Find a dimension by name, throwing if missing (test helper). */
+function dim(dimensions: DimensionScore[], name: string): DimensionScore {
+	const found = dimensions.find((d) => d.dimension === name);
+	if (!found) throw new Error(`Dimension "${name}" not found`);
+	return found;
+}
 
 function makeSession(overrides: Partial<AgentSession> = {}): AgentSession {
 	return {
@@ -122,8 +130,8 @@ describe("analyzeSession", () => {
 			durationMs: 30000,
 		};
 		const result = analyzeSession(input);
-		const clarity = result.dimensions.find((d) => d.dimension === "clarity")!;
-		const actionability = result.dimensions.find((d) => d.dimension === "actionability")!;
+		const clarity = dim(result.dimensions, "clarity");
+		const actionability = dim(result.dimensions, "actionability");
 		expect(clarity.score).toBe(0);
 		expect(actionability.score).toBe(0);
 	});
@@ -151,8 +159,8 @@ describe("analyzeSession", () => {
 		};
 		const lowResult = analyzeSession(lowNudgeInput);
 		const highResult = analyzeSession(highNudgeInput);
-		const lowSN = lowResult.dimensions.find((d) => d.dimension === "signal-to-noise")!;
-		const highSN = highResult.dimensions.find((d) => d.dimension === "signal-to-noise")!;
+		const lowSN = dim(lowResult.dimensions, "signal-to-noise");
+		const highSN = dim(highResult.dimensions, "signal-to-noise");
 		expect(lowSN.score).toBeGreaterThan(highSN.score);
 	});
 
@@ -173,10 +181,8 @@ describe("analyzeSession", () => {
 		};
 		const noMailResult = analyzeSession(noMailInput);
 		const withMailResult = analyzeSession(withMailInput);
-		const noMailCoord = noMailResult.dimensions.find((d) => d.dimension === "coordination-fit")!;
-		const withMailCoord = withMailResult.dimensions.find(
-			(d) => d.dimension === "coordination-fit",
-		)!;
+		const noMailCoord = dim(noMailResult.dimensions, "coordination-fit");
+		const withMailCoord = dim(withMailResult.dimensions, "coordination-fit");
 		expect(withMailCoord.score).toBeGreaterThan(noMailCoord.score);
 	});
 
@@ -197,8 +203,8 @@ describe("analyzeSession", () => {
 		};
 		const lowResult = analyzeSession(lowErrorInput);
 		const highResult = analyzeSession(highErrorInput);
-		const lowCC = lowResult.dimensions.find((d) => d.dimension === "correctness-confidence")!;
-		const highCC = highResult.dimensions.find((d) => d.dimension === "correctness-confidence")!;
+		const lowCC = dim(lowResult.dimensions, "correctness-confidence");
+		const highCC = dim(highResult.dimensions, "correctness-confidence");
 		expect(lowCC.score).toBeGreaterThan(highCC.score);
 	});
 

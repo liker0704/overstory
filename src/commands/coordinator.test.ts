@@ -462,7 +462,7 @@ describe("startCoordinator", () => {
 		expect(session?.taskId).toBe("");
 		expect(session?.branchName).toBe("main");
 		expect(session?.worktreePath).toBe(tempDir);
-		expect(session?.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+		expect(session?.id).toMatch(/^session-\d+-coordinator$/);
 
 		// Verify the session has a runId set (not null)
 		expect(session?.runId).not.toBeNull();

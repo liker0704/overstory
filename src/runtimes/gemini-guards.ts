@@ -9,21 +9,11 @@
 //   Gemini: BeforeTool/AfterTool/PreCompress/BeforeAgent
 //   Qwen:   PreToolUse/PostToolUse/PreCompact (no BeforeAgent)
 
+import { DANGEROUS_BASH_PATTERNS, SAFE_BASH_PREFIXES } from "../agents/guard-rules.ts";
 import {
-	DANGEROUS_BASH_PATTERNS,
-	INTERACTIVE_TOOLS,
-	NATIVE_TEAM_TOOLS,
-	SAFE_BASH_PREFIXES,
-	WRITE_TOOLS,
-} from "../agents/guard-rules.ts";
-import {
-	PATH_PREFIX,
-	buildBashFileGuardScript,
-	buildBashPathBoundaryScript,
-	buildPathBoundaryGuardScript,
-	buildTrackerCloseGuardScript,
 	escapeForSingleQuotedShell,
 	extractQualityGatePrefixes,
+	PATH_PREFIX,
 } from "../agents/hooks-deployer.ts";
 import { DEFAULT_QUALITY_GATES } from "../config.ts";
 import type { HooksDef } from "./types.ts";
@@ -87,7 +77,7 @@ export type HooksConfig = {
  * Claude Code → Gemini CLI tool name mapping.
  * NotebookEdit has no Gemini equivalent and is skipped.
  */
-const TOOL_NAME_MAP: Record<string, string> = {
+const _TOOL_NAME_MAP: Record<string, string> = {
 	Write: "write_file",
 	Edit: "replace",
 	Bash: "run_shell_command",
@@ -129,7 +119,7 @@ const IMPLEMENTATION_CAPABILITIES = new Set(["builder", "merger"]);
  * Translate a Claude Code guard command to Gemini format.
  * Replaces `"block"` → `"deny"` in JSON decision outputs.
  */
-function translateCommand(cmd: string): string {
+function _translateCommand(cmd: string): string {
 	return cmd.replace(/"decision":"block"/g, '"decision":"deny"');
 }
 
@@ -305,7 +295,10 @@ function buildGeminiTrackerCloseGuardScript(): string {
  * @param eventNames - Event name mapping (default: Gemini names)
  * @returns Object with `hooks` key ready to merge into settings.json
  */
-export function generateGeminiHooks(hooks: HooksDef, eventNames: RuntimeHookConfig = GEMINI_HOOK_CONFIG): HooksConfig {
+export function generateGeminiHooks(
+	hooks: HooksDef,
+	eventNames: RuntimeHookConfig = GEMINI_HOOK_CONFIG,
+): HooksConfig {
 	const { agentName, capability, qualityGates } = hooks;
 	const gates = qualityGates ?? DEFAULT_QUALITY_GATES;
 	const gatePrefixes = extractQualityGatePrefixes(gates);
@@ -354,7 +347,10 @@ export function generateGeminiHooks(hooks: HooksDef, eventNames: RuntimeHookConf
 	if (NON_IMPLEMENTATION_CAPABILITIES.has(capability)) {
 		// Block file write tools
 		beforeToolGuards.push(
-			denyGuard("write_file", `${capability} agents cannot modify files — write_file is not allowed`),
+			denyGuard(
+				"write_file",
+				`${capability} agents cannot modify files — write_file is not allowed`,
+			),
 		);
 		beforeToolGuards.push(
 			denyGuard(editTool, `${capability} agents cannot modify files — ${editTool} is not allowed`),

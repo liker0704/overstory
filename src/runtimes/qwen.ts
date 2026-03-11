@@ -12,7 +12,7 @@
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ResolvedModel } from "../types.ts";
-import { QWEN_HOOK_CONFIG, generateGeminiHooks } from "./gemini-guards.ts";
+import { generateGeminiHooks, QWEN_HOOK_CONFIG } from "./gemini-guards.ts";
 import type {
 	AgentRuntime,
 	HooksDef,
@@ -61,9 +61,7 @@ export class QwenRuntime implements AgentRuntime {
 	 * - `appendSystemPrompt` / `appendSystemPromptFile` → `--prompt-interactive`
 	 */
 	buildSpawnCommand(opts: SpawnOpts): string {
-		const modelFlag = QwenRuntime.SKIP_MODEL_FLAG.has(opts.model)
-			? ""
-			: ` --model ${opts.model}`;
+		const modelFlag = QwenRuntime.SKIP_MODEL_FLAG.has(opts.model) ? "" : ` --model ${opts.model}`;
 
 		let cmd: string;
 		if (opts.resumeSessionId) {
@@ -89,7 +87,8 @@ export class QwenRuntime implements AgentRuntime {
 			);
 			cmd += ` --prompt-interactive '${escaped}'`;
 		} else {
-			cmd += " --prompt-interactive 'Read AGENTS.md for your task assignment and begin immediately.'";
+			cmd +=
+				" --prompt-interactive 'Read AGENTS.md for your task assignment and begin immediately.'";
 		}
 
 		return cmd;

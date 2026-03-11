@@ -361,7 +361,7 @@ export class CodexRuntime implements AgentRuntime {
 				// User messages: event_msg > user_message
 				if (payload && payload.type === "user_message") {
 					const msg = payload.message as string | undefined;
-					if (msg && msg.trim()) {
+					if (msg?.trim()) {
 						turns.push({ type: "user", content: msg.trim() });
 					}
 				}
@@ -369,7 +369,7 @@ export class CodexRuntime implements AgentRuntime {
 				// Agent messages: event_msg > agent_message
 				if (payload && payload.type === "agent_message") {
 					const msg = payload.message as string | undefined;
-					if (msg && msg.trim()) {
+					if (msg?.trim()) {
 						turns.push({ type: "assistant", content: msg.trim() });
 					}
 				}

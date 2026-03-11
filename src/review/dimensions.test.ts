@@ -4,8 +4,8 @@
 
 import { describe, expect, it } from "bun:test";
 import {
-	REVIEW_DIMENSIONS,
 	computeOverallScore,
+	REVIEW_DIMENSIONS,
 	scorePresence,
 	scoreTextQuality,
 } from "./dimensions.ts";
@@ -119,9 +119,7 @@ describe("computeOverallScore", () => {
 	});
 
 	it("returns the score for a single dimension", () => {
-		expect(
-			computeOverallScore([{ dimension: "clarity", score: 80, details: "ok" }]),
-		).toBe(80);
+		expect(computeOverallScore([{ dimension: "clarity", score: 80, details: "ok" }])).toBe(80);
 	});
 
 	it("returns average of multiple dimensions", () => {

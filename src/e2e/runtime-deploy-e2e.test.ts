@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Spawner } from "../commands/init.ts";
 import { initCommand } from "../commands/init.ts";
@@ -169,9 +168,10 @@ describe("E2E: runtime deployConfig on initialized project", () => {
 				{ agentName: "gemini-merge", capability: "builder", worktreePath },
 			);
 
-			const settings = (await Bun.file(
-				join(settingsDir, "settings.json"),
-			).json()) as Record<string, unknown>;
+			const settings = (await Bun.file(join(settingsDir, "settings.json")).json()) as Record<
+				string,
+				unknown
+			>;
 			// customKey preserved
 			expect(settings.customKey).toBe("preserved");
 			// old hooks replaced with new ones
@@ -301,9 +301,10 @@ describe("E2E: runtime deployConfig on initialized project", () => {
 				{ agentName: "qwen-merge", capability: "builder", worktreePath },
 			);
 
-			const settings = (await Bun.file(
-				join(settingsDir, "settings.json"),
-			).json()) as Record<string, unknown>;
+			const settings = (await Bun.file(join(settingsDir, "settings.json")).json()) as Record<
+				string,
+				unknown
+			>;
 
 			// context.fileName overwritten to AGENTS.md (runtime sets it)
 			expect(settings.context).toEqual({ fileName: "AGENTS.md" });
@@ -348,13 +349,22 @@ describe("E2E: runtime deployConfig on initialized project", () => {
 			const qwenHooks = qwenSettings.hooks as Record<string, unknown[]>;
 
 			// Gemini uses BeforeTool/AfterTool/BeforeAgent/PreCompress
-			expect(Object.keys(geminiHooks).sort()).toEqual(
-				["AfterTool", "BeforeAgent", "BeforeTool", "PreCompress", "SessionEnd", "SessionStart"],
-			);
+			expect(Object.keys(geminiHooks).sort()).toEqual([
+				"AfterTool",
+				"BeforeAgent",
+				"BeforeTool",
+				"PreCompress",
+				"SessionEnd",
+				"SessionStart",
+			]);
 			// Qwen uses PreToolUse/PostToolUse/PreCompact (no BeforeAgent)
-			expect(Object.keys(qwenHooks).sort()).toEqual(
-				["PostToolUse", "PreCompact", "PreToolUse", "SessionEnd", "SessionStart"],
-			);
+			expect(Object.keys(qwenHooks).sort()).toEqual([
+				"PostToolUse",
+				"PreCompact",
+				"PreToolUse",
+				"SessionEnd",
+				"SessionStart",
+			]);
 
 			// Same number of before-tool guards (different key names)
 			expect(geminiHooks.BeforeTool?.length).toBe(qwenHooks.PreToolUse?.length);
@@ -469,11 +479,12 @@ describe("E2E: runtime deployConfig on initialized project", () => {
 
 			// Find the write_file path boundary guard (first one with matcher "write_file")
 			const writeFileGuard = hooks.BeforeTool?.find(
-				(e) => e.matcher === "write_file" && e.hooks[0]?.command.includes("OVERSTORY_WORKTREE_PATH"),
+				(e) =>
+					e.matcher === "write_file" && e.hooks[0]?.command.includes("OVERSTORY_WORKTREE_PATH"),
 			);
 			expect(writeFileGuard).toBeDefined();
 
-			const guardCmd = writeFileGuard!.hooks[0]!.command;
+			const guardCmd = writeFileGuard?.hooks[0]?.command as string;
 
 			// Simulate: file_path outside worktree → should output deny
 			const outsideInput = JSON.stringify({
@@ -490,10 +501,7 @@ describe("E2E: runtime deployConfig on initialized project", () => {
 					OVERSTORY_WORKTREE_PATH: worktreePath,
 				},
 			});
-			const [stdout, exitCode] = await Promise.all([
-				new Response(proc.stdout).text(),
-				proc.exited,
-			]);
+			const [stdout, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
 
 			expect(exitCode).toBe(0);
 			expect(stdout).toContain("deny");
@@ -521,11 +529,12 @@ describe("E2E: runtime deployConfig on initialized project", () => {
 			>;
 
 			const writeFileGuard = hooks.BeforeTool?.find(
-				(e) => e.matcher === "write_file" && e.hooks[0]?.command.includes("OVERSTORY_WORKTREE_PATH"),
+				(e) =>
+					e.matcher === "write_file" && e.hooks[0]?.command.includes("OVERSTORY_WORKTREE_PATH"),
 			);
 			expect(writeFileGuard).toBeDefined();
 
-			const guardCmd = writeFileGuard!.hooks[0]!.command;
+			const guardCmd = writeFileGuard?.hooks[0]?.command as string;
 
 			// Simulate: file_path inside worktree → should output nothing (allow)
 			const insideInput = JSON.stringify({
@@ -542,10 +551,7 @@ describe("E2E: runtime deployConfig on initialized project", () => {
 					OVERSTORY_WORKTREE_PATH: worktreePath,
 				},
 			});
-			const [stdout, exitCode] = await Promise.all([
-				new Response(proc.stdout).text(),
-				proc.exited,
-			]);
+			const [stdout, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
 
 			expect(exitCode).toBe(0);
 			// No deny output — guard allows the write
@@ -578,7 +584,7 @@ describe("E2E: runtime deployConfig on initialized project", () => {
 			);
 			expect(bashGuard).toBeDefined();
 
-			const guardCmd = bashGuard!.hooks[0]!.command;
+			const guardCmd = bashGuard?.hooks[0]?.command as string;
 
 			const pushInput = JSON.stringify({
 				tool_name: "run_shell_command",
@@ -593,10 +599,7 @@ describe("E2E: runtime deployConfig on initialized project", () => {
 					OVERSTORY_AGENT_NAME: "bash-danger",
 				},
 			});
-			const [stdout, exitCode] = await Promise.all([
-				new Response(proc.stdout).text(),
-				proc.exited,
-			]);
+			const [stdout, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
 
 			expect(exitCode).toBe(0);
 			expect(stdout).toContain("deny");
@@ -628,7 +631,7 @@ describe("E2E: runtime deployConfig on initialized project", () => {
 			);
 			expect(bashGuard).toBeDefined();
 
-			const guardCmd = bashGuard!.hooks[0]!.command;
+			const guardCmd = bashGuard?.hooks[0]?.command as string;
 
 			const safeInput = JSON.stringify({
 				tool_name: "run_shell_command",
@@ -643,10 +646,7 @@ describe("E2E: runtime deployConfig on initialized project", () => {
 					OVERSTORY_AGENT_NAME: "bash-safe",
 				},
 			});
-			const [stdout, exitCode] = await Promise.all([
-				new Response(proc.stdout).text(),
-				proc.exited,
-			]);
+			const [stdout, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
 
 			expect(exitCode).toBe(0);
 			// No deny — allowed through
@@ -676,12 +676,11 @@ describe("E2E: runtime deployConfig on initialized project", () => {
 			// Find the scout's bash file guard (Qwen uses PreToolUse, not BeforeTool)
 			const fileGuard = hooks.PreToolUse?.find(
 				(e) =>
-					e.matcher === "run_shell_command" &&
-					e.hooks[0]?.command.includes("cannot modify files"),
+					e.matcher === "run_shell_command" && e.hooks[0]?.command.includes("cannot modify files"),
 			);
 			expect(fileGuard).toBeDefined();
 
-			const guardCmd = fileGuard!.hooks[0]!.command;
+			const guardCmd = fileGuard?.hooks[0]?.command as string;
 
 			// sed -i is a dangerous file-modifying command for scouts
 			const dangerInput = JSON.stringify({
@@ -697,10 +696,7 @@ describe("E2E: runtime deployConfig on initialized project", () => {
 					OVERSTORY_AGENT_NAME: "scout-bash",
 				},
 			});
-			const [stdout, exitCode] = await Promise.all([
-				new Response(proc.stdout).text(),
-				proc.exited,
-			]);
+			const [stdout, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
 
 			expect(exitCode).toBe(0);
 			expect(stdout).toContain("deny");
@@ -730,12 +726,11 @@ describe("E2E: runtime deployConfig on initialized project", () => {
 			// Find the tracker close guard
 			const trackerGuard = hooks.BeforeTool?.find(
 				(e) =>
-					e.matcher === "run_shell_command" &&
-					e.hooks[0]?.command.includes("OVERSTORY_TASK_ID"),
+					e.matcher === "run_shell_command" && e.hooks[0]?.command.includes("OVERSTORY_TASK_ID"),
 			);
 			expect(trackerGuard).toBeDefined();
 
-			const guardCmd = trackerGuard!.hooks[0]!.command;
+			const guardCmd = trackerGuard?.hooks[0]?.command as string;
 
 			// Try to close a different task
 			const wrongCloseInput = JSON.stringify({
@@ -752,10 +747,7 @@ describe("E2E: runtime deployConfig on initialized project", () => {
 					OVERSTORY_TASK_ID: "my-task-456",
 				},
 			});
-			const [stdout, exitCode] = await Promise.all([
-				new Response(proc.stdout).text(),
-				proc.exited,
-			]);
+			const [stdout, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
 
 			expect(exitCode).toBe(0);
 			expect(stdout).toContain("deny");
@@ -785,12 +777,11 @@ describe("E2E: runtime deployConfig on initialized project", () => {
 
 			const trackerGuard = hooks.BeforeTool?.find(
 				(e) =>
-					e.matcher === "run_shell_command" &&
-					e.hooks[0]?.command.includes("OVERSTORY_TASK_ID"),
+					e.matcher === "run_shell_command" && e.hooks[0]?.command.includes("OVERSTORY_TASK_ID"),
 			);
 			expect(trackerGuard).toBeDefined();
 
-			const guardCmd = trackerGuard!.hooks[0]!.command;
+			const guardCmd = trackerGuard?.hooks[0]?.command as string;
 
 			// Close own task
 			const ownCloseInput = JSON.stringify({
@@ -807,10 +798,7 @@ describe("E2E: runtime deployConfig on initialized project", () => {
 					OVERSTORY_TASK_ID: "my-task-456",
 				},
 			});
-			const [stdout, exitCode] = await Promise.all([
-				new Response(proc.stdout).text(),
-				proc.exited,
-			]);
+			const [stdout, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
 
 			expect(exitCode).toBe(0);
 			// No deny — allowed

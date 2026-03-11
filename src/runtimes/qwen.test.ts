@@ -175,13 +175,7 @@ describe("QwenRuntime", () => {
 
 		test("command with model override", () => {
 			const argv = runtime.buildPrintCommand("Classify this error", "qwen-coder-plus");
-			expect(argv).toEqual([
-				"qwen",
-				"--yolo",
-				"--model",
-				"qwen-coder-plus",
-				"Classify this error",
-			]);
+			expect(argv).toEqual(["qwen", "--yolo", "--model", "qwen-coder-plus", "Classify this error"]);
 		});
 
 		test("model undefined omits --model flag", () => {
@@ -360,7 +354,9 @@ describe("QwenRuntime", () => {
 				{ agentName: "test-builder", capability: "builder", worktreePath },
 			);
 
-			const settings = (await Bun.file(join(worktreePath, ".qwen", "settings.json")).json()) as Record<string, unknown>;
+			const settings = (await Bun.file(
+				join(worktreePath, ".qwen", "settings.json"),
+			).json()) as Record<string, unknown>;
 			const hooks = settings.hooks as Record<string, Array<{ matcher?: string }>> | undefined;
 			const preToolUse = hooks?.PreToolUse ?? [];
 			const matchers = preToolUse.map((e) => e.matcher).filter(Boolean);

@@ -8,7 +8,6 @@
  * Requires tmux to be available on the system.
  */
 
-import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -163,9 +162,9 @@ sleep 300
 		// 7. Run a single watchdog tick — should detect rate limit and attempt swap
 		//    Swap will use real tmux.createSession for the new runtime, but we
 		//    DI _tmux on swap to capture the swap call instead of spawning gemini.
-		const swapCalled = false;
-		const swapTarget = "";
-		const newTmuxName = "";
+		const _swapCalled = false;
+		const _swapTarget = "";
+		const _newTmuxName = "";
 
 		await runDaemonTick({
 			root: tempDir,
@@ -211,17 +210,17 @@ sleep 300
 		// a) Have rateLimitedSince set (rate limit detected, swap may have failed due to gemini not existing)
 		// b) Have runtime changed to "gemini" (swap succeeded)
 		// c) State changed to "booting" (swap succeeded and reset state)
-		const rateLimitDetected = updatedSession!.rateLimitedSince !== null;
-		const swapHappened = updatedSession!.runtime === "gemini";
+		const rateLimitDetected = updatedSession?.rateLimitedSince !== null;
+		const swapHappened = updatedSession?.runtime === "gemini";
 
 		// Rate limit MUST have been detected
 		expect(rateLimitDetected || swapHappened).toBe(true);
 
 		if (swapHappened) {
 			// If swap succeeded, session should be reset
-			expect(updatedSession!.state).toBe("booting");
-			expect(updatedSession!.rateLimitedSince).toBeNull();
-			expect(updatedSession!.escalationLevel).toBe(0);
+			expect(updatedSession?.state).toBe("booting");
+			expect(updatedSession?.rateLimitedSince).toBeNull();
+			expect(updatedSession?.escalationLevel).toBe(0);
 
 			// Verify new tmux session exists
 			const newAlive = await isSessionAlive(`${tmuxSessionName}-gemini`);
@@ -329,8 +328,8 @@ sleep 300
 		verifyStore.close();
 
 		expect(updated).toBeDefined();
-		expect(updated!.rateLimitedSince).not.toBeNull();
+		expect(updated?.rateLimitedSince).not.toBeNull();
 		// Should still be in working state (rate limited agents are protected from escalation)
-		expect(updated!.state).toBe("working");
+		expect(updated?.state).toBe("working");
 	}, 15_000);
 });

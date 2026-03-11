@@ -1240,10 +1240,7 @@ describe("config versioning", () => {
 
 	test("config.local.yaml rejects unknown fields", async () => {
 		await writeConfig("project:\n  canonicalBranch: main\n");
-		await Bun.write(
-			join(tempDir, ".overstory", "config.local.yaml"),
-			"unknownLocalKey: true\n",
-		);
+		await Bun.write(join(tempDir, ".overstory", "config.local.yaml"), "unknownLocalKey: true\n");
 		await expect(loadConfig(tempDir)).rejects.toThrow(ValidationError);
 	});
 

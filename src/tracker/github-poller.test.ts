@@ -11,12 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createMailStore } from "../mail/store.ts";
 import type { GitHubPollerConfig } from "../types.ts";
-import {
-	type GhRawIssue,
-	type GhRunner,
-	type PollerTickResult,
-	runPollerTick,
-} from "./github-poller.ts";
+import { type GhRawIssue, type GhRunner, runPollerTick } from "./github-poller.ts";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
