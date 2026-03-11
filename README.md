@@ -149,6 +149,22 @@ Every command supports `--json` where noted. Global flags: `-q`/`--quiet`, `--ti
 | `ov run show <id>` | Show run details |
 | `ov run complete` | Mark current run as completed |
 
+### Evaluation & Quality
+
+| Command | Description |
+|---------|-------------|
+| `ov eval run <scenario>` | Run an eval scenario against a fixture repo (`--timeout`, `--json`) |
+| `ov eval show <run-id>` | Show results of a previous eval run (`--json`) |
+| `ov eval list` | List all past eval runs (`--json`) |
+| `ov eval compare <a> <b>` | Compare two eval runs side-by-side (`--json`) |
+| `ov health` | Operational health score with weighted signals (`--json`) |
+| `ov next-improvement` | Top recommendation from health scoring (`--json`) |
+| `ov review sessions` | Review recent completed sessions (`--recent`, `--json`) |
+| `ov review session <id>` | Review a single session by agent name or ID (`--json`) |
+| `ov review handoffs` | Review recent session handoffs (`--recent`, `--json`) |
+| `ov review specs` | Review all spec files in `.overstory/specs/` (`--json`) |
+| `ov review stale` | Check and mark stale reviews based on changed surfaces (`--json`) |
+
 ### Infrastructure
 
 | Command | Description |
@@ -225,6 +241,10 @@ Orchestrator (multi-repo coordinator of coordinators)
 - **Task Groups**: Batch coordination with auto-close when all member issues complete
 - **Session Lifecycle**: Checkpoint save/restore for compaction survivability, handoff orchestration for crash recovery
 - **Token Instrumentation**: Session metrics extracted from runtime transcript files (JSONL)
+- **Eval Framework**: Scenario-based orchestration regression testing with YAML scenarios, 8 assertion kinds, and side-by-side run comparison
+- **Health Scoring**: Weighted operational health score with signal collection, recommendation engine, and `ov next-improvement` workflow
+- **Review Contour**: Deterministic quality review of sessions, handoffs, and specs across 6 dimensions with staleness detection
+- **Versioned Config**: Schema versioning with migration pipeline and strict unknown-field validation
 
 ## Project Structure
 
@@ -236,7 +256,7 @@ overstory/
     config.ts                     Config loader + validation
     errors.ts                     Custom error types
     json.ts                       Standardized JSON envelope helpers
-    commands/                     One file per CLI subcommand (35 commands)
+    commands/                     One file per CLI subcommand (39 commands)
       agents.ts                   Agent discovery and querying
       coordinator.ts              Persistent orchestrator lifecycle
       supervisor.ts               Team lead management [DEPRECATED]
@@ -288,7 +308,10 @@ overstory/
     doctor/                       Health check modules (11 checks)
     insights/                     Session insight analyzer for auto-expertise
     runtimes/                     AgentRuntime abstraction (registry + adapters: Claude, Pi, Copilot, Codex, Gemini, Sapling, OpenCode, Cursor)
-    tracker/                      Pluggable task tracker (beads + seeds backends)
+    eval/                         Scenario-based orchestration evaluation
+    health/                       Operational health scoring + recommendations
+    review/                       Coordination quality review contour
+    tracker/                      Pluggable task tracker (beads + seeds + GitHub backends)
     mulch/                        mulch client (programmatic API + CLI wrapper)
     e2e/                          End-to-end lifecycle tests
   agents/                         Base agent definitions (.md, 9 roles) + skill definitions

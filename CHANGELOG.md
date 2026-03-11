@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### Scenario-Based Eval Framework (`ov eval`)
+- **`src/eval/`** — new evaluation subsystem for orchestration regression testing
+- **`ov eval run <scenario>`** — run YAML-defined scenarios against fixture repos with configurable timeouts
+- **`ov eval show <run-id>`** — display results of a previous eval run
+- **`ov eval list`** — list all past eval runs sorted by date
+- **`ov eval compare <a> <b>`** — side-by-side comparison of two eval runs with metrics delta and assertion diff
+- **8 assertion kinds** — `minAgents`, `maxAgents`, `allComplete`, `noZombies`, `maxStallRate`, `maxCost`, `maxDuration`, `tasksCompleted`
+- **Built-in scenarios** — `evals/dispatch-smoke/`, `evals/merge-smoke/`, `evals/watchdog-recovery/`
+
+#### Versioned Config with Migrations
+- **`src/config-schema.ts`** — config schema version constants and known field registry
+- **`src/config-migrate.ts`** — version detection and migration pipeline for config evolution
+- **`src/config-validate.ts`** — strict unknown-field validation with helpful error messages
+- **`ov doctor --category config`** — integrated config version health check
+
+#### Operational Health Scoring (`ov health`, `ov next-improvement`)
+- **`src/health/`** — weighted health scoring with signal collection from existing stores
+- **`ov health`** — operational health score with per-signal breakdown (zombie count, stall rate, merge conflicts, error rate, etc.)
+- **`ov next-improvement`** — top recommendation from health scoring engine with actionable steps
+
+#### Review Contour (`ov review`)
+- **`src/review/`** — deterministic quality review across 6 dimensions (clarity, actionability, completeness, signal-to-noise, correctness-confidence, coordination-fit)
+- **`ov review sessions`** — review recent completed sessions with dimension scoring
+- **`ov review session <id>`** — detailed review of a single session
+- **`ov review handoffs`** — review session handoff quality from checkpoint data
+- **`ov review specs`** — review spec file quality (structure, sections, actionability)
+- **`ov review stale`** — staleness detection via SHA-256 hashing of watched surfaces
+- **`src/review/store.ts`** — SQLite-backed ReviewStore in `.overstory/reviews.db`
+
+#### GitHub Issues Tracker Backend
+- **`src/tracker/github.ts`** — GitHub Issues adapter implementing `TrackerClient` via `gh` CLI
+- **`src/tracker/github-poller.ts`** — autonomous polling loop for GitHub Issues auto-dispatch
+- **`ov coordinator start --auto-pull`** — enable autonomous issue polling for GitHub tracker
+
+#### tmux Session Attach Fix
+- **`ov attach`** — now uses `tmux switch-client` when already inside a tmux session, preventing nested session errors
+
 ## [0.8.7] - 2026-03-10
 
 ### Added
