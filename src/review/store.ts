@@ -5,68 +5,17 @@
  * - WAL mode + busy_timeout for concurrent agent access
  * - Internal snake_case row types with camelCase converters
  * - JSON fields (dimensions, notes) stored as strings, parsed on read
- *
- * Types are re-exported here as stubs until src/review/types.ts is merged.
- * Once that file lands, replace these with: import type { ... } from "./types.ts"
  */
 
 import { Database } from "bun:sqlite";
-
-// === Type stubs (remove when src/review/types.ts is on the merged branch) ===
-
-export type ReviewDimension =
-	| "clarity"
-	| "actionability"
-	| "completeness"
-	| "signal-to-noise"
-	| "correctness-confidence"
-	| "coordination-fit";
-
-export type ReviewSubjectType = "session" | "handoff" | "spec";
-
-export interface DimensionScore {
-	dimension: ReviewDimension;
-	score: number;
-	details: string;
-}
-
-export interface ReviewRecord {
-	id: string;
-	subjectType: ReviewSubjectType;
-	subjectId: string;
-	timestamp: string;
-	dimensions: DimensionScore[];
-	overallScore: number;
-	notes: string[];
-	reviewerSource: "deterministic";
-	stale: boolean;
-	staleSince: string | null;
-	staleReason: string | null;
-}
-
-export interface InsertReviewRecord {
-	subjectType: ReviewSubjectType;
-	subjectId: string;
-	dimensions: DimensionScore[];
-	overallScore: number;
-	notes: string[];
-	reviewerSource: "deterministic";
-}
-
-export interface StalenessState {
-	fileHashes: Record<string, string>;
-	capturedAt: string;
-}
-
-export interface ReviewSummary {
-	subjectType: ReviewSubjectType;
-	totalReviewed: number;
-	averageScore: number;
-	staleCount: number;
-	recentReviews: ReviewRecord[];
-}
-
-// === Store interface ===
+import type {
+	DimensionScore,
+	InsertReviewRecord,
+	ReviewRecord,
+	ReviewSubjectType,
+	ReviewSummary,
+	StalenessState,
+} from "./types.ts";
 
 export interface ReviewStore {
 	insert(record: InsertReviewRecord): ReviewRecord;
@@ -81,7 +30,6 @@ export interface ReviewStore {
 	loadStalenessState(): StalenessState | null;
 	close(): void;
 }
-
 // === Internal row types (SQLite snake_case columns) ===
 
 interface ReviewRow {
