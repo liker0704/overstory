@@ -303,9 +303,11 @@ describe("QwenRuntime", () => {
 			expect(settings.context).toEqual({ fileName: "AGENTS.md" });
 			expect(settings.hooks).toBeDefined();
 			const hooks = settings.hooks as Record<string, unknown[]>;
-			expect(hooks.BeforeTool).toBeDefined();
-			expect(hooks.AfterTool).toBeDefined();
+			expect(hooks.PreToolUse).toBeDefined();
+			expect(hooks.PostToolUse).toBeDefined();
 			expect(hooks.SessionStart).toBeDefined();
+			expect(hooks.PreCompact).toBeDefined();
+			expect(hooks.BeforeAgent).toBeUndefined();
 		});
 
 		test("deploys hooks even when overlay is undefined", async () => {
@@ -350,7 +352,7 @@ describe("QwenRuntime", () => {
 			await rm(tempDir, { recursive: true, force: true });
 		});
 
-		test("BeforeTool guards use Gemini tool names (write_file, replace, run_shell_command)", async () => {
+		test("PreToolUse guards use Qwen tool names (write_file, edit, run_shell_command)", async () => {
 			const worktreePath = join(tempDir, "worktree");
 			await runtime.deployConfig(
 				worktreePath,
@@ -360,10 +362,11 @@ describe("QwenRuntime", () => {
 
 			const settings = (await Bun.file(join(worktreePath, ".qwen", "settings.json")).json()) as Record<string, unknown>;
 			const hooks = settings.hooks as Record<string, Array<{ matcher?: string }>> | undefined;
-			const beforeTool = hooks?.BeforeTool ?? [];
-			const matchers = beforeTool.map((e) => e.matcher).filter(Boolean);
+			const preToolUse = hooks?.PreToolUse ?? [];
+			const matchers = preToolUse.map((e) => e.matcher).filter(Boolean);
 			expect(matchers).toContain("write_file");
-			expect(matchers).toContain("replace");
+			expect(matchers).toContain("edit");
+			expect(matchers).not.toContain("replace");
 			expect(matchers).toContain("run_shell_command");
 			expect(matchers).not.toContain("Write");
 			expect(matchers).not.toContain("Edit");
@@ -384,7 +387,7 @@ describe("QwenRuntime", () => {
 			expect(text).not.toMatch(/decision\\\\?":\\\\?"block/);
 		});
 
-		test("non-implementation capability blocks write_file and replace", async () => {
+		test("non-implementation capability blocks write_file and edit", async () => {
 			const worktreePath = join(tempDir, "worktree");
 			await runtime.deployConfig(
 				worktreePath,

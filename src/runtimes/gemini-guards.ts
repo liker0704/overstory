@@ -1,13 +1,13 @@
 // Gemini/Qwen CLI hook generator for overstory guard deployment.
-// Generates hooks config compatible with Gemini CLI (v0.26.0+) and Qwen Code
-// (Gemini fork). Both use the same `.gemini/settings.json` / `.qwen/settings.json`
-// hooks format.
+// Generates hooks config compatible with Gemini CLI (v0.26.0+) and Qwen Code.
 //
 // Reuses guard constants from guard-rules.ts and guard generation functions from
-// hooks-deployer.ts, translating Claude Code conventions to Gemini conventions:
+// hooks-deployer.ts, translating Claude Code conventions to Gemini/Qwen conventions:
 // - Tool names: Write → write_file, Edit → replace, Bash → run_shell_command
 // - Decision: "block" → "deny"
-// - Event names: PreToolUse → BeforeTool, PostToolUse → AfterTool, etc.
+// - Event names: configurable via EventNameMap (Gemini vs Qwen differ)
+//   Gemini: BeforeTool/AfterTool/PreCompress/BeforeAgent
+//   Qwen:   PreToolUse/PostToolUse/PreCompact (no BeforeAgent)
 
 import {
 	DANGEROUS_BASH_PATTERNS,
@@ -28,23 +28,60 @@ import {
 import { DEFAULT_QUALITY_GATES } from "../config.ts";
 import type { HooksDef } from "./types.ts";
 
-/** Hook entry shape for Gemini CLI settings.json. */
+/** Hook entry shape for Gemini/Qwen CLI settings.json. */
 export interface GeminiHookEntry {
 	matcher?: string;
 	hooks: Array<{ type: string; command: string; timeout?: number }>;
 }
 
-/** Concrete shape of the generated hooks config. */
-export interface GeminiHooksConfig {
-	hooks: {
-		SessionStart: GeminiHookEntry[];
-		BeforeAgent: GeminiHookEntry[];
-		BeforeTool: GeminiHookEntry[];
-		AfterTool: GeminiHookEntry[];
-		SessionEnd: GeminiHookEntry[];
-		PreCompress: GeminiHookEntry[];
-	};
+/**
+ * Runtime-specific configuration for hook generation.
+ * Covers event names and tool name differences between Gemini/Qwen forks.
+ * Empty string for an event means it is not supported and should be omitted.
+ */
+export interface RuntimeHookConfig {
+	// Event names
+	sessionStart: string;
+	beforeAgent: string;
+	beforeTool: string;
+	afterTool: string;
+	sessionEnd: string;
+	preCompress: string;
+	// Tool names (Gemini uses "replace", Qwen renamed to "edit")
+	editTool: string;
 }
+
+/** Gemini CLI config (v0.32+): BeforeTool/AfterTool, edit tool = "replace". */
+export const GEMINI_HOOK_CONFIG: RuntimeHookConfig = {
+	sessionStart: "SessionStart",
+	beforeAgent: "BeforeAgent",
+	beforeTool: "BeforeTool",
+	afterTool: "AfterTool",
+	sessionEnd: "SessionEnd",
+	preCompress: "PreCompress",
+	editTool: "replace",
+};
+
+/** Qwen Code config (PR #2203): PreToolUse/PostToolUse, edit tool = "edit". */
+export const QWEN_HOOK_CONFIG: RuntimeHookConfig = {
+	sessionStart: "SessionStart",
+	beforeAgent: "",
+	beforeTool: "PreToolUse",
+	afterTool: "PostToolUse",
+	sessionEnd: "SessionEnd",
+	preCompress: "PreCompact",
+	editTool: "edit",
+};
+
+/** @deprecated Use GEMINI_HOOK_CONFIG instead */
+export const GEMINI_EVENT_NAMES = GEMINI_HOOK_CONFIG;
+/** @deprecated Use QWEN_HOOK_CONFIG instead */
+export const QWEN_EVENT_NAMES = QWEN_HOOK_CONFIG;
+
+/** Generated hooks config with dynamic event name keys. */
+export type HooksConfig = {
+	hooks: Record<string, GeminiHookEntry[]>;
+};
 
 /**
  * Claude Code → Gemini CLI tool name mapping.
@@ -260,26 +297,30 @@ function buildGeminiTrackerCloseGuardScript(): string {
  * Generate Gemini/Qwen CLI hooks configuration.
  *
  * Returns a settings object with a `hooks` key containing all guard and
- * lifecycle hooks translated to Gemini CLI format. Compatible with both
- * Gemini CLI and Qwen Code (which uses the same hooks format as its upstream).
+ * lifecycle hooks. Event names are configurable via `eventNames` parameter
+ * to support both Gemini CLI (BeforeTool/AfterTool) and Qwen Code
+ * (PreToolUse/PostToolUse) conventions.
  *
  * @param hooks - Agent hook definition (name, capability, worktree path)
+ * @param eventNames - Event name mapping (default: Gemini names)
  * @returns Object with `hooks` key ready to merge into settings.json
  */
-export function generateGeminiHooks(hooks: HooksDef): GeminiHooksConfig {
+export function generateGeminiHooks(hooks: HooksDef, eventNames: RuntimeHookConfig = GEMINI_HOOK_CONFIG): HooksConfig {
 	const { agentName, capability, qualityGates } = hooks;
 	const gates = qualityGates ?? DEFAULT_QUALITY_GATES;
 	const gatePrefixes = extractQualityGatePrefixes(gates);
 
 	const beforeToolGuards: GeminiHookEntry[] = [];
 
-	// Path boundary guards for write_file and replace
+	const editTool = eventNames.editTool;
+
+	// Path boundary guards for write_file and edit/replace
 	beforeToolGuards.push({
 		matcher: "write_file",
 		hooks: [{ type: "command", command: buildGeminiPathBoundaryScript("file_path") }],
 	});
 	beforeToolGuards.push({
-		matcher: "replace",
+		matcher: editTool,
 		hooks: [{ type: "command", command: buildGeminiPathBoundaryScript("file_path") }],
 	});
 
@@ -316,7 +357,7 @@ export function generateGeminiHooks(hooks: HooksDef): GeminiHooksConfig {
 			denyGuard("write_file", `${capability} agents cannot modify files — write_file is not allowed`),
 		);
 		beforeToolGuards.push(
-			denyGuard("replace", `${capability} agents cannot modify files — replace is not allowed`),
+			denyGuard(editTool, `${capability} agents cannot modify files — ${editTool} is not allowed`),
 		);
 
 		// Bash file guard with safe prefixes
@@ -446,14 +487,15 @@ export function generateGeminiHooks(hooks: HooksDef): GeminiHooksConfig {
 		},
 	];
 
-	return {
-		hooks: {
-			SessionStart: sessionStart,
-			BeforeAgent: beforeAgent,
-			BeforeTool: beforeToolWithLogging,
-			AfterTool: afterTool,
-			SessionEnd: sessionEnd,
-			PreCompress: preCompress,
-		},
-	};
+	const hooksMap: Record<string, GeminiHookEntry[]> = {};
+	hooksMap[eventNames.sessionStart] = sessionStart;
+	if (eventNames.beforeAgent) {
+		hooksMap[eventNames.beforeAgent] = beforeAgent;
+	}
+	hooksMap[eventNames.beforeTool] = beforeToolWithLogging;
+	hooksMap[eventNames.afterTool] = afterTool;
+	hooksMap[eventNames.sessionEnd] = sessionEnd;
+	hooksMap[eventNames.preCompress] = preCompress;
+
+	return { hooks: hooksMap };
 }

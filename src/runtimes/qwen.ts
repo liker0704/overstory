@@ -12,7 +12,7 @@
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ResolvedModel } from "../types.ts";
-import { generateGeminiHooks } from "./gemini-guards.ts";
+import { QWEN_HOOK_CONFIG, generateGeminiHooks } from "./gemini-guards.ts";
 import type {
 	AgentRuntime,
 	HooksDef,
@@ -130,7 +130,7 @@ export class QwenRuntime implements AgentRuntime {
 			await Bun.write(agentsPath, overlay.content);
 		}
 
-		const qwenHooks = generateGeminiHooks(hooks);
+		const qwenHooks = generateGeminiHooks(hooks, QWEN_HOOK_CONFIG);
 		const settingsDir = join(worktreePath, ".qwen");
 		await mkdir(settingsDir, { recursive: true });
 
@@ -145,10 +145,17 @@ export class QwenRuntime implements AgentRuntime {
 				// Malformed — start fresh
 			}
 		}
-		const { hooks: _existingHooks, ...nonHooksKeys } = existing;
+		const {
+			hooks: _existingHooks,
+			context: _existingContext,
+			hooksConfig: _existingHooksConfig,
+			...nonHooksKeys
+		} = existing;
 		const merged = {
-			context: { fileName: "AGENTS.md" },
 			...nonHooksKeys,
+			context: { fileName: "AGENTS.md" },
+			// Qwen defaults hooks to disabled; explicitly enable
+			hooksConfig: { enabled: true },
 			...qwenHooks,
 		};
 		await Bun.write(settingsPath, `${JSON.stringify(merged, null, "\t")}\n`);
