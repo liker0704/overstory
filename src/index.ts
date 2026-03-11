@@ -38,6 +38,7 @@ import { nudgeCommand } from "./commands/nudge.ts";
 import { primeCommand } from "./commands/prime.ts";
 import { createReplayCommand } from "./commands/replay.ts";
 import { createResumeCommand } from "./commands/resume.ts";
+import { createReviewCommand } from "./commands/review.ts";
 import { createRunCommand } from "./commands/run.ts";
 import { slingCommand } from "./commands/sling.ts";
 import { specWriteCommand } from "./commands/spec.ts";
@@ -424,6 +425,7 @@ program.addCommand(createEvalCommand());
 
 program.addCommand(createHealthCommand());
 program.addCommand(createNextImprovementCommand());
+program.addCommand(createReviewCommand());
 
 program.addCommand(createMetricsCommand());
 

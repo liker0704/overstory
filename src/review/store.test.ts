@@ -5,12 +5,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import {
-	createReviewStore,
-	type DimensionScore,
-	type InsertReviewRecord,
-	type ReviewStore,
-} from "./store.ts";
+import { createReviewStore, type ReviewStore } from "./store.ts";
+import type { DimensionScore, InsertReviewRecord } from "./types.ts";
 
 // Helpers
 
