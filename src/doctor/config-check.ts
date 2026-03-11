@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { loadConfig } from "../config.ts";
+import { CURRENT_CONFIG_VERSION } from "../config-schema.ts";
 import { ConfigError, ValidationError } from "../errors.ts";
 import type { OverstoryConfig } from "../types.ts";
 import type { DoctorCheck, DoctorCheckFn } from "./types.ts";
@@ -19,11 +20,15 @@ export const checkConfig: DoctorCheckFn = async (config, overstoryDir): Promise<
 	const validCheck = await checkConfigValid(overstoryDir);
 	checks.push(validCheck);
 
-	// Check 3: project-root-exists
+	// Check 3: config-version
+	const versionCheck = checkConfigVersion(config);
+	checks.push(versionCheck);
+
+	// Check 4: project-root-exists
 	const projectRootCheck = checkProjectRootExists(config);
 	checks.push(projectRootCheck);
 
-	// Check 4: canonical-branch-exists
+	// Check 5: canonical-branch-exists
 	const branchCheck = await checkCanonicalBranchExists(config);
 	checks.push(branchCheck);
 
@@ -111,6 +116,46 @@ async function checkConfigValid(overstoryDir: string): Promise<DoctorCheck> {
 			message: "Validation passes",
 		};
 	}
+}
+
+/**
+ * Check that the config file uses the latest schema version.
+ */
+function checkConfigVersion(config: OverstoryConfig): DoctorCheck {
+	const detected = config.configVersion;
+
+	if (detected === undefined) {
+		return {
+			name: "config-version",
+			category: "config",
+			status: "pass",
+			message: "No config file (using defaults)",
+			details: [`Latest supported version: ${CURRENT_CONFIG_VERSION}`],
+		};
+	}
+
+	if (detected === CURRENT_CONFIG_VERSION) {
+		return {
+			name: "config-version",
+			category: "config",
+			status: "pass",
+			message: `Config version is current (v${detected})`,
+			details: [`Latest supported version: ${CURRENT_CONFIG_VERSION}`],
+		};
+	}
+
+	return {
+		name: "config-version",
+		category: "config",
+		status: "warn",
+		message: `Config version v${detected} is older than latest (v${CURRENT_CONFIG_VERSION})`,
+		details: [
+			`Detected version: ${detected}`,
+			`Latest version: ${CURRENT_CONFIG_VERSION}`,
+			"Migration was applied automatically. Add 'version: 2' to .overstory/config.yaml to silence this warning.",
+		],
+		fixable: true,
+	};
 }
 
 /**

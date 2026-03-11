@@ -1161,6 +1161,124 @@ coordinator:
 	});
 });
 
+describe("config versioning", () => {
+	let tempDir: string;
+
+	beforeEach(async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "overstory-test-"));
+		const { mkdir } = await import("node:fs/promises");
+		await mkdir(join(tempDir, ".overstory"), { recursive: true });
+		clearWarningsSeen();
+	});
+
+	afterEach(async () => {
+		clearWarningsSeen();
+		await cleanupTempDir(tempDir);
+	});
+
+	async function writeConfig(yaml: string): Promise<void> {
+		await Bun.write(join(tempDir, ".overstory", "config.yaml"), yaml);
+	}
+
+	test("sets configVersion to 1 when no version field in config", async () => {
+		await writeConfig("project:\n  canonicalBranch: main\n");
+		const config = await loadConfig(tempDir);
+		expect(config.configVersion).toBe(1);
+	});
+
+	test("sets configVersion to 1 when version: 1 is explicit", async () => {
+		await writeConfig("version: 1\nproject:\n  canonicalBranch: main\n");
+		const config = await loadConfig(tempDir);
+		expect(config.configVersion).toBe(1);
+	});
+
+	test("sets configVersion to 2 when version: 2", async () => {
+		await writeConfig("version: 2\nproject:\n  canonicalBranch: main\n");
+		const config = await loadConfig(tempDir);
+		expect(config.configVersion).toBe(2);
+	});
+
+	test("configVersion is undefined when no config file exists", async () => {
+		// No .overstory/config.yaml written
+		const config = await loadConfig(tempDir);
+		expect(config.configVersion).toBeUndefined();
+	});
+
+	test("rejects unsupported config version", async () => {
+		await writeConfig("version: 99\nproject:\n  canonicalBranch: main\n");
+		await expect(loadConfig(tempDir)).rejects.toThrow(ValidationError);
+	});
+
+	test("rejects non-integer version value", async () => {
+		await writeConfig("version: two\nproject:\n  canonicalBranch: main\n");
+		await expect(loadConfig(tempDir)).rejects.toThrow(ValidationError);
+	});
+
+	test("rejects unknown top-level field", async () => {
+		await writeConfig("watchodg:\n  tier0Enabled: true\n");
+		await expect(loadConfig(tempDir)).rejects.toThrow(ValidationError);
+	});
+
+	test("error message for unknown field includes the bad key", async () => {
+		await writeConfig("watchodg:\n  tier0Enabled: true\n");
+		const err = await loadConfig(tempDir).catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(ValidationError);
+		expect((err as ValidationError).message).toContain("watchodg");
+	});
+
+	test("rejects unknown nested field", async () => {
+		await writeConfig("agents:\n  maxCuncurrent: 5\n");
+		await expect(loadConfig(tempDir)).rejects.toThrow(ValidationError);
+	});
+
+	test("error message for unknown nested field includes the path", async () => {
+		await writeConfig("agents:\n  maxCuncurrent: 5\n");
+		const err = await loadConfig(tempDir).catch((e: unknown) => e);
+		expect(err).toBeInstanceOf(ValidationError);
+		expect((err as ValidationError).message).toContain("maxCuncurrent");
+	});
+
+	test("config.local.yaml rejects unknown fields", async () => {
+		await writeConfig("project:\n  canonicalBranch: main\n");
+		await Bun.write(
+			join(tempDir, ".overstory", "config.local.yaml"),
+			"unknownLocalKey: true\n",
+		);
+		await expect(loadConfig(tempDir)).rejects.toThrow(ValidationError);
+	});
+
+	test("legacy configs (no version field) still load successfully", async () => {
+		// Config without version field should load as v1 with no error
+		await writeConfig(`
+project:
+  canonicalBranch: main
+agents:
+  maxConcurrent: 10
+`);
+		const config = await loadConfig(tempDir);
+		expect(config.project.canonicalBranch).toBe("main");
+		expect(config.agents.maxConcurrent).toBe(10);
+		expect(config.configVersion).toBe(1);
+	});
+
+	test("deprecated beads key migrates and passes unknown-field check", async () => {
+		const stderrSpy = spyOn(process.stderr, "write").mockImplementation(() => true);
+		await writeConfig("beads:\n  enabled: false\n");
+		const config = await loadConfig(tempDir);
+		expect(config.taskTracker.backend).toBe("beads");
+		stderrSpy.mockRestore();
+	});
+
+	test("deprecated watchdog tier keys migrate and pass unknown-field check", async () => {
+		const stderrSpy = spyOn(process.stderr, "write").mockImplementation(() => true);
+		await writeConfig("watchdog:\n  tier1Enabled: true\n  tier1IntervalMs: 45000\n");
+		const config = await loadConfig(tempDir);
+		expect(config.watchdog.tier0Enabled).toBe(true);
+		expect(config.watchdog.tier0IntervalMs).toBe(45000);
+		stderrSpy.mockRestore();
+	});
+});
+
 describe("DEFAULT_CONFIG", () => {
 	test("has all required top-level keys", () => {
 		expect(DEFAULT_CONFIG.project).toBeDefined();

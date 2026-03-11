@@ -1,4 +1,6 @@
 import { dirname, join, resolve } from "node:path";
+import { detectConfigVersion, migrateToLatest } from "./config-migrate.ts";
+import { validateUnknownFields } from "./config-validate.ts";
 import { ConfigError, ValidationError } from "./errors.ts";
 import type {
 	CoordinatorExitTriggers,
@@ -447,7 +449,7 @@ function migrateDeprecatedWatchdogKeys(parsed: Record<string, unknown>): void {
 
 	// Old tier1Enabled → new tier0Enabled (mechanical daemon)
 	wd.tier0Enabled = wd.tier1Enabled;
-	wd.tier1Enabled = undefined;
+	delete wd.tier1Enabled;
 	process.stderr.write(
 		"[overstory] DEPRECATED: watchdog.tier1Enabled → use watchdog.tier0Enabled\n",
 	);
@@ -455,7 +457,7 @@ function migrateDeprecatedWatchdogKeys(parsed: Record<string, unknown>): void {
 	// Old tier1IntervalMs → new tier0IntervalMs (mechanical daemon)
 	if ("tier1IntervalMs" in wd) {
 		wd.tier0IntervalMs = wd.tier1IntervalMs;
-		wd.tier1IntervalMs = undefined;
+		delete wd.tier1IntervalMs;
 		process.stderr.write(
 			"[overstory] DEPRECATED: watchdog.tier1IntervalMs → use watchdog.tier0IntervalMs\n",
 		);
@@ -464,7 +466,7 @@ function migrateDeprecatedWatchdogKeys(parsed: Record<string, unknown>): void {
 	// Old tier2Enabled → new tier1Enabled (AI triage)
 	if ("tier2Enabled" in wd) {
 		wd.tier1Enabled = wd.tier2Enabled;
-		wd.tier2Enabled = undefined;
+		delete wd.tier2Enabled;
 		process.stderr.write(
 			"[overstory] DEPRECATED: watchdog.tier2Enabled → use watchdog.tier1Enabled\n",
 		);
@@ -481,28 +483,34 @@ function migrateDeprecatedWatchdogKeys(parsed: Record<string, unknown>): void {
  * Mutates the parsed config object in place.
  */
 function migrateDeprecatedTaskTrackerKeys(parsed: Record<string, unknown>): void {
-	if (parsed.taskTracker !== undefined) return; // Already migrated
-
-	if (parsed.beads !== undefined) {
+	// Always remove legacy keys, even when taskTracker: is already present.
+	// This ensures legacy keys don't fail unknown-field validation.
+	if (parsed.taskTracker === undefined && parsed.beads !== undefined) {
 		const beadsConfig = parsed.beads as Record<string, unknown>;
 		parsed.taskTracker = {
 			backend: "beads",
 			enabled: beadsConfig.enabled ?? true,
 		};
-		delete parsed.beads;
 		process.stderr.write(
 			"[overstory] DEPRECATED: beads: -> use taskTracker: { backend: beads, enabled: true }\n",
 		);
-	} else if (parsed.seeds !== undefined) {
+	} else if (parsed.taskTracker === undefined && parsed.seeds !== undefined) {
 		const seedsConfig = parsed.seeds as Record<string, unknown>;
 		parsed.taskTracker = {
 			backend: "seeds",
 			enabled: seedsConfig.enabled ?? true,
 		};
-		delete parsed.seeds;
 		process.stderr.write(
 			"[overstory] DEPRECATED: seeds: -> use taskTracker: { backend: seeds, enabled: true }\n",
 		);
+	}
+
+	// Remove legacy keys regardless of whether taskTracker was already set.
+	if (parsed.beads !== undefined) {
+		delete parsed.beads;
+	}
+	if (parsed.seeds !== undefined) {
+		delete parsed.seeds;
 	}
 }
 
@@ -891,6 +899,7 @@ async function mergeLocalConfig(
 
 	migrateDeprecatedWatchdogKeys(parsed);
 	migrateDeprecatedTaskTrackerKeys(parsed);
+	validateUnknownFields(parsed);
 
 	return deepMerge(
 		config as unknown as Record<string, unknown>,
@@ -1016,11 +1025,19 @@ export async function loadConfig(projectRoot: string): Promise<OverstoryConfig> 
 	migrateDeprecatedWatchdogKeys(parsed);
 	migrateDeprecatedTaskTrackerKeys(parsed);
 
+	// Detect version, validate unknown fields, then migrate to latest format.
+	const configVersion = detectConfigVersion(parsed);
+	validateUnknownFields(parsed);
+	const { migrated } = migrateToLatest(parsed, configVersion);
+
 	// Deep merge parsed config over defaults
 	let merged = deepMerge(
 		defaults as unknown as Record<string, unknown>,
-		parsed,
+		migrated,
 	) as unknown as OverstoryConfig;
+
+	// Record detected version on the config object for doctor / observability.
+	merged.configVersion = configVersion;
 
 	// Check for config.local.yaml (local overrides, gitignored)
 	merged = await mergeLocalConfig(resolvedRoot, merged);

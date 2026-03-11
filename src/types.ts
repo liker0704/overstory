@@ -79,6 +79,12 @@ export interface QualityGate {
 }
 
 export interface OverstoryConfig {
+	/**
+	 * Detected config schema version. Set by the loader after reading config.yaml.
+	 * 1 = legacy (no explicit version field), 2 = current.
+	 * Absent when loadConfig falls back to all defaults (no config file).
+	 */
+	configVersion?: number;
 	project: {
 		name: string;
 		root: string; // Absolute path to target repo
