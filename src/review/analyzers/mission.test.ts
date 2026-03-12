@@ -25,6 +25,11 @@ function makeMission(overrides?: Partial<Mission>): Mission {
 		pausedWorkstreamIds: [],
 		analystSessionId: "analyst-001",
 		executionDirectorSessionId: "exec-001",
+		coordinatorSessionId: null,
+		pausedLeadNames: [],
+		pauseReason: null,
+		startedAt: null,
+		completedAt: null,
 		createdAt: "2026-03-12T00:00:00.000Z",
 		updatedAt: "2026-03-12T12:00:00.000Z",
 		...overrides,
@@ -86,7 +91,7 @@ describe("analyzeMission", () => {
 				totalSessionCount: 0,
 				completedSessionCount: 0,
 				hasBundleExport: false,
-				mission: makeMission({ phase: "building", state: "active" }),
+				mission: makeMission({ phase: "execute", state: "active" }),
 			}),
 		);
 
@@ -125,9 +130,7 @@ describe("analyzeMission", () => {
 	});
 
 	test("high reopenCount adds a note", () => {
-		const result = analyzeMission(
-			makeInput({ mission: makeMission({ reopenCount: 5 }) }),
-		);
+		const result = analyzeMission(makeInput({ mission: makeMission({ reopenCount: 5 }) }));
 		expect(result.notes.some((n) => n.includes("reopened"))).toBe(true);
 	});
 
@@ -139,16 +142,15 @@ describe("analyzeMission", () => {
 		const highReopen = analyzeMission(
 			makeInput({ mission: makeMission({ reopenCount: 5 }), eventCount: 100, errorCount: 10 }),
 		);
-		const lowScore = lowReopen.dimensions.find((d) => d.dimension === "signal-to-noise")?.score ?? 0;
+		const lowScore =
+			lowReopen.dimensions.find((d) => d.dimension === "signal-to-noise")?.score ?? 0;
 		const highScore =
 			highReopen.dimensions.find((d) => d.dimension === "signal-to-noise")?.score ?? 0;
 		expect(lowScore).toBeGreaterThan(highScore);
 	});
 
 	test("invalid slug reduces clarity score", () => {
-		const result = analyzeMission(
-			makeInput({ mission: makeMission({ slug: "INVALID SLUG!" }) }),
-		);
+		const result = analyzeMission(makeInput({ mission: makeMission({ slug: "INVALID SLUG!" }) }));
 		const clarity = result.dimensions.find((d) => d.dimension === "clarity");
 		expect(clarity?.score).toBeLessThan(100);
 	});

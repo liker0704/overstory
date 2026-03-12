@@ -931,13 +931,13 @@ export const MISSION_STATES: readonly MissionState[] = [
 	"cancelled",
 ] as const;
 
-export type MissionPhase = "planning" | "scouting" | "building" | "reviewing" | "merging" | "done";
+export type MissionPhase = "understand" | "align" | "decide" | "plan" | "execute" | "done";
 export const MISSION_PHASES: readonly MissionPhase[] = [
-	"planning",
-	"scouting",
-	"building",
-	"reviewing",
-	"merging",
+	"understand",
+	"align",
+	"decide",
+	"plan",
+	"execute",
 	"done",
 ] as const;
 
@@ -965,6 +965,11 @@ export interface Mission {
 	pausedWorkstreamIds: string[];
 	analystSessionId: string | null;
 	executionDirectorSessionId: string | null;
+	coordinatorSessionId: string | null;
+	pausedLeadNames: string[];
+	pauseReason: string | null;
+	startedAt: string | null;
+	completedAt: string | null;
 	createdAt: string;
 	updatedAt: string;
 }
@@ -972,6 +977,7 @@ export interface Mission {
 export type InsertMission = Pick<Mission, "id" | "slug" | "objective"> & {
 	runId?: string | null;
 	artifactRoot?: string | null;
+	startedAt?: string | null;
 };
 
 export interface MissionSummary {
@@ -999,7 +1005,16 @@ export interface MissionStore {
 	updateArtifactRoot(id: string, path: string): void;
 	bindSessions(
 		id: string,
-		sessions: { analystSessionId?: string; executionDirectorSessionId?: string },
+		sessions: {
+			analystSessionId?: string;
+			executionDirectorSessionId?: string;
+			coordinatorSessionId?: string;
+		},
 	): void;
+	bindCoordinatorSession(id: string, sessionId: string): void;
+	updatePausedLeads(id: string, names: string[]): void;
+	updatePauseReason(id: string, reason: string | null): void;
+	start(id: string): void;
+	complete(id: string): void;
 	close(): void;
 }

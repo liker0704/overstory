@@ -48,7 +48,7 @@ describe("create", () => {
 		expect(mission.slug).toBe("test-mission");
 		expect(mission.objective).toBe("Test the mission store");
 		expect(mission.state).toBe("active");
-		expect(mission.phase).toBe("planning");
+		expect(mission.phase).toBe("understand");
 		expect(mission.pendingUserInput).toBe(false);
 		expect(mission.pendingInputKind).toBeNull();
 		expect(mission.pendingInputThreadId).toBeNull();
@@ -215,9 +215,9 @@ describe("updateState", () => {
 describe("updatePhase", () => {
 	test("transitions mission phase", () => {
 		store.create(makeMission());
-		store.updatePhase("mission-001", "scouting");
+		store.updatePhase("mission-001", "align");
 		const result = store.getById("mission-001");
-		expect(result?.phase).toBe("scouting");
+		expect(result?.phase).toBe("align");
 	});
 });
 
@@ -362,6 +362,114 @@ describe("bindSessions", () => {
 		const mission = store.getById("mission-001");
 		expect(mission?.analystSessionId).toBe("session-a");
 		expect(mission?.executionDirectorSessionId).toBe("session-b");
+	});
+});
+
+// === bindCoordinatorSession ===
+
+describe("bindCoordinatorSession", () => {
+	test("new missions have null coordinatorSessionId by default", () => {
+		store.create(makeMission());
+		const mission = store.getById("mission-001");
+		expect(mission?.coordinatorSessionId).toBeNull();
+	});
+
+	test("binds coordinatorSessionId directly", () => {
+		store.create(makeMission());
+		store.bindCoordinatorSession("mission-001", "session-coord-abc");
+		const mission = store.getById("mission-001");
+		expect(mission?.coordinatorSessionId).toBe("session-coord-abc");
+	});
+});
+
+// === updatePausedLeads ===
+
+describe("updatePausedLeads", () => {
+	test("new missions have empty pausedLeadNames by default", () => {
+		store.create(makeMission());
+		const mission = store.getById("mission-001");
+		expect(mission?.pausedLeadNames).toEqual([]);
+	});
+
+	test("sets paused lead names as JSON array", () => {
+		store.create(makeMission());
+		store.updatePausedLeads("mission-001", ["lead-a", "lead-b"]);
+		const result = store.getById("mission-001");
+		expect(result?.pausedLeadNames).toEqual(["lead-a", "lead-b"]);
+	});
+
+	test("clears leads when passed empty array", () => {
+		store.create(makeMission());
+		store.updatePausedLeads("mission-001", ["lead-a"]);
+		store.updatePausedLeads("mission-001", []);
+		const result = store.getById("mission-001");
+		expect(result?.pausedLeadNames).toEqual([]);
+	});
+});
+
+// === updatePauseReason ===
+
+describe("updatePauseReason", () => {
+	test("new missions have null pauseReason by default", () => {
+		store.create(makeMission());
+		const mission = store.getById("mission-001");
+		expect(mission?.pauseReason).toBeNull();
+	});
+
+	test("sets pause reason", () => {
+		store.create(makeMission());
+		store.updatePauseReason("mission-001", "waiting for user input");
+		const result = store.getById("mission-001");
+		expect(result?.pauseReason).toBe("waiting for user input");
+	});
+
+	test("clears pause reason when null passed", () => {
+		store.create(makeMission());
+		store.updatePauseReason("mission-001", "some reason");
+		store.updatePauseReason("mission-001", null);
+		const result = store.getById("mission-001");
+		expect(result?.pauseReason).toBeNull();
+	});
+});
+
+// === start / complete ===
+
+describe("start", () => {
+	test("new missions have null startedAt by default", () => {
+		store.create(makeMission());
+		const mission = store.getById("mission-001");
+		expect(mission?.startedAt).toBeNull();
+	});
+
+	test("sets startedAt", () => {
+		store.create(makeMission());
+		store.start("mission-001");
+		const result = store.getById("mission-001");
+		expect(result?.startedAt).not.toBeNull();
+	});
+
+	test("start is idempotent (does not overwrite existing startedAt)", () => {
+		store.create(makeMission());
+		store.start("mission-001");
+		const first = store.getById("mission-001")?.startedAt;
+		store.start("mission-001");
+		const second = store.getById("mission-001")?.startedAt;
+		expect(first).toBe(second);
+	});
+});
+
+describe("complete", () => {
+	test("new missions have null completedAt by default", () => {
+		store.create(makeMission());
+		const mission = store.getById("mission-001");
+		expect(mission?.completedAt).toBeNull();
+	});
+
+	test("sets completedAt", () => {
+		store.create(makeMission());
+		store.complete("mission-001");
+		const result = store.getById("mission-001");
+		expect(result?.completedAt).not.toBeNull();
 	});
 });
 

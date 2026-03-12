@@ -41,7 +41,7 @@ describe("mission smoke tests", () => {
 			expect(mission.slug).toBe("smoke-mission");
 			expect(mission.objective).toBe("Smoke test the mission lifecycle");
 			expect(mission.state).toBe("active");
-			expect(mission.phase).toBe("planning");
+			expect(mission.phase).toBe("understand");
 			expect(mission.pendingUserInput).toBe(false);
 			expect(mission.reopenCount).toBe(0);
 			expect(mission.runId).toBeNull();
@@ -54,7 +54,7 @@ describe("mission smoke tests", () => {
 			const fetched = store.getById("mission-smoke-002");
 			expect(fetched).not.toBeNull();
 			expect(fetched?.state).toBe("active");
-			expect(fetched?.phase).toBe("planning");
+			expect(fetched?.phase).toBe("understand");
 		});
 
 		test("mission stop sets terminal state", () => {
@@ -122,11 +122,11 @@ describe("mission smoke tests", () => {
 				objective: "Phase transition test",
 			});
 
-			store.updatePhase("mission-smoke-008", "scouting");
-			expect(store.getById("mission-smoke-008")?.phase).toBe("scouting");
+			store.updatePhase("mission-smoke-008", "align");
+			expect(store.getById("mission-smoke-008")?.phase).toBe("align");
 
-			store.updatePhase("mission-smoke-008", "building");
-			expect(store.getById("mission-smoke-008")?.phase).toBe("building");
+			store.updatePhase("mission-smoke-008", "execute");
+			expect(store.getById("mission-smoke-008")?.phase).toBe("execute");
 
 			store.updatePhase("mission-smoke-008", "done");
 			expect(store.getById("mission-smoke-008")?.phase).toBe("done");

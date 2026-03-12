@@ -43,7 +43,7 @@ export interface MissionRoleDeps {
 	startAgent?: (opts: StartPersistentAgentOpts) => Promise<StartPersistentAgentResult>;
 	stopAgent?: (
 		agentName: string,
-		opts: { projectRoot: string; overstoryDir: string },
+		opts: { projectRoot: string; overstoryDir: string; runStatus?: "completed" | "stopped" },
 	) => Promise<StopPersistentAgentResult>;
 	createStore?: (dbPath: string) => MissionStore;
 }
@@ -134,5 +134,6 @@ export async function stopMissionRole(
 	return stopAgent(agentName, {
 		projectRoot: opts.projectRoot,
 		overstoryDir: opts.overstoryDir,
+		runStatus: "stopped",
 	});
 }
