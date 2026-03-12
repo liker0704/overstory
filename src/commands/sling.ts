@@ -291,7 +291,7 @@ export function shouldShowScoutWarning(
 export function getSharedWritableDirs(projectRoot: string, capability: string): string[] {
 	const sharedWritableDirs = [join(projectRoot, ".overstory")];
 
-	if (capability === "lead") {
+	if (capability === "lead" || capability === "execution-director") {
 		sharedWritableDirs.push(join(projectRoot, ".git"));
 	}
 
@@ -394,10 +394,10 @@ export function validateHierarchy(
 		return;
 	}
 
-	const directSpawnCapabilities = ["lead", "scout", "builder"];
+	const directSpawnCapabilities = ["lead", "scout", "builder", "mission-analyst", "execution-director"];
 	if (parentAgent === null && !directSpawnCapabilities.includes(capability)) {
 		throw new HierarchyError(
-			`Coordinator cannot spawn "${capability}" directly. Only lead, scout, and builder are allowed without --parent. Use a lead as intermediary, or pass --force-hierarchy to bypass.`,
+			`Coordinator cannot spawn "${capability}" directly. Only lead, scout, builder, mission-analyst, and execution-director are allowed without --parent. Use a lead as intermediary, or pass --force-hierarchy to bypass.`,
 			{ agentName: name, requestedCapability: capability },
 		);
 	}
