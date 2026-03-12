@@ -200,6 +200,8 @@ export const SUPPORTED_CAPABILITIES = [
 	"coordinator",
 	"supervisor",
 	"monitor",
+	"mission-analyst",
+	"execution-director",
 ] as const;
 
 /** Union type derived from the capabilities constant. */
@@ -628,7 +630,7 @@ export interface EventStore {
 // === Run (Coordinator Session Grouping) ===
 
 /** Status of a run (coordinator session grouping agents). */
-export type RunStatus = "active" | "completed" | "failed";
+export type RunStatus = "active" | "completed" | "failed" | "stopped";
 
 /** A run groups all agents spawned from one coordinator session. */
 export interface Run {
@@ -663,7 +665,7 @@ export interface RunStore {
 	/** Increment agent count for a run. */
 	incrementAgentCount(runId: string): void;
 	/** Complete a run (set status and completedAt). */
-	completeRun(runId: string, status: "completed" | "failed"): void;
+	completeRun(runId: string, status: "completed" | "failed" | "stopped"): void;
 	/** Close the store (if standalone — in practice may share DB with SessionStore). */
 	close(): void;
 }

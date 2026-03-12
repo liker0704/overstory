@@ -730,6 +730,12 @@ describe("RunStore", () => {
 			expect(() => runStore.createRun(badRun)).toThrow();
 		});
 
+		test("accepts stopped as a valid status", () => {
+			runStore.createRun(makeRun({ status: "stopped" }));
+			const result = runStore.getRun("run-2026-02-13T10:00:00.000Z");
+			expect(result?.status).toBe("stopped");
+		});
+
 		test("rejects duplicate run IDs via PRIMARY KEY constraint", () => {
 			runStore.createRun(makeRun());
 			expect(() => runStore.createRun(makeRun())).toThrow();
@@ -931,6 +937,21 @@ describe("RunStore", () => {
 			expect(result?.completedAt).not.toBeNull();
 		});
 
+		test("sets status to stopped and records completedAt", () => {
+			runStore.createRun(makeRun());
+
+			const before = new Date().toISOString();
+			runStore.completeRun("run-2026-02-13T10:00:00.000Z", "stopped");
+			const after = new Date().toISOString();
+
+			const result = runStore.getRun("run-2026-02-13T10:00:00.000Z");
+			expect(result?.status).toBe("stopped");
+			expect(result?.completedAt).not.toBeNull();
+			const completedAt = result?.completedAt ?? "";
+			expect(completedAt >= before).toBe(true);
+			expect(completedAt <= after).toBe(true);
+		});
+
 		test("is a no-op for nonexistent run (does not throw)", () => {
 			// Should not throw
 			runStore.completeRun("nonexistent-run", "completed");
@@ -1101,6 +1122,49 @@ describe("RunStore", () => {
 
 			// Re-assign store so afterEach cleanup doesn't double-close
 			runStore = createRunStore(join(tempDir, "unused-run.db"));
+		});
+	});
+
+	// === migration: stopped status ===
+
+	describe("migration: stopped status in runs.status CHECK", () => {
+		test("existing runs table without 'stopped' in CHECK is upgraded", async () => {
+			runStore.close();
+
+			const { Database: Db } = await import("bun:sqlite");
+			const legacyDb = new Db(dbPath);
+			legacyDb.exec("DROP TABLE IF EXISTS runs");
+			legacyDb.exec(`
+				CREATE TABLE runs (
+					id TEXT PRIMARY KEY,
+					started_at TEXT NOT NULL,
+					completed_at TEXT,
+					agent_count INTEGER NOT NULL DEFAULT 0,
+					coordinator_session_id TEXT,
+					coordinator_name TEXT,
+					status TEXT NOT NULL DEFAULT 'active'
+						CHECK(status IN ('active','completed','failed'))
+				)
+			`);
+			legacyDb.exec(
+				"INSERT INTO runs (id, started_at, status) VALUES ('legacy-run', '2026-01-01T00:00:00.000Z', 'active')",
+			);
+			legacyDb.close();
+
+			// Opening a new RunStore should migrate the CHECK and allow 'stopped'.
+			const migratedStore = createRunStore(dbPath);
+			try {
+				const run = migratedStore.getRun("legacy-run");
+				expect(run).not.toBeNull();
+				// Should now accept 'stopped' without throwing
+				migratedStore.completeRun("legacy-run", "stopped");
+				const updated = migratedStore.getRun("legacy-run");
+				expect(updated?.status).toBe("stopped");
+			} finally {
+				migratedStore.close();
+			}
+
+			runStore = createRunStore(join(tempDir, "unused-run2.db"));
 		});
 	});
 
