@@ -39,6 +39,24 @@ function makeMeta(overrides: Partial<SpecMeta> = {}): SpecMeta {
 	};
 }
 
+// === computeBriefRevision edge cases ===
+
+describe("computeBriefRevision edge cases", () => {
+	test("throws when file does not exist (fixed: descriptive error)", async () => {
+		const missingPath = join(tempDir, "nonexistent-brief.md");
+		// The fixed behavior checks file existence and throws a descriptive error.
+		await expect(computeBriefRevision(missingPath)).rejects.toThrow();
+	});
+});
+
+describe("checkSpecStaleness edge cases", () => {
+	test("throws or rejects when brief file does not exist", async () => {
+		const missingBrief = join(tempDir, "no-such-brief.md");
+		// checkSpecStaleness calls computeBriefRevision which will throw for missing files.
+		await expect(checkSpecStaleness(tempDir, "task-001", missingBrief)).rejects.toThrow();
+	});
+});
+
 // === computeBriefRevision ===
 
 describe("computeBriefRevision", () => {

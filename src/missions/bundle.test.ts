@@ -5,7 +5,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEventStore } from "../events/store.ts";
@@ -211,6 +211,38 @@ describe("exportBundle", () => {
 		expect(result.filesWritten).not.toContain("review.json");
 		const reviewPath = join(result.outputDir, "review.json");
 		expect(await Bun.file(reviewPath).exists()).toBe(false);
+	});
+
+	test("freshness: bundle with generatedAt newer than mission.updatedAt → skips rewrite", async () => {
+		// First export generates a manifest.
+		const first = await exportBundle({ overstoryDir, dbPath, missionId });
+		expect(first.filesWritten.length).toBeGreaterThan(0);
+
+		// Second call without force — manifest.generatedAt >= mission.updatedAt → skip.
+		const second = await exportBundle({ overstoryDir, dbPath, missionId });
+		expect(second.filesWritten).toHaveLength(0);
+		expect(second.manifest.missionId).toBe(missionId);
+	});
+
+	test("freshness: stale manifest (generatedAt older than mission.updatedAt) → rewrites", async () => {
+		// Create the output directory and write a manifest with an ancient timestamp.
+		const outputDir = join(overstoryDir, "missions", missionId, "results");
+		await mkdir(outputDir, { recursive: true });
+
+		const staleManifest = {
+			missionId,
+			slug: "test-mission",
+			objective: "Test the bundle export",
+			state: "active",
+			generatedAt: "1970-01-01T00:00:00.000Z",
+			files: ["manifest.json"],
+		};
+		await Bun.write(join(outputDir, "manifest.json"), `${JSON.stringify(staleManifest, null, 2)}\n`);
+
+		// exportBundle should detect the stale manifest and rewrite all files.
+		const result = await exportBundle({ overstoryDir, dbPath, missionId });
+		expect(result.filesWritten.length).toBeGreaterThan(0);
+		expect(result.filesWritten).toContain("manifest.json");
 	});
 
 	test("throws when mission not found", async () => {

@@ -16,6 +16,32 @@ function makePayload(overrides: Partial<MissionFindingPayload> = {}): MissionFin
 	};
 }
 
+// === Non-qualifying escalation result fields ===
+//
+// Non-qualifying findings return valid=false with a reason string.
+// The result already contains the full reason — callers should use it.
+// (The fixed source removes console.error calls; the reason field is authoritative.)
+
+describe("non-qualifying escalation result fields", () => {
+	test("cross-stream with single workstream: result has valid=false and non-empty reason", () => {
+		const result = validateMissionIngress(
+			makePayload({ category: "cross-stream", affectedWorkstreams: ["ws-only"] }),
+		);
+		expect(result.valid).toBe(false);
+		expect(result.category).toBeNull();
+		expect(typeof result.reason).toBe("string");
+		expect(result.reason.length).toBeGreaterThan(0);
+	});
+
+	test("unknown category: result has valid=false and reason mentioning lead level", () => {
+		// biome-ignore lint/suspicious/noExplicitAny: intentional invalid category for test
+		const result = validateMissionIngress(makePayload({ category: "unknown-cat" as any }));
+		expect(result.valid).toBe(false);
+		expect(result.category).toBeNull();
+		expect(result.reason).toMatch(/lead level/);
+	});
+});
+
 // === INGRESS_CATEGORIES ===
 
 describe("INGRESS_CATEGORIES", () => {

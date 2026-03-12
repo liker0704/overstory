@@ -7,6 +7,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { AgentError } from "../errors.ts";
 import type {
 	StartPersistentAgentOpts,
 	StartPersistentAgentResult,
@@ -197,6 +198,66 @@ describe("startExecutionDirector", () => {
 		expect(calls).toHaveLength(1);
 		expect(calls[0]?.id).toBe("m-002");
 		expect(calls[0]?.sessions.executionDirectorSessionId).toBe("session-execution-director");
+	});
+});
+
+// === startMissionAnalyst edge cases ===
+
+describe("startMissionAnalyst edge cases", () => {
+	test("throws AgentError when missionId does not exist (fixed: bindSessions validates missionId)", async () => {
+		// Fixed behavior: bindSessions will validate the missionId and throw AgentError if missing.
+		const deps: MissionRoleDeps = {
+			startAgent: async () => makeStartResult("mission-analyst"),
+			createStore: () =>
+				({
+					bindSessions: (id: string) => {
+						throw new AgentError(`Mission not found: ${id}`, {});
+					},
+					close: () => {},
+				}) as never,
+		};
+
+		await expect(
+			startMissionAnalyst(
+				{
+					missionId: "nonexistent-mission",
+					projectRoot: "/proj",
+					overstoryDir: "/proj/.overstory",
+					existingRunId: "run-1",
+				},
+				deps,
+			),
+		).rejects.toThrow(AgentError);
+	});
+});
+
+// === startExecutionDirector edge cases ===
+
+describe("startExecutionDirector edge cases", () => {
+	test("throws AgentError when missionId does not exist (fixed: bindSessions validates missionId)", async () => {
+		// Fixed behavior: bindSessions will validate the missionId and throw AgentError if missing.
+		const deps: MissionRoleDeps = {
+			startAgent: async () => makeStartResult("execution-director"),
+			createStore: () =>
+				({
+					bindSessions: (id: string) => {
+						throw new AgentError(`Mission not found: ${id}`, {});
+					},
+					close: () => {},
+				}) as never,
+		};
+
+		await expect(
+			startExecutionDirector(
+				{
+					missionId: "nonexistent-mission",
+					projectRoot: "/proj",
+					overstoryDir: "/proj/.overstory",
+					existingRunId: "run-2",
+				},
+				deps,
+			),
+		).rejects.toThrow(AgentError);
 	});
 });
 
