@@ -946,5 +946,16 @@
 		"status": "active",
 		"createdAt": "2026-03-12T12:52:32.339Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-b3e177be",
+		"name": "mission-epic-batch3",
+		"memberIssueIds": [
+			"overstory-a2f2",
+			"overstory-3819"
+		],
+		"status": "active",
+		"createdAt": "2026-03-12T13:13:45.215Z",
+		"completedAt": null
 	}
 ]
