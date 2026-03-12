@@ -1400,6 +1400,54 @@ describe("daemon mulch failure recording", () => {
 		expect(reloaded[0]?.rateLimitedSince).not.toBeNull();
 	});
 
+	test("wait behavior auto-resumes agent when rate limit clears to a ready prompt", async () => {
+		const oldActivity = new Date(Date.now() - 60_000).toISOString();
+		const session = makeSession({
+			agentName: "rate-limit-resume-agent",
+			tmuxSession: "overstory-rate-limit-resume-agent",
+			state: "working",
+			lastActivity: oldActivity,
+			rateLimitedSince: new Date(Date.now() - 30_000).toISOString(),
+		});
+		writeSessionsToStore(tempRoot, [session]);
+
+		const tmuxMock = tmuxWithLivenessAndInput({
+			"overstory-rate-limit-resume-agent": true,
+		});
+		const config = {
+			rateLimit: {
+				enabled: true,
+				behavior: "wait",
+				maxWaitMs: 3_600_000,
+				pollIntervalMs: 30_000,
+				notifyCoordinator: false,
+				swapRuntime: undefined,
+			},
+		} as unknown as OverstoryConfig;
+
+		await runDaemonTick({
+			root: tempRoot,
+			...THRESHOLDS,
+			config,
+			_tmux: tmuxMock,
+			_triage: triageAlways("extend"),
+			_capturePaneContent: async () => 'Try "help" to get started\n❯\nbypass permissions',
+		});
+
+		expect(tmuxMock.sentKeys).toEqual([
+			{
+				name: "overstory-rate-limit-resume-agent",
+				keys: "Rate limit has reset. Run ov mail check --agent rate-limit-resume-agent if needed, then continue task test-task from where you left off.",
+			},
+			{ name: "overstory-rate-limit-resume-agent", keys: "" },
+		]);
+
+		const reloaded = readSessionsFromStore(tempRoot);
+		expect(reloaded[0]?.state).toBe("working");
+		expect(reloaded[0]?.rateLimitedSince).toBeNull();
+		expect(reloaded[0]?.lastActivity).not.toBe(oldActivity);
+	});
+
 	test("ready zombie session with unread mail is nudged and restored to working", async () => {
 		const oldActivity = new Date(Date.now() - 600_000).toISOString();
 		const session = makeSession({
@@ -1452,7 +1500,7 @@ describe("daemon mulch failure recording", () => {
 		expect(reloaded[0]?.lastActivity).not.toBe(oldActivity);
 	});
 
-	test("ready zombie session with prior session_end is reconciled to completed", async () => {
+	test("ready zombie session with prior session_end and rate-limit history is resumed", async () => {
 		const oldActivity = new Date(Date.now() - 600_000).toISOString();
 		const session = makeSession({
 			agentName: "ended-zombie-agent",
@@ -1490,11 +1538,73 @@ describe("daemon mulch failure recording", () => {
 			eventStore.close();
 		}
 
+		const tmuxWithInput = tmuxWithLivenessAndInput({
+			"overstory-ended-zombie-agent": true,
+		});
+
+		await runDaemonTick({
+			root: tempRoot,
+			...THRESHOLDS,
+			_tmux: tmuxWithInput,
+			_triage: triageAlways("extend"),
+			_capturePaneContent: async () => 'Try "help" to get started\n❯\nbypass permissions',
+		});
+
+		expect(tmuxWithInput.sentKeys).toEqual([
+			{
+				name: "overstory-ended-zombie-agent",
+				keys: "Rate limit has reset. Run ov mail check --agent ended-zombie-agent if needed, then continue task test-task from where you left off.",
+			},
+			{ name: "overstory-ended-zombie-agent", keys: "" },
+		]);
+
+		const reloaded = readSessionsFromStore(tempRoot);
+		expect(reloaded[0]?.state).toBe("working");
+		expect(reloaded[0]?.lastActivity).not.toBe(oldActivity);
+
+		const reloadedEvents = createEventStore(join(tempRoot, ".overstory", "events.db"));
+		try {
+			const latest = reloadedEvents.getByAgent("ended-zombie-agent");
+			const finalEvent = latest[latest.length - 1];
+			expect(finalEvent?.eventType).toBe("custom");
+			expect(finalEvent?.data).toContain("rate_limit_resume_reconciled");
+		} finally {
+			reloadedEvents.close();
+		}
+	});
+
+	test("ready zombie session with prior session_end and no rate-limit history is reconciled to completed", async () => {
+		const oldActivity = new Date(Date.now() - 600_000).toISOString();
+		const session = makeSession({
+			agentName: "plain-ended-zombie-agent",
+			tmuxSession: "overstory-plain-ended-zombie-agent",
+			state: "zombie",
+			lastActivity: oldActivity,
+		});
+		writeSessionsToStore(tempRoot, [session]);
+
+		const eventStore = createEventStore(join(tempRoot, ".overstory", "events.db"));
+		try {
+			eventStore.insert({
+				runId: null,
+				agentName: "plain-ended-zombie-agent",
+				sessionId: "runtime-session-2",
+				eventType: "session_end",
+				toolName: null,
+				toolArgs: null,
+				toolDurationMs: null,
+				level: "info",
+				data: JSON.stringify({ transcriptPath: "/tmp/fake2.jsonl" }),
+			});
+		} finally {
+			eventStore.close();
+		}
+
 		await runDaemonTick({
 			root: tempRoot,
 			...THRESHOLDS,
 			_tmux: tmuxWithLiveness({
-				"overstory-ended-zombie-agent": true,
+				"overstory-plain-ended-zombie-agent": true,
 			}),
 			_triage: triageAlways("extend"),
 			_capturePaneContent: async () => 'Try "help" to get started\n❯\nbypass permissions',
@@ -1503,16 +1613,6 @@ describe("daemon mulch failure recording", () => {
 		const reloaded = readSessionsFromStore(tempRoot);
 		expect(reloaded[0]?.state).toBe("completed");
 		expect(reloaded[0]?.lastActivity).not.toBe(oldActivity);
-
-		const reloadedEvents = createEventStore(join(tempRoot, ".overstory", "events.db"));
-		try {
-			const latest = reloadedEvents.getByAgent("ended-zombie-agent");
-			const finalEvent = latest[latest.length - 1];
-			expect(finalEvent?.eventType).toBe("custom");
-			expect(finalEvent?.data).toContain("zombie_session_end_reconciled");
-		} finally {
-			reloadedEvents.close();
-		}
 	});
 
 	test("Tier 0: recordFailure called at escalation level 3+ (progressive termination)", async () => {

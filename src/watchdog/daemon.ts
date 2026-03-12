@@ -175,6 +175,74 @@ function latestNonCustomEventType(
 	return null;
 }
 
+function hasRecentRateLimitHistory(eventStore: EventStore | null, agentName: string): boolean {
+	if (!eventStore) return false;
+	try {
+		const events = eventStore.getByAgent(agentName);
+		for (let i = events.length - 1; i >= 0 && i >= events.length - 12; i--) {
+			const event = events[i];
+			if (!event || event.eventType !== "custom" || !event.data) {
+				continue;
+			}
+			try {
+				const data = JSON.parse(event.data) as { type?: string };
+				if (
+					data.type === "rate_limited" ||
+					data.type === "rate_limit_wait_confirmed" ||
+					data.type === "rate_limit_cleared" ||
+					data.type === "rate_limit_resumed" ||
+					data.type === "rate_limit_resume_reconciled"
+				) {
+					return true;
+				}
+			} catch {
+				// Ignore malformed custom payloads
+			}
+		}
+	} catch {
+		// Best-effort reconciliation only
+	}
+	return false;
+}
+
+function buildRateLimitResumeNudge(session: AgentSession): string {
+	return [
+		"Rate limit has reset.",
+		`Run ov mail check --agent ${session.agentName} if needed, then continue task ${session.taskId} from where you left off.`,
+	].join(" ");
+}
+
+async function sendRateLimitResumeNudge(params: {
+	session: AgentSession;
+	sendInput: (name: string, keys: string) => Promise<void>;
+	store: ReturnType<typeof openSessionStore>["store"];
+	runId: string | null;
+	eventStore: EventStore | null;
+	eventType: "rate_limit_resumed" | "rate_limit_resume_reconciled";
+}): Promise<void> {
+	const { session, sendInput, store, runId, eventStore, eventType } = params;
+	const msg = buildRateLimitResumeNudge(session);
+	await sendInput(session.tmuxSession, msg);
+	await Bun.sleep(500);
+	await sendInput(session.tmuxSession, "");
+	store.updateLastActivity(session.agentName);
+	session.lastActivity = new Date().toISOString();
+	if (session.state !== "working") {
+		store.updateState(session.agentName, "working");
+		session.state = "working";
+	}
+	recordEvent(eventStore, {
+		runId,
+		agentName: session.agentName,
+		eventType: "custom",
+		level: "info",
+		data: {
+			type: eventType,
+			runtime: session.runtime,
+		},
+	});
+}
+
 function isRateLimitOptionsDialog(paneContent: string): boolean {
 	const lower = paneContent.toLowerCase();
 	return (
@@ -747,14 +815,38 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 						data: { type: "rate_limit_cleared", runtime: session.runtime },
 					});
 
-						// Nudge completed+rate-limited sessions to dismiss the rate limit dialog
-						if (session.state === "completed" && session.tmuxSession) {
-							try {
-								await sendInput(session.tmuxSession, "");
-							} catch {
-								// Non-fatal: tmux session may have died
+					if (
+						rateLimitConfig.behavior === "wait" &&
+						session.state !== "completed" &&
+						lastPaneContent
+					) {
+						try {
+							const runtime = getRuntime(session.runtime, options.config, session.capability);
+							const readyState = runtime.detectReady(lastPaneContent);
+							if (readyState.phase === "ready") {
+								await sendRateLimitResumeNudge({
+									session,
+									sendInput,
+									store,
+									runId,
+									eventStore,
+									eventType: "rate_limit_resumed",
+								});
 							}
+						} catch {
+							// Non-fatal: resume nudge failure should not break monitoring
 						}
+					}
+
+					// Completed sessions may still be sitting on the wait dialog. Dismiss it so
+					// the normal completed-session cleanup can remove the tmux session next tick.
+					if (session.state === "completed" && session.tmuxSession) {
+						try {
+							await sendInput(session.tmuxSession, "");
+						} catch {
+							// Non-fatal: tmux session may have died
+						}
+					}
 				}
 			}
 
@@ -791,20 +883,31 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 								session.state === "zombie" &&
 								latestNonCustomEventType(eventStore, session.agentName) === "session_end"
 							) {
-								store.updateState(session.agentName, "completed");
-								store.updateLastActivity(session.agentName);
-								session.state = "completed";
-								session.lastActivity = new Date().toISOString();
-								recordEvent(eventStore, {
-									runId,
-									agentName: session.agentName,
-									eventType: "custom",
-									level: "info",
-									data: {
-										type: "zombie_session_end_reconciled",
-										runtime: session.runtime,
-									},
-								});
+								if (hasRecentRateLimitHistory(eventStore, session.agentName)) {
+									await sendRateLimitResumeNudge({
+										session,
+										sendInput,
+										store,
+										runId,
+										eventStore,
+										eventType: "rate_limit_resume_reconciled",
+									});
+								} else {
+									store.updateState(session.agentName, "completed");
+									store.updateLastActivity(session.agentName);
+									session.state = "completed";
+									session.lastActivity = new Date().toISOString();
+									recordEvent(eventStore, {
+										runId,
+										agentName: session.agentName,
+										eventType: "custom",
+										level: "info",
+										data: {
+											type: "zombie_session_end_reconciled",
+											runtime: session.runtime,
+										},
+									});
+								}
 								continue;
 							}
 						}
