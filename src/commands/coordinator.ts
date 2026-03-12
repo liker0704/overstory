@@ -12,27 +12,29 @@
  * - Persists across work batches
  */
 
-import { mkdir, unlink } from "node:fs/promises";
+import { unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { Command } from "commander";
-import { createIdentity, loadIdentity } from "../agents/identity.ts";
-import { createManifestLoader, resolveModel } from "../agents/manifest.ts";
+import {
+	getPersistentAgentStatus,
+	type PersistentAgentCaptureDeps,
+	readPersistentAgentOutput,
+	startPersistentAgent,
+	stopPersistentAgent,
+} from "../agents/persistent-root.ts";
 import { loadConfig } from "../config.ts";
 import { AgentError, ValidationError } from "../errors.ts";
 import { jsonOutput } from "../json.ts";
 import { printHint, printSuccess, printWarning } from "../logging/color.ts";
 import { createMailClient } from "../mail/client.ts";
 import { createMailStore } from "../mail/store.ts";
-import { getRuntime } from "../runtimes/registry.ts";
 import { openSessionStore } from "../sessions/compat.ts";
-import { createRunStore, createSessionStore } from "../sessions/store.ts";
+import { createSessionStore } from "../sessions/store.ts";
 import { resolveBackend, trackerCliName } from "../tracker/factory.ts";
-import type { AgentSession } from "../types.ts";
 import { isProcessRunning } from "../watchdog/health.ts";
 import type { SessionState } from "../worktree/tmux.ts";
 import {
 	attachOrSwitch,
-	capturePaneContent,
 	checkSessionState,
 	createSession,
 	ensureTmuxAvailable,
@@ -382,16 +384,6 @@ async function startCoordinator(
 	opts: { json: boolean; attach: boolean; watchdog: boolean; monitor: boolean; autoPull: boolean },
 	deps: CoordinatorDeps = {},
 ): Promise<void> {
-	const tmux = deps._tmux ?? {
-		createSession,
-		isSessionAlive,
-		checkSessionState,
-		killSession,
-		sendKeys,
-		waitForTuiReady,
-		ensureTmuxAvailable,
-	};
-
 	const {
 		json,
 		attach: shouldAttach,
@@ -409,409 +401,168 @@ async function startCoordinator(
 	const cwd = process.cwd();
 	const config = await loadConfig(cwd);
 	const projectRoot = config.project.root;
+	const overstoryDir = join(projectRoot, ".overstory");
 	const watchdog = deps._watchdog ?? createDefaultWatchdog(projectRoot);
 	const monitor = deps._monitor ?? createDefaultMonitor(projectRoot);
 	const autoPull = deps._autoPull ?? createDefaultAutoPull(projectRoot);
 	const tmuxSession = coordinatorTmuxSession(config.project.name);
 
-	// Check for existing coordinator
-	const overstoryDir = join(projectRoot, ".overstory");
-	const { store } = openSessionStore(overstoryDir);
-	try {
-		const existing = store.getByName(COORDINATOR_NAME);
+	// Build the coordinator beacon using the resolved tracker CLI name
+	const resolvedBackend = await resolveBackend(config.taskTracker.backend, projectRoot);
+	const trackerCli = trackerCliName(resolvedBackend);
+	const beacon = buildCoordinatorBeacon(trackerCli);
 
-		if (
-			existing &&
-			existing.capability === "coordinator" &&
-			existing.state !== "completed" &&
-			existing.state !== "zombie"
-		) {
-			const sessionState = await tmux.checkSessionState(existing.tmuxSession);
-
-			if (sessionState === "alive") {
-				// Tmux session exists -- but is the process inside still running?
-				// A crashed Claude Code leaves a zombie tmux pane that blocks retries.
-				if (existing.pid !== null && !isProcessRunning(existing.pid)) {
-					// Zombie: tmux pane exists but agent process has exited.
-					// Kill the empty session and reclaim the slot.
-					await tmux.killSession(existing.tmuxSession);
-					store.updateState(COORDINATOR_NAME, "completed");
-				} else {
-					// Either the process is genuinely running (pid alive), or pid is null
-					// (e.g. sessions migrated from an older schema). In both cases we
-					// cannot prove the session is a zombie, so treat it as active.
-					throw new AgentError(
-						`Coordinator is already running (tmux: ${existing.tmuxSession}, since: ${existing.startedAt})`,
-						{ agentName: COORDINATOR_NAME },
-					);
-				}
-			} else {
-				// Session is dead or tmux server is not running -- clean up stale DB entry.
-				store.updateState(COORDINATOR_NAME, "completed");
-			}
-		}
-
-		// Resolve model and runtime early (needed for deployConfig and spawn)
-		const manifestLoader = createManifestLoader(
-			join(projectRoot, config.agents.manifestPath),
-			join(projectRoot, config.agents.baseDir),
-		);
-		const manifest = await manifestLoader.load();
-		const resolvedModel = resolveModel(config, manifest, "coordinator", "opus");
-		const runtime = getRuntime(undefined, config, "coordinator");
-
-		// Deploy hooks to the project root so the coordinator gets event logging,
-		// mail check --inject, and activity tracking via the standard hook pipeline.
-		// The ENV_GUARD prefix on all hooks (both template and generated guards)
-		// ensures they only activate when OVERSTORY_AGENT_NAME is set (i.e. for
-		// the coordinator's tmux session), so the user's own Claude Code session
-		// at the project root is unaffected.
-		await runtime.deployConfig(projectRoot, undefined, {
+	// Delegate core lifecycle (session check, model resolve, hooks deploy, identity,
+	// tmux spawn, run creation, session record, TUI wait, beacon send) to the
+	// persistent-root abstraction.
+	const result = await startPersistentAgent(
+		{
 			agentName: COORDINATOR_NAME,
 			capability: "coordinator",
-			worktreePath: projectRoot,
-		});
-
-		// Create coordinator identity if first run
-		const identityBaseDir = join(projectRoot, ".overstory", "agents");
-		await mkdir(identityBaseDir, { recursive: true });
-		const existingIdentity = await loadIdentity(identityBaseDir, COORDINATOR_NAME);
-		if (!existingIdentity) {
-			await createIdentity(identityBaseDir, {
-				name: COORDINATOR_NAME,
-				capability: "coordinator",
-				created: new Date().toISOString(),
-				sessionsCompleted: 0,
-				expertiseDomains: config.mulch.enabled ? config.mulch.domains : [],
-				recentTasks: [],
-			});
-		}
-
-		// Preflight: verify tmux is installed before attempting to spawn.
-		// Without this check, a missing tmux leads to cryptic errors later.
-		await tmux.ensureTmuxAvailable();
-
-		// Spawn tmux session at project root with Claude Code (interactive mode).
-		// Inject the coordinator base definition via --append-system-prompt so the
-		// coordinator knows its role, hierarchy rules, and delegation patterns
-		// (overstory-gaio, overstory-0kwf).
-		// Pass the file path (not content) so the shell inside the tmux pane reads
-		// it via $(cat ...) — avoids tmux IPC "command too long" errors with large
-		// agent definitions (overstory#45).
-		const agentDefPath = join(projectRoot, ".overstory", "agent-defs", "coordinator.md");
-		const agentDefFile = Bun.file(agentDefPath);
-		let appendSystemPromptFile: string | undefined;
-		if (await agentDefFile.exists()) {
-			appendSystemPromptFile = agentDefPath;
-		}
-		const runtimeSessionId = crypto.randomUUID();
-		const spawnCmd = runtime.buildSpawnCommand({
-			model: resolvedModel.model,
-			permissionMode: "bypass",
-			sessionId: runtimeSessionId,
-			cwd: projectRoot,
-			appendSystemPromptFile,
-			env: {
-				...runtime.buildEnv(resolvedModel),
-				OVERSTORY_AGENT_NAME: COORDINATOR_NAME,
-			},
-		});
-		const pid = await tmux.createSession(tmuxSession, projectRoot, spawnCmd, {
-			...runtime.buildEnv(resolvedModel),
-			OVERSTORY_AGENT_NAME: COORDINATOR_NAME,
-		});
-
-		// Create a run for this coordinator session BEFORE recording the session,
-		// so the session can reference the run ID from the start.
-		const sessionId = `session-${Date.now()}-${COORDINATOR_NAME}`;
-		const runId = `run-${new Date().toISOString().replace(/[:.]/g, "-")}`;
-		const runStore = createRunStore(join(overstoryDir, "sessions.db"));
-		try {
-			runStore.createRun({
-				id: runId,
-				startedAt: new Date().toISOString(),
-				coordinatorSessionId: sessionId,
-				coordinatorName: COORDINATOR_NAME,
-				status: "active",
-			});
-		} finally {
-			runStore.close();
-		}
-		// Write current-run.txt for backward compatibility with ov sling and other consumers.
-		await Bun.write(join(overstoryDir, "current-run.txt"), runId);
-
-		// Record session BEFORE sending the beacon so that hook-triggered
-		// updateLastActivity() can find the entry and transition booting->working.
-		// Without this, a race exists: hooks fire before the session is persisted,
-		// leaving the coordinator stuck in "booting" (overstory-036f).
-		const session: AgentSession = {
-			id: sessionId,
-			agentName: COORDINATOR_NAME,
-			capability: "coordinator",
-			runtime: runtime.id,
-			worktreePath: projectRoot, // Coordinator uses project root, not a worktree
-			branchName: config.project.canonicalBranch, // Operates on canonical branch
-			taskId: "", // No specific task assignment
-			tmuxSession,
-			state: "booting",
-			pid,
-			parentAgent: null, // Top of hierarchy
-			depth: 0,
-			runId,
-			startedAt: new Date().toISOString(),
-			lastActivity: new Date().toISOString(),
-			escalationLevel: 0,
-			stalledSince: null,
-			rateLimitedSince: null,
-			runtimeSessionId: runtimeSessionId,
-			transcriptPath: null,
-			originalRuntime: null,
-		};
-
-		store.upsert(session);
-
-		// Give slow shells time to finish initializing before polling for TUI readiness.
-		const shellDelay = config.runtime?.shellInitDelayMs ?? 0;
-		if (shellDelay > 0) {
-			await Bun.sleep(shellDelay);
-		}
-
-		// Wait for Claude Code TUI to render before sending input
-		const tuiReady = await tmux.waitForTuiReady(tmuxSession, (content) =>
-			runtime.detectReady(content),
-		);
-		if (!tuiReady) {
-			// Session may have died — check liveness before proceeding
-			const alive = await tmux.isSessionAlive(tmuxSession);
-			if (!alive) {
-				// Clean up the stale session record
-				store.updateState(COORDINATOR_NAME, "completed");
-				const sessionState = await tmux.checkSessionState(tmuxSession);
-				const detail =
-					sessionState === "no_server"
-						? "The tmux server is no longer running. It may have crashed or been killed externally."
-						: "The Claude Code process may have crashed or exited immediately. Check tmux logs or try running the claude command manually.";
-				throw new AgentError(
-					`Coordinator tmux session "${tmuxSession}" died during startup. ${detail}`,
-					{ agentName: COORDINATOR_NAME },
-				);
-			}
-			await tmux.killSession(tmuxSession);
-			store.updateState(COORDINATOR_NAME, "completed");
-			throw new AgentError(
-				`Coordinator tmux session "${tmuxSession}" did not become ready during startup. Claude Code may still be waiting on an interactive dialog or initializing too slowly.`,
-				{ agentName: COORDINATOR_NAME },
-			);
-		}
-		await Bun.sleep(1_000);
-
-		const resolvedBackend = await resolveBackend(config.taskTracker.backend, config.project.root);
-		const trackerCli = trackerCliName(resolvedBackend);
-		const beacon = buildCoordinatorBeacon(trackerCli);
-		await tmux.sendKeys(tmuxSession, beacon);
-
-		// Follow-up Enters with increasing delays to ensure submission
-		for (const delay of [1_000, 2_000, 3_000, 5_000]) {
-			await Bun.sleep(delay);
-			await tmux.sendKeys(tmuxSession, "");
-		}
-
-		// Auto-start watchdog if --watchdog flag is present or tier0Enabled in config
-		let watchdogPid: number | undefined;
-		const shouldStartWatchdog = watchdogFlag || config.watchdog.tier0Enabled;
-		if (shouldStartWatchdog) {
-			const watchdogResult = await watchdog.start();
-			if (watchdogResult) {
-				watchdogPid = watchdogResult.pid;
-				if (!json) printHint("Watchdog started");
-			} else {
-				if (!json) printWarning("Watchdog failed to start");
-			}
-		}
-
-		// Auto-start monitor if --monitor flag is present and tier2 is enabled
-		let monitorPid: number | undefined;
-		if (monitorFlag) {
-			if (!config.watchdog.tier2Enabled) {
-				if (!json) printWarning("Monitor skipped", "watchdog.tier2Enabled is false");
-			} else {
-				const monitorResult = await monitor.start([]);
-				if (monitorResult) {
-					monitorPid = monitorResult.pid;
-					if (!json) printHint("Monitor started");
-				} else {
-					if (!json) printWarning("Monitor failed to start");
-				}
-			}
-		}
-
-		// Auto-start autopull if --auto-pull flag or coordinator.autoPull config is true
-		let autoPullPid: number | undefined;
-		const shouldStartAutoPull = autoPullFlag || config.coordinator?.autoPull === true;
-		if (shouldStartAutoPull) {
-			if (!config.taskTracker.github) {
-				if (!json) printWarning("AutoPull skipped", "taskTracker.github config is missing");
-			} else {
-				const autoPullResult = await autoPull.start();
-				if (autoPullResult) {
-					autoPullPid = autoPullResult.pid;
-					if (!json) printHint("AutoPull poller started");
-				} else {
-					if (!json) printWarning("AutoPull poller already running or failed to start");
-				}
-			}
-		}
-
-		const output = {
-			agentName: COORDINATOR_NAME,
-			capability: "coordinator",
-			tmuxSession,
 			projectRoot,
-			pid,
-			watchdog: watchdogFlag ? watchdogPid !== undefined : false,
-			monitor: monitorFlag ? monitorPid !== undefined : false,
-			autoPull: shouldStartAutoPull ? autoPullPid !== undefined : false,
-		};
+			overstoryDir,
+			tmuxSession,
+			createRun: true,
+			coordinatorName: COORDINATOR_NAME,
+			beacon,
+			shellInitDelayMs: config.runtime?.shellInitDelayMs ?? 0,
+		},
+		deps._tmux,
+	);
 
-		if (json) {
-			jsonOutput("coordinator start", output);
+	const { pid, runId } = result;
+	void runId; // Used by persistent-root; not needed directly here
+
+	// Auto-start watchdog if --watchdog flag is present or tier0Enabled in config
+	let watchdogPid: number | undefined;
+	const shouldStartWatchdog = watchdogFlag || config.watchdog.tier0Enabled;
+	if (shouldStartWatchdog) {
+		const watchdogResult = await watchdog.start();
+		if (watchdogResult) {
+			watchdogPid = watchdogResult.pid;
+			if (!json) printHint("Watchdog started");
 		} else {
-			printSuccess("Coordinator started");
-			process.stdout.write(`  Tmux:    ${tmuxSession}\n`);
-			process.stdout.write(`  Root:    ${projectRoot}\n`);
-			process.stdout.write(`  PID:     ${pid}\n`);
+			if (!json) printWarning("Watchdog failed to start");
 		}
+	}
 
-		if (shouldAttach) {
-			attachOrSwitch(tmuxSession);
+	// Auto-start monitor if --monitor flag is present and tier2 is enabled
+	let monitorPid: number | undefined;
+	if (monitorFlag) {
+		if (!config.watchdog.tier2Enabled) {
+			if (!json) printWarning("Monitor skipped", "watchdog.tier2Enabled is false");
+		} else {
+			const monitorResult = await monitor.start([]);
+			if (monitorResult) {
+				monitorPid = monitorResult.pid;
+				if (!json) printHint("Monitor started");
+			} else {
+				if (!json) printWarning("Monitor failed to start");
+			}
 		}
-	} finally {
-		store.close();
+	}
+
+	// Auto-start autopull if --auto-pull flag or coordinator.autoPull config is true
+	let autoPullPid: number | undefined;
+	const shouldStartAutoPull = autoPullFlag || config.coordinator?.autoPull === true;
+	if (shouldStartAutoPull) {
+		if (!config.taskTracker.github) {
+			if (!json) printWarning("AutoPull skipped", "taskTracker.github config is missing");
+		} else {
+			const autoPullResult = await autoPull.start();
+			if (autoPullResult) {
+				autoPullPid = autoPullResult.pid;
+				if (!json) printHint("AutoPull poller started");
+			} else {
+				if (!json) printWarning("AutoPull poller already running or failed to start");
+			}
+		}
+	}
+
+	const output = {
+		agentName: COORDINATOR_NAME,
+		capability: "coordinator",
+		tmuxSession,
+		projectRoot,
+		pid,
+		watchdog: watchdogFlag ? watchdogPid !== undefined : false,
+		monitor: monitorFlag ? monitorPid !== undefined : false,
+		autoPull: shouldStartAutoPull ? autoPullPid !== undefined : false,
+	};
+
+	if (json) {
+		jsonOutput("coordinator start", output);
+	} else {
+		printSuccess("Coordinator started");
+		process.stdout.write(`  Tmux:    ${tmuxSession}\n`);
+		process.stdout.write(`  Root:    ${projectRoot}\n`);
+		process.stdout.write(`  PID:     ${pid}\n`);
+	}
+
+	if (shouldAttach) {
+		attachOrSwitch(tmuxSession);
 	}
 }
 
 /**
  * Stop the coordinator agent.
  *
- * 1. Find the active coordinator session
- * 2. Kill the tmux session (with process tree cleanup)
- * 3. Mark session as completed in SessionStore
- * 4. Auto-complete the active run (if current-run.txt exists)
+ * 1. Stop ancillary processes (watchdog, monitor, autopull)
+ * 2. Delegate session kill, state update, run completion to persistent-root
  */
 async function stopCoordinator(opts: { json: boolean }, deps: CoordinatorDeps = {}): Promise<void> {
-	const tmux = deps._tmux ?? {
-		createSession,
-		isSessionAlive,
-		checkSessionState,
-		killSession,
-		sendKeys,
-		waitForTuiReady,
-		ensureTmuxAvailable,
-	};
-
 	const { json } = opts;
 	const cwd = process.cwd();
 	const config = await loadConfig(cwd);
 	const projectRoot = config.project.root;
+	const overstoryDir = join(projectRoot, ".overstory");
 	const watchdog = deps._watchdog ?? createDefaultWatchdog(projectRoot);
 	const monitor = deps._monitor ?? createDefaultMonitor(projectRoot);
 	const autoPull = deps._autoPull ?? createDefaultAutoPull(projectRoot);
 
-	const overstoryDir = join(projectRoot, ".overstory");
-	const { store } = openSessionStore(overstoryDir);
-	try {
-		const session = store.getByName(COORDINATOR_NAME);
+	// Stop ancillary processes before terminating the session
+	const watchdogStopped = await watchdog.stop();
+	const monitorStopped = await monitor.stop();
+	const autoPullStopped = await autoPull.stop();
 
-		if (
-			!session ||
-			session.capability !== "coordinator" ||
-			session.state === "completed" ||
-			session.state === "zombie"
-		) {
-			throw new AgentError("No active coordinator session found", {
-				agentName: COORDINATOR_NAME,
-			});
-		}
+	// Delegate core lifecycle (kill tmux, update state, complete run) to persistent-root
+	const result = await stopPersistentAgent(
+		COORDINATOR_NAME,
+		{ projectRoot, overstoryDir },
+		deps._tmux,
+	);
 
-		// Kill tmux session with process tree cleanup
-		const alive = await tmux.isSessionAlive(session.tmuxSession);
-		if (alive) {
-			await tmux.killSession(session.tmuxSession);
-		}
-
-		// Always attempt to stop watchdog
-		const watchdogStopped = await watchdog.stop();
-
-		// Always attempt to stop monitor
-		const monitorStopped = await monitor.stop();
-
-		// Always attempt to stop autopull poller
-		const autoPullStopped = await autoPull.stop();
-
-		// Update session state
-		store.updateState(COORDINATOR_NAME, "completed");
-		store.updateLastActivity(COORDINATOR_NAME);
-
-		// Auto-complete the current run
-		let runCompleted = false;
-		try {
-			const currentRunPath = join(overstoryDir, "current-run.txt");
-			const currentRunFile = Bun.file(currentRunPath);
-			if (await currentRunFile.exists()) {
-				const runId = (await currentRunFile.text()).trim();
-				if (runId.length > 0) {
-					const runStore = createRunStore(join(overstoryDir, "sessions.db"));
-					try {
-						runStore.completeRun(runId, "completed");
-						runCompleted = true;
-					} finally {
-						runStore.close();
-					}
-					try {
-						await unlink(currentRunPath);
-					} catch {
-						// File may already be gone
-					}
-				}
-			}
-		} catch {
-			// Non-fatal: run completion should not break coordinator stop
-		}
-
-		if (json) {
-			jsonOutput("coordinator stop", {
-				stopped: true,
-				sessionId: session.id,
-				watchdogStopped,
-				monitorStopped,
-				autoPullStopped,
-				runCompleted,
-			});
+	if (json) {
+		jsonOutput("coordinator stop", {
+			stopped: true,
+			sessionId: result.sessionId,
+			watchdogStopped,
+			monitorStopped,
+			autoPullStopped,
+			runCompleted: result.runCompleted,
+		});
+	} else {
+		printSuccess("Coordinator stopped", result.sessionId);
+		if (watchdogStopped) {
+			printHint("Watchdog stopped");
 		} else {
-			printSuccess("Coordinator stopped", session.id);
-			if (watchdogStopped) {
-				printHint("Watchdog stopped");
-			} else {
-				printHint("No watchdog running");
-			}
-			if (monitorStopped) {
-				printHint("Monitor stopped");
-			} else {
-				printHint("No monitor running");
-			}
-			if (autoPullStopped) {
-				printHint("AutoPull poller stopped");
-			} else {
-				printHint("No autopull poller running");
-			}
-			if (runCompleted) {
-				printHint("Run completed");
-			} else {
-				printHint("No active run");
-			}
+			printHint("No watchdog running");
 		}
-	} finally {
-		store.close();
+		if (monitorStopped) {
+			printHint("Monitor stopped");
+		} else {
+			printHint("No monitor running");
+		}
+		if (autoPullStopped) {
+			printHint("AutoPull poller stopped");
+		} else {
+			printHint("No autopull poller running");
+		}
+		if (result.runCompleted) {
+			printHint("Run completed");
+		} else {
+			printHint("No active run");
+		}
 	}
 }
 
@@ -824,88 +575,59 @@ async function statusCoordinator(
 	opts: { json: boolean },
 	deps: CoordinatorDeps = {},
 ): Promise<void> {
-	const tmux = deps._tmux ?? {
-		createSession,
-		isSessionAlive,
-		checkSessionState,
-		killSession,
-		sendKeys,
-		waitForTuiReady,
-		ensureTmuxAvailable,
-	};
-
 	const { json } = opts;
 	const cwd = process.cwd();
 	const config = await loadConfig(cwd);
 	const projectRoot = config.project.root;
+	const overstoryDir = join(projectRoot, ".overstory");
 	const watchdog = deps._watchdog ?? createDefaultWatchdog(projectRoot);
 	const monitor = deps._monitor ?? createDefaultMonitor(projectRoot);
 
-	const overstoryDir = join(projectRoot, ".overstory");
-	const { store } = openSessionStore(overstoryDir);
-	try {
-		const session = store.getByName(COORDINATOR_NAME);
-		const watchdogRunning = await watchdog.isRunning();
-		const monitorRunning = await monitor.isRunning();
+	const [agentStatus, watchdogRunning, monitorRunning] = await Promise.all([
+		getPersistentAgentStatus(COORDINATOR_NAME, { projectRoot, overstoryDir }, deps._tmux),
+		watchdog.isRunning(),
+		monitor.isRunning(),
+	]);
 
-		if (
-			!session ||
-			session.capability !== "coordinator" ||
-			session.state === "completed" ||
-			session.state === "zombie"
-		) {
-			if (json) {
-				jsonOutput("coordinator status", { running: false, watchdogRunning, monitorRunning });
-			} else {
-				printHint("Coordinator is not running");
-				if (watchdogRunning) {
-					printHint("Watchdog: running");
-				}
-				if (monitorRunning) {
-					printHint("Monitor: running");
-				}
-			}
-			return;
-		}
-
-		const alive = await tmux.isSessionAlive(session.tmuxSession);
-
-		// Reconcile state: if session says active but tmux is dead, update.
-		// We already filtered out completed/zombie states above, so if tmux is dead
-		// this session needs to be marked as zombie.
-		if (!alive) {
-			store.updateState(COORDINATOR_NAME, "zombie");
-			store.updateLastActivity(COORDINATOR_NAME);
-			session.state = "zombie";
-		}
-
-		const status = {
-			running: alive,
-			sessionId: session.id,
-			state: session.state,
-			tmuxSession: session.tmuxSession,
-			pid: session.pid,
-			startedAt: session.startedAt,
-			lastActivity: session.lastActivity,
-			watchdogRunning,
-			monitorRunning,
-		};
-
+	if (!agentStatus) {
 		if (json) {
-			jsonOutput("coordinator status", status);
+			jsonOutput("coordinator status", { running: false, watchdogRunning, monitorRunning });
 		} else {
-			const stateLabel = alive ? "running" : session.state;
-			process.stdout.write(`Coordinator: ${stateLabel}\n`);
-			process.stdout.write(`  Session:   ${session.id}\n`);
-			process.stdout.write(`  Tmux:      ${session.tmuxSession}\n`);
-			process.stdout.write(`  PID:       ${session.pid}\n`);
-			process.stdout.write(`  Started:   ${session.startedAt}\n`);
-			process.stdout.write(`  Activity:  ${session.lastActivity}\n`);
-			process.stdout.write(`  Watchdog:  ${watchdogRunning ? "running" : "not running"}\n`);
-			process.stdout.write(`  Monitor:   ${monitorRunning ? "running" : "not running"}\n`);
+			printHint("Coordinator is not running");
+			if (watchdogRunning) {
+				printHint("Watchdog: running");
+			}
+			if (monitorRunning) {
+				printHint("Monitor: running");
+			}
 		}
-	} finally {
-		store.close();
+		return;
+	}
+
+	const status = {
+		running: agentStatus.running,
+		sessionId: agentStatus.sessionId,
+		state: agentStatus.state,
+		tmuxSession: agentStatus.tmuxSession,
+		pid: agentStatus.pid,
+		startedAt: agentStatus.startedAt,
+		lastActivity: agentStatus.lastActivity,
+		watchdogRunning,
+		monitorRunning,
+	};
+
+	if (json) {
+		jsonOutput("coordinator status", status);
+	} else {
+		const stateLabel = agentStatus.running ? "running" : agentStatus.state;
+		process.stdout.write(`Coordinator: ${stateLabel}\n`);
+		process.stdout.write(`  Session:   ${agentStatus.sessionId}\n`);
+		process.stdout.write(`  Tmux:      ${agentStatus.tmuxSession}\n`);
+		process.stdout.write(`  PID:       ${agentStatus.pid}\n`);
+		process.stdout.write(`  Started:   ${agentStatus.startedAt}\n`);
+		process.stdout.write(`  Activity:  ${agentStatus.lastActivity}\n`);
+		process.stdout.write(`  Watchdog:  ${watchdogRunning ? "running" : "not running"}\n`);
+		process.stdout.write(`  Monitor:   ${monitorRunning ? "running" : "not running"}\n`);
 	}
 }
 
@@ -1126,83 +848,72 @@ export async function askCoordinator(
 /**
  * Show recent coordinator tmux pane content without attaching.
  *
- * Wraps capturePaneContent() from tmux.ts. Supports --follow for continuous polling.
+ * Delegates to readPersistentAgentOutput(). Supports --follow for continuous polling.
  */
 async function outputCoordinator(
 	opts: { follow: boolean; lines: number; interval: number; json: boolean },
 	deps: CoordinatorDeps = {},
 ): Promise<void> {
-	const tmux = deps._tmux ?? {
-		createSession,
-		isSessionAlive,
-		checkSessionState,
-		killSession,
-		sendKeys,
-		waitForTuiReady,
-		ensureTmuxAvailable,
-	};
-	const capturePane = deps._capturePaneContent ?? capturePaneContent;
-
 	const { follow, lines, interval, json } = opts;
 	const cwd = process.cwd();
 	const config = await loadConfig(cwd);
 	const projectRoot = config.project.root;
-
 	const overstoryDir = join(projectRoot, ".overstory");
-	const { store } = openSessionStore(overstoryDir);
-	try {
-		const session = store.getByName(COORDINATOR_NAME);
 
-		if (
-			!session ||
-			session.capability !== "coordinator" ||
-			session.state === "completed" ||
-			session.state === "zombie"
-		) {
-			throw new AgentError("No active coordinator session found", {
-				agentName: COORDINATOR_NAME,
-			});
-		}
+	// Validate the coordinator session is alive before entering the output loop
+	const agentStatus = await getPersistentAgentStatus(
+		COORDINATOR_NAME,
+		{ projectRoot, overstoryDir },
+		deps._tmux,
+	);
 
-		const alive = await tmux.isSessionAlive(session.tmuxSession);
-		if (!alive) {
-			store.updateState(COORDINATOR_NAME, "zombie");
-			store.updateLastActivity(COORDINATOR_NAME);
-			throw new AgentError(`Coordinator tmux session "${session.tmuxSession}" is not alive`, {
-				agentName: COORDINATOR_NAME,
-			});
-		}
+	if (!agentStatus) {
+		throw new AgentError("No active coordinator session found", { agentName: COORDINATOR_NAME });
+	}
 
-		const tmuxSession = session.tmuxSession;
+	if (!agentStatus.running) {
+		throw new AgentError(`Coordinator tmux session "${agentStatus.tmuxSession}" is not alive`, {
+			agentName: COORDINATOR_NAME,
+		});
+	}
 
-		if (follow) {
-			// Set up SIGINT handler for clean exit
-			let running = true;
-			process.once("SIGINT", () => {
-				running = false;
-			});
+	const captureDeps: PersistentAgentCaptureDeps | undefined = deps._capturePaneContent
+		? { capturePaneContent: deps._capturePaneContent }
+		: undefined;
 
-			while (running) {
-				const content = await capturePane(tmuxSession, lines);
-				if (json) {
-					jsonOutput("coordinator output", { content, lines });
-				} else {
-					process.stdout.write(content ?? "");
-				}
-				if (running) {
-					await Bun.sleep(interval);
-				}
-			}
-		} else {
-			const content = await capturePane(tmuxSession, lines);
+	if (follow) {
+		// Set up SIGINT handler for clean exit
+		let running = true;
+		process.once("SIGINT", () => {
+			running = false;
+		});
+
+		while (running) {
+			const content = await readPersistentAgentOutput(
+				COORDINATOR_NAME,
+				{ projectRoot, overstoryDir, lines },
+				captureDeps,
+			);
 			if (json) {
 				jsonOutput("coordinator output", { content, lines });
 			} else {
 				process.stdout.write(content ?? "");
 			}
+			if (running) {
+				await Bun.sleep(interval);
+			}
 		}
-	} finally {
-		store.close();
+	} else {
+		const content = await readPersistentAgentOutput(
+			COORDINATOR_NAME,
+			{ projectRoot, overstoryDir, lines },
+			captureDeps,
+		);
+		if (json) {
+			jsonOutput("coordinator output", { content, lines });
+		} else {
+			process.stdout.write(content ?? "");
+		}
 	}
 }
 
