@@ -628,7 +628,8 @@ export type EventType =
 	| "turn_start"
 	| "turn_end"
 	| "progress"
-	| "result";
+	| "result"
+	| "mission";
 
 /** Severity levels for events. */
 export type EventLevel = "debug" | "info" | "warn" | "error";
