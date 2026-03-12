@@ -75,7 +75,7 @@ function rowToReview(row: ReviewRow): ReviewRecord {
 const CREATE_REVIEWS_TABLE = `
 CREATE TABLE IF NOT EXISTS reviews (
   id TEXT PRIMARY KEY,
-  subject_type TEXT NOT NULL CHECK(subject_type IN ('session','handoff','spec')),
+  subject_type TEXT NOT NULL CHECK(subject_type IN ('session','handoff','spec','mission')),
   subject_id TEXT NOT NULL,
   timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now')),
   dimensions TEXT NOT NULL,
@@ -86,6 +86,42 @@ CREATE TABLE IF NOT EXISTS reviews (
   stale_since TEXT,
   stale_reason TEXT
 )`;
+
+/**
+ * Migrate the reviews table CHECK constraint to include 'mission'.
+ *
+ * SQLite does not support ALTER COLUMN, so we rebuild the table.
+ * Per mulch mx-fa9d11: rename old, create new, INSERT...SELECT with explicit columns, drop old.
+ */
+function migrateReviewsCheckConstraint(db: Database): void {
+	const row = db
+		.prepare<{ sql: string }, Record<string, never>>(
+			"SELECT sql FROM sqlite_master WHERE type='table' AND name='reviews'",
+		)
+		.get({});
+
+	if (!row || row.sql.includes("'mission'")) {
+		return; // already up-to-date or table not yet created
+	}
+
+	db.exec("BEGIN TRANSACTION");
+	try {
+		db.exec("ALTER TABLE reviews RENAME TO reviews_old");
+		db.exec(CREATE_REVIEWS_TABLE);
+		db.exec(`
+			INSERT INTO reviews
+				(id, subject_type, subject_id, timestamp, dimensions, overall_score, notes, reviewer_source, stale, stale_since, stale_reason)
+			SELECT
+				id, subject_type, subject_id, timestamp, dimensions, overall_score, notes, reviewer_source, stale, stale_since, stale_reason
+			FROM reviews_old
+		`);
+		db.exec("DROP TABLE reviews_old");
+		db.exec("COMMIT");
+	} catch (err) {
+		db.exec("ROLLBACK");
+		throw err;
+	}
+}
 
 const CREATE_STALENESS_TABLE = `
 CREATE TABLE IF NOT EXISTS staleness_state (
@@ -109,6 +145,7 @@ export function createReviewStore(dbPath: string): ReviewStore {
 	db.exec("PRAGMA busy_timeout=5000");
 
 	db.exec(CREATE_REVIEWS_TABLE);
+	migrateReviewsCheckConstraint(db);
 	db.exec(CREATE_STALENESS_TABLE);
 
 	// Indexes — created after tables

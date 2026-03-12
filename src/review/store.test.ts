@@ -114,6 +114,18 @@ describe("ReviewStore", () => {
 		expect(store.getByType("spec")).toHaveLength(0);
 	});
 
+	test("mission subject type can be inserted and retrieved", () => {
+		const record = store.insert(makeInsert({ subjectType: "mission", subjectId: "mission-001" }));
+		expect(record.subjectType).toBe("mission");
+		expect(record.subjectId).toBe("mission-001");
+
+		const loaded = store.getById(record.id);
+		expect(loaded?.subjectType).toBe("mission");
+
+		const missions = store.getByType("mission");
+		expect(missions).toHaveLength(1);
+	});
+
 	test("getByType respects limit option", () => {
 		store.insert(makeInsert({ subjectType: "session" }));
 		store.insert(makeInsert({ subjectType: "session" }));

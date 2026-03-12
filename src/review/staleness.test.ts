@@ -76,14 +76,16 @@ describe("staleness", () => {
 			expect(Object.keys(state.fileHashes).sort()).toEqual(expectedKeys);
 		});
 
-		test("covers all three subject types", async () => {
+		test("covers all four subject types including mission", async () => {
 			const session = await computeStalenessState(tempDir, "session");
 			const handoff = await computeStalenessState(tempDir, "handoff");
 			const spec = await computeStalenessState(tempDir, "spec");
+			const mission = await computeStalenessState(tempDir, "mission");
 
 			expect(Object.keys(session.fileHashes)).toHaveLength(WATCHED_SURFACES.session.length);
 			expect(Object.keys(handoff.fileHashes)).toHaveLength(WATCHED_SURFACES.handoff.length);
 			expect(Object.keys(spec.fileHashes)).toHaveLength(WATCHED_SURFACES.spec.length);
+			expect(Object.keys(mission.fileHashes)).toHaveLength(WATCHED_SURFACES.mission.length);
 		});
 	});
 

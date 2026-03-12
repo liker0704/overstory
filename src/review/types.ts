@@ -16,7 +16,7 @@ export type ReviewDimension =
 	| "coordination-fit";
 
 /** The kinds of artifacts that can be reviewed. */
-export type ReviewSubjectType = "session" | "handoff" | "spec";
+export type ReviewSubjectType = "session" | "handoff" | "spec" | "mission";
 
 // === Score ===
 

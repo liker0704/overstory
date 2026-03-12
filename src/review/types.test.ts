@@ -31,9 +31,9 @@ describe("ReviewDimension", () => {
 });
 
 describe("ReviewSubjectType", () => {
-	it("accepts all three valid subject types", () => {
-		const types: ReviewSubjectType[] = ["session", "handoff", "spec"];
-		expect(types).toHaveLength(3);
+	it("accepts all four valid subject types", () => {
+		const types: ReviewSubjectType[] = ["session", "handoff", "spec", "mission"];
+		expect(types).toHaveLength(4);
 	});
 });
 
