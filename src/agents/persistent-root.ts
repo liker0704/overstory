@@ -1,0 +1,572 @@
+/**
+ * Persistent root agent lifecycle abstraction.
+ *
+ * Provides reusable start/stop/status/output lifecycle for persistent root
+ * agents (coordinator, mission-analyst, execution-director, etc.) without
+ * duplicating coordinator-specific logic.
+ *
+ * The coordinator, mission-analyst, and execution-director all run at the
+ * project root (no worktree), persist across work batches, and follow the
+ * same tmux-based lifecycle. This module extracts that shared lifecycle.
+ *
+ * What is NOT in this module (stays in coordinator.ts / caller):
+ * - Watchdog/monitor/autopull management
+ * - Attach-to-session logic
+ * - Coordinator beacon text content
+ * - check-complete / send / ask protocol
+ */
+
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import { loadConfig } from "../config.ts";
+import { AgentError } from "../errors.ts";
+import { getRuntime } from "../runtimes/registry.ts";
+import { openSessionStore } from "../sessions/compat.ts";
+import { createRunStore } from "../sessions/store.ts";
+import type { AgentSession } from "../types.ts";
+import { isProcessRunning } from "../watchdog/health.ts";
+import type { SessionState } from "../worktree/tmux.ts";
+import {
+	capturePaneContent,
+	checkSessionState,
+	createSession,
+	ensureTmuxAvailable,
+	isSessionAlive,
+	killSession,
+	sendKeys,
+	waitForTuiReady,
+} from "../worktree/tmux.ts";
+import { createIdentity, loadIdentity } from "./identity.ts";
+import { createManifestLoader, resolveModel } from "./manifest.ts";
+
+// === Dependency Injection Interfaces ===
+
+/** Tmux DI for testing (same shape as CoordinatorDeps._tmux). */
+export interface PersistentAgentTmuxDeps {
+	createSession: (
+		name: string,
+		cwd: string,
+		command: string,
+		env?: Record<string, string>,
+	) => Promise<number>;
+	isSessionAlive: (name: string) => Promise<boolean>;
+	checkSessionState: (name: string) => Promise<SessionState>;
+	killSession: (name: string) => Promise<void>;
+	sendKeys: (name: string, keys: string) => Promise<void>;
+	waitForTuiReady: (
+		name: string,
+		detectReady: (paneContent: string) => import("../runtimes/types.ts").ReadyState,
+		timeoutMs?: number,
+		pollIntervalMs?: number,
+	) => Promise<boolean>;
+	ensureTmuxAvailable: () => Promise<void>;
+}
+
+/** Capture DI for testing. */
+export interface PersistentAgentCaptureDeps {
+	capturePaneContent: (name: string, lines?: number) => Promise<string | null>;
+}
+
+// === Parameter / Result Interfaces ===
+
+/** Options for starting a persistent root agent. */
+export interface StartPersistentAgentOpts {
+	/** Agent name (e.g. 'coordinator', 'mission-analyst'). */
+	agentName: string;
+	/** Agent capability string (e.g. 'coordinator', 'mission-analyst'). */
+	capability: string;
+	/** Absolute path to the project root. */
+	projectRoot: string;
+	/** Absolute path to the .overstory directory. */
+	overstoryDir: string;
+	/** Tmux session name (caller is responsible for uniqueness). */
+	tmuxSession: string;
+	/** Whether to create a new run for this agent. */
+	createRun: boolean;
+	/** Link to an existing run ID instead of creating a new one (createRun ignored when set). */
+	existingRunId?: string;
+	/** Coordinator name to associate with the run (defaults to agentName). */
+	coordinatorName?: string;
+	/** Beacon message to send after TUI is ready. Leave undefined to skip. */
+	beacon?: string;
+	/** Delays (ms) between follow-up Enter presses after beacon. Default: [1000, 2000, 3000, 5000]. */
+	beaconDelays?: number[];
+	/** Shell init delay ms (from config.runtime.shellInitDelayMs). */
+	shellInitDelayMs?: number;
+}
+
+/** Result from starting a persistent root agent. */
+export interface StartPersistentAgentResult {
+	/** The recorded session. */
+	session: AgentSession;
+	/** The run ID created or linked, or null if no run was created. */
+	runId: string | null;
+	/** The PID of the spawned process. */
+	pid: number;
+}
+
+/** Result from stopping a persistent root agent. */
+export interface StopPersistentAgentResult {
+	/** Whether the tmux session was killed. */
+	sessionKilled: boolean;
+	/** Session ID that was stopped. */
+	sessionId: string;
+	/** Whether the associated run was completed. */
+	runCompleted: boolean;
+}
+
+/** Status of a persistent root agent. */
+export interface PersistentAgentStatus {
+	/** Whether the tmux session is alive. */
+	running: boolean;
+	/** Session record from the store. */
+	sessionId: string;
+	/** Reconciled state (may differ from stored if session died). */
+	state: string;
+	/** Tmux session name. */
+	tmuxSession: string;
+	/** PID of the agent process. */
+	pid: number | null;
+	/** When the session started. */
+	startedAt: string;
+	/** When the session was last active. */
+	lastActivity: string;
+}
+
+// === Core Lifecycle Functions ===
+
+/**
+ * Start a persistent root agent.
+ *
+ * Generic lifecycle: checks for existing session, resolves model/runtime,
+ * deploys hooks, creates identity, spawns tmux session, creates run,
+ * records session, waits for TUI ready, sends beacon.
+ *
+ * Coordinator-specific extras (watchdog, monitor, autopull, attach) must
+ * be handled by the caller after this function returns.
+ */
+export async function startPersistentAgent(
+	opts: StartPersistentAgentOpts,
+	tmuxDeps?: PersistentAgentTmuxDeps,
+): Promise<StartPersistentAgentResult> {
+	const tmux = tmuxDeps ?? {
+		createSession,
+		isSessionAlive,
+		checkSessionState,
+		killSession,
+		sendKeys,
+		waitForTuiReady,
+		ensureTmuxAvailable,
+	};
+
+	const {
+		agentName,
+		capability,
+		projectRoot,
+		overstoryDir,
+		tmuxSession,
+		createRun: shouldCreateRun,
+		existingRunId,
+		coordinatorName,
+		beacon,
+		beaconDelays = [1_000, 2_000, 3_000, 5_000],
+		shellInitDelayMs = 0,
+	} = opts;
+
+	const { store } = openSessionStore(overstoryDir);
+	try {
+		// Check for an existing non-terminal session for this agent
+		const existing = store.getByName(agentName);
+		if (existing && existing.state !== "completed" && existing.state !== "zombie") {
+			const sessionState = await tmux.checkSessionState(existing.tmuxSession);
+
+			if (sessionState === "alive") {
+				// Tmux session exists — check whether the process inside is still running.
+				// A crashed process leaves a zombie tmux pane that blocks retries.
+				if (existing.pid !== null && !isProcessRunning(existing.pid)) {
+					// Zombie: kill the empty session and reclaim the slot.
+					await tmux.killSession(existing.tmuxSession);
+					store.updateState(agentName, "completed");
+				} else {
+					throw new AgentError(
+						`${capability} agent '${agentName}' is already running (tmux: ${existing.tmuxSession}, since: ${existing.startedAt})`,
+						{ agentName },
+					);
+				}
+			} else {
+				// Session is dead or tmux server is not running — clean up stale entry.
+				store.updateState(agentName, "completed");
+			}
+		}
+
+		// Load config and resolve model + runtime for this capability
+		const config = await loadConfig(projectRoot);
+		const manifestLoader = createManifestLoader(
+			join(projectRoot, config.agents.manifestPath),
+			join(projectRoot, config.agents.baseDir),
+		);
+		const manifest = await manifestLoader.load();
+		const resolvedModel = resolveModel(config, manifest, capability, "opus");
+		const runtime = getRuntime(undefined, config, capability);
+
+		// Deploy hooks config to the project root for this agent.
+		// The ENV_GUARD prefix ensures hooks only activate inside this agent's
+		// tmux session (when OVERSTORY_AGENT_NAME is set), not the user's session.
+		await runtime.deployConfig(projectRoot, undefined, {
+			agentName,
+			capability,
+			worktreePath: projectRoot,
+		});
+
+		// Create or load persistent identity for this agent
+		const identityBaseDir = join(overstoryDir, "agents");
+		await mkdir(identityBaseDir, { recursive: true });
+		const existingIdentity = await loadIdentity(identityBaseDir, agentName);
+		if (!existingIdentity) {
+			await createIdentity(identityBaseDir, {
+				name: agentName,
+				capability,
+				created: new Date().toISOString(),
+				sessionsCompleted: 0,
+				expertiseDomains: config.mulch.enabled ? config.mulch.domains : [],
+				recentTasks: [],
+			});
+		}
+
+		// Preflight: verify tmux is installed before attempting to spawn
+		await tmux.ensureTmuxAvailable();
+
+		// Build spawn command and launch the tmux session
+		const agentDefPath = join(overstoryDir, "agent-defs", `${capability}.md`);
+		const agentDefFile = Bun.file(agentDefPath);
+		let appendSystemPromptFile: string | undefined;
+		if (await agentDefFile.exists()) {
+			appendSystemPromptFile = agentDefPath;
+		}
+		const runtimeSessionId = crypto.randomUUID();
+		const spawnCmd = runtime.buildSpawnCommand({
+			model: resolvedModel.model,
+			permissionMode: "bypass",
+			sessionId: runtimeSessionId,
+			cwd: projectRoot,
+			appendSystemPromptFile,
+			env: {
+				...runtime.buildEnv(resolvedModel),
+				OVERSTORY_AGENT_NAME: agentName,
+			},
+		});
+		const pid = await tmux.createSession(tmuxSession, projectRoot, spawnCmd, {
+			...runtime.buildEnv(resolvedModel),
+			OVERSTORY_AGENT_NAME: agentName,
+		});
+
+		// Generate session ID shared between the session record and the run record
+		const sessionId = `session-${Date.now()}-${agentName}`;
+
+		// Create a run or link to an existing one
+		let runId: string | null = existingRunId ?? null;
+		if (shouldCreateRun && !existingRunId) {
+			runId = `run-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+			const runStore = createRunStore(join(overstoryDir, "sessions.db"));
+			try {
+				runStore.createRun({
+					id: runId,
+					startedAt: new Date().toISOString(),
+					coordinatorSessionId: sessionId,
+					coordinatorName: coordinatorName ?? agentName,
+					status: "active",
+				});
+			} finally {
+				runStore.close();
+			}
+			// Write current-run.txt for ov sling and other consumers
+			await Bun.write(join(overstoryDir, "current-run.txt"), runId);
+		}
+
+		// Record session BEFORE sending beacon so hook-triggered updateLastActivity()
+		// can find the entry and transition booting->working (overstory-036f).
+		const session: AgentSession = {
+			id: sessionId,
+			agentName,
+			capability,
+			runtime: runtime.id,
+			worktreePath: projectRoot,
+			branchName: config.project.canonicalBranch,
+			taskId: "",
+			tmuxSession,
+			state: "booting",
+			pid,
+			parentAgent: null,
+			depth: 0,
+			runId,
+			startedAt: new Date().toISOString(),
+			lastActivity: new Date().toISOString(),
+			escalationLevel: 0,
+			stalledSince: null,
+			rateLimitedSince: null,
+			runtimeSessionId,
+			transcriptPath: null,
+			originalRuntime: null,
+		};
+		store.upsert(session);
+
+		// Give slow shells time to finish initializing before polling for TUI readiness
+		if (shellInitDelayMs > 0) {
+			await Bun.sleep(shellInitDelayMs);
+		}
+
+		// Wait for TUI to render before sending input
+		const tuiReady = await tmux.waitForTuiReady(tmuxSession, (content) =>
+			runtime.detectReady(content),
+		);
+		if (!tuiReady) {
+			const alive = await tmux.isSessionAlive(tmuxSession);
+			if (!alive) {
+				store.updateState(agentName, "completed");
+				const state = await tmux.checkSessionState(tmuxSession);
+				const detail =
+					state === "no_server"
+						? "The tmux server is no longer running. It may have crashed or been killed externally."
+						: "The Claude Code process may have crashed or exited immediately. Check tmux logs or try running the claude command manually.";
+				throw new AgentError(
+					`${capability} tmux session "${tmuxSession}" died during startup. ${detail}`,
+					{ agentName },
+				);
+			}
+			await tmux.killSession(tmuxSession);
+			store.updateState(agentName, "completed");
+			throw new AgentError(
+				`${capability} tmux session "${tmuxSession}" did not become ready during startup. Claude Code may still be waiting on an interactive dialog or initializing too slowly.`,
+				{ agentName },
+			);
+		}
+		await Bun.sleep(1_000);
+
+		// Send beacon if provided, then follow-up Enters with delays
+		if (beacon !== undefined) {
+			await tmux.sendKeys(tmuxSession, beacon);
+			for (const delay of beaconDelays) {
+				await Bun.sleep(delay);
+				await tmux.sendKeys(tmuxSession, "");
+			}
+		}
+
+		return { session, runId, pid };
+	} finally {
+		store.close();
+	}
+}
+
+/**
+ * Stop a persistent root agent.
+ *
+ * Kills the tmux session, marks the session completed, and completes
+ * the associated run. Caller is responsible for stopping ancillary
+ * processes (watchdog, monitor, autopull) before or after calling this.
+ *
+ * NOTE: RunStatus = "stopped" requires types.ts + store.ts changes (not yet
+ * in scope). Until those land, stopped agents use status "completed" in the
+ * run record.
+ */
+export async function stopPersistentAgent(
+	agentName: string,
+	opts: { projectRoot: string; overstoryDir: string },
+	tmuxDeps?: PersistentAgentTmuxDeps,
+): Promise<StopPersistentAgentResult> {
+	const tmux = tmuxDeps ?? {
+		createSession,
+		isSessionAlive,
+		checkSessionState,
+		killSession,
+		sendKeys,
+		waitForTuiReady,
+		ensureTmuxAvailable,
+	};
+
+	const { overstoryDir } = opts;
+	const { store } = openSessionStore(overstoryDir);
+	try {
+		const session = store.getByName(agentName);
+
+		if (!session || session.state === "completed" || session.state === "zombie") {
+			throw new AgentError(`No active session found for agent '${agentName}'`, { agentName });
+		}
+
+		// Kill tmux session with process tree cleanup
+		let sessionKilled = false;
+		const alive = await tmux.isSessionAlive(session.tmuxSession);
+		if (alive) {
+			await tmux.killSession(session.tmuxSession);
+			sessionKilled = true;
+		}
+
+		// Update session state
+		store.updateState(agentName, "completed");
+		store.updateLastActivity(agentName);
+
+		// Complete the run linked to this session
+		let runCompleted = false;
+		if (session.runId) {
+			try {
+				const runStore = createRunStore(join(overstoryDir, "sessions.db"));
+				try {
+					runStore.completeRun(session.runId, "completed");
+					runCompleted = true;
+				} finally {
+					runStore.close();
+				}
+
+				// Clear current-run.txt only if it points to this agent's run
+				const currentRunPath = join(overstoryDir, "current-run.txt");
+				const currentRunFile = Bun.file(currentRunPath);
+				if (await currentRunFile.exists()) {
+					const currentRunId = (await currentRunFile.text()).trim();
+					if (currentRunId === session.runId) {
+						try {
+							const { unlink } = await import("node:fs/promises");
+							await unlink(currentRunPath);
+						} catch {
+							// File may already be gone — not an error
+						}
+					}
+				}
+			} catch {
+				// Non-fatal: run completion should not break the stop
+			}
+		} else {
+			// No runId on session — fall back to reading current-run.txt
+			try {
+				const currentRunPath = join(overstoryDir, "current-run.txt");
+				const currentRunFile = Bun.file(currentRunPath);
+				if (await currentRunFile.exists()) {
+					const runId = (await currentRunFile.text()).trim();
+					if (runId.length > 0) {
+						const runStore = createRunStore(join(overstoryDir, "sessions.db"));
+						try {
+							runStore.completeRun(runId, "completed");
+							runCompleted = true;
+						} finally {
+							runStore.close();
+						}
+						try {
+							const { unlink } = await import("node:fs/promises");
+							await unlink(currentRunPath);
+						} catch {
+							// File may already be gone
+						}
+					}
+				}
+			} catch {
+				// Non-fatal
+			}
+		}
+
+		return { sessionKilled, sessionId: session.id, runCompleted };
+	} finally {
+		store.close();
+	}
+}
+
+/**
+ * Get the status of a persistent root agent.
+ *
+ * Checks session liveness, reconciles zombie state, and returns a status
+ * object. Caller can augment with capability-specific fields (e.g.
+ * watchdogRunning) before returning to the user.
+ */
+export async function getPersistentAgentStatus(
+	agentName: string,
+	opts: { projectRoot: string; overstoryDir: string },
+	tmuxDeps?: PersistentAgentTmuxDeps,
+): Promise<PersistentAgentStatus | null> {
+	const tmux = tmuxDeps ?? {
+		createSession,
+		isSessionAlive,
+		checkSessionState,
+		killSession,
+		sendKeys,
+		waitForTuiReady,
+		ensureTmuxAvailable,
+	};
+
+	const { overstoryDir } = opts;
+	const { store } = openSessionStore(overstoryDir);
+	try {
+		const session = store.getByName(agentName);
+
+		if (!session || session.state === "completed" || session.state === "zombie") {
+			return null;
+		}
+
+		const alive = await tmux.isSessionAlive(session.tmuxSession);
+
+		// Reconcile state: if session says active but tmux is dead, mark as zombie
+		if (!alive) {
+			store.updateState(agentName, "zombie");
+			store.updateLastActivity(agentName);
+			session.state = "zombie";
+		}
+
+		return {
+			running: alive,
+			sessionId: session.id,
+			state: session.state,
+			tmuxSession: session.tmuxSession,
+			pid: session.pid,
+			startedAt: session.startedAt,
+			lastActivity: session.lastActivity,
+		};
+	} finally {
+		store.close();
+	}
+}
+
+/**
+ * Read output from a persistent root agent.
+ *
+ * For tmux-based agents: captures pane content.
+ * For headless agents (tmuxSession=''): reads stdout.log.
+ * Returns null if no content is available or the session is not found.
+ */
+export async function readPersistentAgentOutput(
+	agentName: string,
+	opts: { projectRoot: string; overstoryDir: string; lines?: number },
+	captureDeps?: PersistentAgentCaptureDeps,
+): Promise<string | null> {
+	const capture = captureDeps ?? { capturePaneContent };
+	const { overstoryDir, lines = 100 } = opts;
+
+	const { store } = openSessionStore(overstoryDir);
+	let tmuxSessionName: string | undefined;
+	try {
+		const session = store.getByName(agentName);
+
+		if (!session || session.state === "completed" || session.state === "zombie") {
+			return null;
+		}
+
+		tmuxSessionName = session.tmuxSession;
+
+		// Headless path: read stdout.log
+		if (tmuxSessionName === "") {
+			const logsDir = join(overstoryDir, "logs", agentName);
+			const stdoutPath = join(logsDir, "stdout.log");
+			const stdoutFile = Bun.file(stdoutPath);
+			if (!(await stdoutFile.exists())) {
+				return null;
+			}
+			const text = await stdoutFile.text();
+			// Return last `lines` lines
+			const allLines = text.split("\n");
+			return allLines.slice(-lines).join("\n");
+		}
+	} finally {
+		store.close();
+	}
+
+	// Tmux path: capture pane content
+	if (tmuxSessionName === undefined) {
+		return null;
+	}
+	return capture.capturePaneContent(tmuxSessionName, lines);
+}
