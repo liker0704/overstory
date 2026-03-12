@@ -32,6 +32,7 @@ import { logsCommand } from "./commands/logs.ts";
 import { mailCommand } from "./commands/mail.ts";
 import { mergeCommand } from "./commands/merge.ts";
 import { createMetricsCommand } from "./commands/metrics.ts";
+import { createMissionCommand } from "./commands/mission.ts";
 import { createMonitorCommand } from "./commands/monitor.ts";
 import { createNextImprovementCommand } from "./commands/next-improvement.ts";
 import { nudgeCommand } from "./commands/nudge.ts";
@@ -428,6 +429,8 @@ program.addCommand(createNextImprovementCommand());
 program.addCommand(createReviewCommand());
 
 program.addCommand(createMetricsCommand());
+
+program.addCommand(createMissionCommand());
 
 program.addCommand(createUpdateCommand());
 
