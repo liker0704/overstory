@@ -43,7 +43,11 @@ export interface StaleCheckResult {
  * Uses Bun.CryptoHasher (not node:crypto).
  */
 export async function computeBriefRevision(briefPath: string): Promise<string> {
-	const content = await Bun.file(briefPath).text();
+	const file = Bun.file(briefPath);
+	if (!(await file.exists())) {
+		throw new Error(`Brief file not found: ${briefPath}`);
+	}
+	const content = await file.text();
 	const hasher = new Bun.CryptoHasher("sha256");
 	hasher.update(content);
 	return hasher.digest("hex");

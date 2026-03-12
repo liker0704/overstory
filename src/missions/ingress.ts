@@ -59,7 +59,6 @@ export function validateMissionIngress(payload: MissionFindingPayload): IngressV
 			{
 				const reason =
 					"cross-stream category requires affectedWorkstreams.length > 1; handle at lead level";
-				console.error(`[ingress] non-qualifying escalation: ${reason}`);
 				return { valid: false, category: null, reason };
 			}
 
@@ -70,7 +69,6 @@ export function validateMissionIngress(payload: MissionFindingPayload): IngressV
 
 		default: {
 			const reason = `Category '${category}' does not qualify for mission-level ingress; handle at lead level`;
-			console.error(`[ingress] non-qualifying escalation: ${reason}`);
 			return { valid: false, category: null, reason };
 		}
 	}

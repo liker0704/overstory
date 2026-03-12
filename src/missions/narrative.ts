@@ -179,8 +179,9 @@ function parseMissionData(raw: string | null): MissionEventData {
 		if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
 			return parsed as MissionEventData;
 		}
-	} catch {
-		// Return empty on parse error
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		console.warn(`[narrative] Failed to parse mission event data: ${msg}`);
 	}
 	return {};
 }
