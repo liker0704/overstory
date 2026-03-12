@@ -850,3 +850,81 @@ export interface InsightAnalysis {
 	toolProfile: ToolProfile;
 	fileProfile: FileProfile;
 }
+
+// === Mission (Long-Running Objective Tracking) ===
+
+export type MissionState = "active" | "frozen" | "completed" | "failed" | "cancelled";
+export const MISSION_STATES: readonly MissionState[] = [
+	"active",
+	"frozen",
+	"completed",
+	"failed",
+	"cancelled",
+] as const;
+
+export type MissionPhase = "planning" | "scouting" | "building" | "reviewing" | "merging" | "done";
+export const MISSION_PHASES: readonly MissionPhase[] = [
+	"planning",
+	"scouting",
+	"building",
+	"reviewing",
+	"merging",
+	"done",
+] as const;
+
+export type PendingInputKind = "question" | "approval" | "decision" | "clarification";
+export const PENDING_INPUT_KINDS: readonly PendingInputKind[] = [
+	"question",
+	"approval",
+	"decision",
+	"clarification",
+] as const;
+
+export interface Mission {
+	id: string;
+	slug: string;
+	objective: string;
+	runId: string | null;
+	state: MissionState;
+	phase: MissionPhase;
+	firstFreezeAt: string | null;
+	pendingUserInput: boolean;
+	pendingInputKind: PendingInputKind | null;
+	pendingInputThreadId: string | null;
+	reopenCount: number;
+	artifactRoot: string | null;
+	pausedWorkstreamIds: string[];
+	createdAt: string;
+	updatedAt: string;
+}
+
+export type InsertMission = Pick<Mission, "id" | "slug" | "objective"> & {
+	runId?: string | null;
+	artifactRoot?: string | null;
+};
+
+export interface MissionSummary {
+	id: string;
+	slug: string;
+	objective: string;
+	state: MissionState;
+	phase: MissionPhase;
+	pendingUserInput: boolean;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export interface MissionStore {
+	create(mission: InsertMission): Mission;
+	getById(id: string): Mission | null;
+	getBySlug(slug: string): Mission | null;
+	getActive(): Mission | null;
+	list(opts?: { state?: MissionState; limit?: number }): Mission[];
+	updateState(id: string, state: MissionState): void;
+	updatePhase(id: string, phase: MissionPhase): void;
+	freeze(id: string, kind: PendingInputKind, threadId: string | null): void;
+	unfreeze(id: string): void;
+	updatePausedWorkstreams(id: string, ids: string[]): void;
+	updateArtifactRoot(id: string, path: string): void;
+	close(): void;
+}
