@@ -9,6 +9,7 @@ domains:
   - ecosystem
   - tracker
   - evals
+  - missions
 governance:
   max_entries: 100
   warn_entries: 150
