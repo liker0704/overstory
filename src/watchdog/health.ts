@@ -99,11 +99,16 @@ function evaluateTimeBased(
 ): HealthCheck {
 	// Rate-limited agents are waiting, not stalled — skip time-based escalation
 	if (rateLimitState?.limited) {
-		const state = session.state === "booting" ? "working" : session.state;
+		const state =
+			session.state === "booting" ||
+			session.state === "stalled" ||
+			session.state === "zombie"
+				? "working"
+				: session.state;
 		return {
 			...base,
 			processAlive: true,
-			state: state === "stalled" ? "working" : state,
+			state,
 			action: "none",
 			reconciliationNote: `Rate limited: ${rateLimitState.message}`,
 		};
@@ -283,6 +288,13 @@ export function evaluateHealth(
 			action: "terminate",
 			reconciliationNote: note,
 		};
+	}
+
+	// Rate-limited tmux sessions with a live pane are waiting, not zombies.
+	// This branch must run before the recorded-state zombie guard so a stale
+	// status/dashboard reconciliation can recover the session back to working.
+	if (rateLimitState?.limited) {
+		return evaluateTimeBased(session, base, elapsedMs, thresholds, rateLimitState);
 	}
 
 	// ZFC Rule 2: tmux alive but sessions.json says zombie → investigate.

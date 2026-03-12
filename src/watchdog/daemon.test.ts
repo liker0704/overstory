@@ -21,7 +21,7 @@ import { join } from "node:path";
 import { createEventStore } from "../events/store.ts";
 import { createSessionStore } from "../sessions/store.ts";
 import { cleanupTempDir } from "../test-helpers.ts";
-import type { AgentSession, HealthCheck, StoredEvent } from "../types.ts";
+import type { AgentSession, HealthCheck, OverstoryConfig, StoredEvent } from "../types.ts";
 import { buildCompletionMessage, runDaemonTick } from "./daemon.ts";
 
 // === Test constants ===
@@ -125,6 +125,24 @@ function tmuxWithLiveness(aliveMap: Record<string, boolean>): {
 			killed.push(name);
 		},
 		killed,
+	};
+}
+
+function tmuxWithLivenessAndInput(aliveMap: Record<string, boolean>): {
+	isSessionAlive: (name: string) => Promise<boolean>;
+	killSession: (name: string) => Promise<void>;
+	sendKeys: (name: string, keys: string) => Promise<void>;
+	killed: string[];
+	sentKeys: Array<{ name: string; keys: string }>;
+} {
+	const base = tmuxWithLiveness(aliveMap);
+	const sentKeys: Array<{ name: string; keys: string }> = [];
+	return {
+		...base,
+		sendKeys: async (name: string, keys: string) => {
+			sentKeys.push({ name, keys });
+		},
+		sentKeys,
 	};
 }
 
@@ -1333,6 +1351,52 @@ describe("daemon mulch failure recording", () => {
 
 		expect(failureMock.calls).toHaveLength(1);
 		expect(failureMock.calls[0]?.session.taskId).toBe("task-789");
+	});
+
+	test("wait behavior auto-confirms Claude rate limit dialog", async () => {
+		const session = makeSession({
+			agentName: "rate-limited-agent",
+			tmuxSession: "overstory-rate-limited-agent",
+			lastActivity: new Date(Date.now() - 60_000).toISOString(),
+		});
+		writeSessionsToStore(tempRoot, [session]);
+
+		const tmuxMock = tmuxWithLivenessAndInput({
+			"overstory-rate-limited-agent": true,
+		});
+		const config = {
+			rateLimit: {
+				enabled: true,
+				behavior: "wait",
+				maxWaitMs: 3_600_000,
+				pollIntervalMs: 30_000,
+				notifyCoordinator: false,
+				swapRuntime: undefined,
+			},
+		} as unknown as OverstoryConfig;
+
+		await runDaemonTick({
+			root: tempRoot,
+			...THRESHOLDS,
+			config,
+			_tmux: tmuxMock,
+			_triage: triageAlways("extend"),
+			_capturePaneContent: async () =>
+				[
+					"You've hit your limit · resets 9pm (Europe/Prague)",
+					"/rate-limit-options",
+					"",
+					"What do you want to do?",
+					"1. Stop and wait for limit to reset",
+				].join("\n"),
+		});
+
+		expect(tmuxMock.sentKeys).toEqual([
+			{ name: "overstory-rate-limited-agent", keys: "" },
+		]);
+
+		const reloaded = readSessionsFromStore(tempRoot);
+		expect(reloaded[0]?.rateLimitedSince).not.toBeNull();
 	});
 
 	test("Tier 0: recordFailure called at escalation level 3+ (progressive termination)", async () => {

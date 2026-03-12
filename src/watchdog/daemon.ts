@@ -156,6 +156,15 @@ function recordEvent(
 	}
 }
 
+function isRateLimitOptionsDialog(paneContent: string): boolean {
+	const lower = paneContent.toLowerCase();
+	return (
+		lower.includes("/rate-limit-options") ||
+		(lower.includes("what do you want to do?") &&
+			lower.includes("stop and wait for limit to reset"))
+	);
+}
+
 /**
  * Build a phase-aware completion message based on the capabilities of completed workers.
  *
@@ -286,6 +295,7 @@ export interface DaemonOptions {
 	_tmux?: {
 		isSessionAlive: (name: string) => Promise<boolean>;
 		killSession: (name: string) => Promise<void>;
+		sendKeys?: (name: string, keys: string) => Promise<void>;
 	};
 	/** Dependency injection for testing. Uses real triageAgent when omitted. */
 	_triage?: (options: {
@@ -418,7 +428,12 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 		tier1Enabled = false,
 		onHealthCheck,
 	} = options;
-	const tmux = options._tmux ?? { isSessionAlive, killSession };
+	const tmux = {
+		isSessionAlive,
+		killSession,
+		sendKeys,
+		...options._tmux,
+	};
 	const proc = options._process ?? { isAlive: isProcessAlive, killTree: killProcessTree };
 	const triage = options._triage ?? triageAgent;
 	const nudge = options._nudge ?? nudgeAgent;
@@ -602,6 +617,30 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 					}
 				} catch {
 					// Runtime resolution or pane capture failure is non-fatal
+				}
+
+				if (
+					rateLimitState?.limited &&
+					rateLimitConfig.behavior === "wait" &&
+					lastPaneContent &&
+					isRateLimitOptionsDialog(lastPaneContent) &&
+					tmux.sendKeys
+				) {
+					try {
+						await tmux.sendKeys(session.tmuxSession, "");
+						recordEvent(eventStore, {
+							runId,
+							agentName: session.agentName,
+							eventType: "custom",
+							level: "info",
+							data: {
+								type: "rate_limit_wait_confirmed",
+								runtime: session.runtime,
+							},
+						});
+					} catch {
+						// Non-fatal: dialog confirmation failure should not break monitoring
+					}
 				}
 
 				// Track rate limit state transitions in session store

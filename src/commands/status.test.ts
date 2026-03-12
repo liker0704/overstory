@@ -15,6 +15,16 @@ import {
 	type VerboseAgentDetail,
 } from "./status.ts";
 
+const tmuxAvailable = await Bun.spawn(["tmux", "-V"], {
+	stdout: "pipe",
+	stderr: "pipe",
+}).exited.then(
+	(code) => code === 0,
+	() => false,
+);
+
+const describeTmux = tmuxAvailable ? describe : describe.skip;
+
 /**
  * Tests for the --verbose flag in overstory status.
  *
@@ -348,6 +358,51 @@ describe("run scoping", () => {
 			// out-of-scope builder must NOT appear
 			expect(names).not.toContain("builder-2");
 		} finally {
+			await cleanupTempDir(tempDir);
+		}
+	});
+});
+
+describeTmux("rate-limited session reconciliation", () => {
+	test("gatherStatus preserves a live rate-limited worker instead of marking zombie", async () => {
+		const tempDir = await createTempGitRepo();
+		const overstoryDir = join(tempDir, ".overstory");
+		await mkdir(overstoryDir, { recursive: true });
+
+		const sessionName = `ov-status-rate-limit-${Date.now()}`;
+		const proc = Bun.spawn(["tmux", "new-session", "-d", "-s", sessionName, "sleep 300"], {
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		expect(await proc.exited).toBe(0);
+
+		const store = createSessionStore(join(overstoryDir, "sessions.db"));
+		try {
+			store.upsert(
+				makeAgent({
+					agentName: "rate-limited-worker",
+					tmuxSession: sessionName,
+					pid: process.pid,
+					state: "zombie",
+					lastActivity: new Date(Date.now() - 700_000).toISOString(),
+					rateLimitedSince: new Date().toISOString(),
+				}),
+			);
+		} finally {
+			store.close();
+		}
+
+		try {
+			invalidateStatusCache();
+			const result = await gatherStatus(tempDir, "orchestrator", false, undefined);
+			const agent = result.agents.find((a) => a.agentName === "rate-limited-worker");
+			expect(agent?.state).toBe("working");
+		} finally {
+			await Bun.spawn(["tmux", "kill-session", "-t", sessionName], {
+				stdout: "pipe",
+				stderr: "pipe",
+			}).exited;
+			invalidateStatusCache();
 			await cleanupTempDir(tempDir);
 		}
 	});

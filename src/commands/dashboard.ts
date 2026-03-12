@@ -378,7 +378,15 @@ async function loadDashboardData(
 		for (const session of allSessions) {
 			if (session.state === "completed") continue;
 			const tmuxAlive = tmuxSessionNames.has(session.tmuxSession);
-			const check = evaluateHealth(session, tmuxAlive, healthThresholds);
+			const rateLimitState =
+				session.rateLimitedSince !== null
+					? {
+							limited: true as const,
+							resumesAt: null,
+							message: "Stored rate limit state",
+						}
+					: undefined;
+			const check = evaluateHealth(session, tmuxAlive, healthThresholds, rateLimitState);
 			if (check.state !== session.state) {
 				try {
 					stores.sessionStore.updateState(session.agentName, check.state);

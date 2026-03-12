@@ -139,7 +139,15 @@ export async function gatherStatus(
 		for (const session of sessions) {
 			if (session.state === "completed") continue;
 			const tmuxAlive = tmuxSessionNames.has(session.tmuxSession);
-			const check = evaluateHealth(session, tmuxAlive, healthThresholds);
+			const rateLimitState =
+				session.rateLimitedSince !== null
+					? {
+							limited: true as const,
+							resumesAt: null,
+							message: "Stored rate limit state",
+						}
+					: undefined;
+			const check = evaluateHealth(session, tmuxAlive, healthThresholds, rateLimitState);
 			if (check.state !== session.state) {
 				try {
 					store.updateState(session.agentName, check.state);

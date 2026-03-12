@@ -566,6 +566,19 @@ describe("evaluateHealth rate limit bypass", () => {
 		expect(check.state).toBe("working");
 	});
 
+	test("rate-limited agent state resets from zombie to working when tmux and pid are alive", () => {
+		const session = makeSession({
+			state: "zombie",
+			pid: ALIVE_PID,
+			lastActivity: new Date(Date.now() - 300_000).toISOString(),
+		});
+		const rateLimitState = { limited: true, resumesAt: null, message: "Usage cap" };
+
+		const check = evaluateHealth(session, true, THRESHOLDS, rateLimitState);
+		expect(check.state).toBe("working");
+		expect(check.action).toBe("none");
+	});
+
 	test("non-rate-limited stale agent still gets escalated", () => {
 		const session = makeSession({
 			state: "working",
