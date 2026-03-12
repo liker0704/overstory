@@ -6,8 +6,8 @@
 
 import { describe, expect, test } from "bun:test";
 import type { Mission, StoredEvent } from "../types.ts";
-import { buildNarrative, renderNarrative } from "./narrative.ts";
 import type { MissionNarrative, NarrativeEvent } from "./narrative.ts";
+import { buildNarrative, renderNarrative } from "./narrative.ts";
 
 // === Test fixtures ===
 
@@ -18,7 +18,7 @@ function makeMission(overrides: Partial<Mission> = {}): Mission {
 		objective: "Ship the feature",
 		runId: "run-1",
 		state: "active",
-		phase: "building",
+		phase: "execute",
 		firstFreezeAt: null,
 		pendingUserInput: false,
 		pendingInputKind: null,
@@ -28,6 +28,11 @@ function makeMission(overrides: Partial<Mission> = {}): Mission {
 		pausedWorkstreamIds: [],
 		analystSessionId: null,
 		executionDirectorSessionId: null,
+		coordinatorSessionId: null,
+		pausedLeadNames: [],
+		pauseReason: null,
+		startedAt: null,
+		completedAt: null,
 		createdAt: "2026-03-12T10:00:00.000Z",
 		updatedAt: "2026-03-12T12:00:00.000Z",
 		...overrides,
@@ -62,7 +67,7 @@ describe("buildNarrative", () => {
 		expect(narrative.mission.slug).toBe("test-mission");
 		expect(narrative.mission.objective).toBe("Ship the feature");
 		expect(narrative.mission.state).toBe("active");
-		expect(narrative.mission.phase).toBe("building");
+		expect(narrative.mission.phase).toBe("execute");
 		expect(narrative.events).toHaveLength(0);
 		expect(narrative.generatedAt).toBeTruthy();
 	});
@@ -174,16 +179,16 @@ describe("buildNarrative", () => {
 			const events = [
 				makeEvent({
 					eventType: "mission",
-					data: JSON.stringify({ kind: "phase_change", from: "planning", to: "building" }),
+					data: JSON.stringify({ kind: "phase_change", from: "understand", to: "execute" }),
 				}),
 			];
 			const narrative = buildNarrative(makeMission(), events);
 
 			expect(narrative.events).toHaveLength(1);
 			const entry = narrative.events[0] as NarrativeEvent;
-			expect(entry.label).toBe("Phase: building");
-			expect(entry.description).toContain("planning");
-			expect(entry.description).toContain("building");
+			expect(entry.label).toBe("Phase: execute");
+			expect(entry.description).toContain("understand");
+			expect(entry.description).toContain("execute");
 		});
 
 		test("converts state_change mission events", () => {

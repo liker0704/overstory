@@ -528,7 +528,7 @@ async function stopCoordinator(opts: { json: boolean }, deps: CoordinatorDeps = 
 	// Delegate core lifecycle (kill tmux, update state, complete run) to persistent-root
 	const result = await stopPersistentAgent(
 		COORDINATOR_NAME,
-		{ projectRoot, overstoryDir },
+		{ projectRoot, overstoryDir, runStatus: "stopped" },
 		deps._tmux,
 	);
 

@@ -32,6 +32,11 @@ interface MissionRow {
 	paused_workstream_ids: string;
 	analyst_session_id: string | null;
 	execution_director_session_id: string | null;
+	coordinator_session_id: string | null;
+	paused_lead_names: string;
+	pause_reason: string | null;
+	started_at: string | null;
+	completed_at: string | null;
 	created_at: string;
 	updated_at: string;
 }
@@ -44,8 +49,8 @@ CREATE TABLE IF NOT EXISTS missions (
   run_id TEXT,
   state TEXT NOT NULL DEFAULT 'active'
     CHECK(state IN ('active','frozen','completed','failed','cancelled')),
-  phase TEXT NOT NULL DEFAULT 'planning'
-    CHECK(phase IN ('planning','scouting','building','reviewing','merging','done')),
+  phase TEXT NOT NULL DEFAULT 'understand'
+    CHECK(phase IN ('understand','align','decide','plan','execute','done')),
   first_freeze_at TEXT,
   pending_user_input INTEGER NOT NULL DEFAULT 0,
   pending_input_kind TEXT CHECK(pending_input_kind IS NULL OR pending_input_kind IN ('question','approval','decision','clarification')),
@@ -55,6 +60,11 @@ CREATE TABLE IF NOT EXISTS missions (
   paused_workstream_ids TEXT NOT NULL DEFAULT '[]',
   analyst_session_id TEXT,
   execution_director_session_id TEXT,
+  coordinator_session_id TEXT,
+  paused_lead_names TEXT NOT NULL DEFAULT '[]',
+  pause_reason TEXT,
+  started_at TEXT,
+  completed_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 )`;
@@ -82,6 +92,11 @@ function rowToMission(row: MissionRow): Mission {
 		pausedWorkstreamIds: JSON.parse(row.paused_workstream_ids) as string[],
 		analystSessionId: row.analyst_session_id,
 		executionDirectorSessionId: row.execution_director_session_id,
+		coordinatorSessionId: row.coordinator_session_id,
+		pausedLeadNames: JSON.parse(row.paused_lead_names) as string[],
+		pauseReason: row.pause_reason,
+		startedAt: row.started_at,
+		completedAt: row.completed_at,
 		createdAt: row.created_at,
 		updatedAt: row.updated_at,
 	};
@@ -112,14 +127,15 @@ export function createMissionStore(dbPath: string): MissionStore {
 			$objective: string;
 			$run_id: string | null;
 			$artifact_root: string | null;
+			$started_at: string | null;
 			$created_at: string;
 			$updated_at: string;
 		}
 	>(`
 		INSERT INTO missions
-			(id, slug, objective, run_id, artifact_root, created_at, updated_at)
+			(id, slug, objective, run_id, artifact_root, started_at, created_at, updated_at)
 		VALUES
-			($id, $slug, $objective, $run_id, $artifact_root, $created_at, $updated_at)
+			($id, $slug, $objective, $run_id, $artifact_root, $started_at, $created_at, $updated_at)
 	`);
 
 	const getByIdStmt = db.prepare<MissionRow, { $id: string }>(`
@@ -196,13 +212,57 @@ export function createMissionStore(dbPath: string): MissionStore {
 			$id: string;
 			$analyst_session_id: string | null;
 			$execution_director_session_id: string | null;
+			$coordinator_session_id: string | null;
 			$updated_at: string;
 		}
 	>(`
 		UPDATE missions
 		SET analyst_session_id = COALESCE($analyst_session_id, analyst_session_id),
 		    execution_director_session_id = COALESCE($execution_director_session_id, execution_director_session_id),
+		    coordinator_session_id = COALESCE($coordinator_session_id, coordinator_session_id),
 		    updated_at = $updated_at
+		WHERE id = $id
+	`);
+
+	const bindCoordinatorSessionStmt = db.prepare<
+		void,
+		{ $id: string; $coordinator_session_id: string; $updated_at: string }
+	>(`
+		UPDATE missions
+		SET coordinator_session_id = $coordinator_session_id, updated_at = $updated_at
+		WHERE id = $id
+	`);
+
+	const updatePausedLeadsStmt = db.prepare<
+		void,
+		{ $id: string; $paused_lead_names: string; $updated_at: string }
+	>(`
+		UPDATE missions
+		SET paused_lead_names = $paused_lead_names, updated_at = $updated_at
+		WHERE id = $id
+	`);
+
+	const updatePauseReasonStmt = db.prepare<
+		void,
+		{ $id: string; $pause_reason: string | null; $updated_at: string }
+	>(`
+		UPDATE missions
+		SET pause_reason = $pause_reason, updated_at = $updated_at
+		WHERE id = $id
+	`);
+
+	const startStmt = db.prepare<void, { $id: string; $started_at: string; $updated_at: string }>(`
+		UPDATE missions
+		SET started_at = COALESCE(started_at, $started_at), updated_at = $updated_at
+		WHERE id = $id
+	`);
+
+	const completeStmt = db.prepare<
+		void,
+		{ $id: string; $completed_at: string; $updated_at: string }
+	>(`
+		UPDATE missions
+		SET completed_at = $completed_at, updated_at = $updated_at
 		WHERE id = $id
 	`);
 
@@ -215,6 +275,7 @@ export function createMissionStore(dbPath: string): MissionStore {
 				$objective: mission.objective,
 				$run_id: mission.runId ?? null,
 				$artifact_root: mission.artifactRoot ?? null,
+				$started_at: mission.startedAt ?? null,
 				$created_at: now,
 				$updated_at: now,
 			});
@@ -292,14 +353,53 @@ export function createMissionStore(dbPath: string): MissionStore {
 
 		bindSessions(
 			id: string,
-			sessions: { analystSessionId?: string; executionDirectorSessionId?: string },
+			sessions: {
+				analystSessionId?: string;
+				executionDirectorSessionId?: string;
+				coordinatorSessionId?: string;
+			},
 		): void {
 			bindSessionsStmt.run({
 				$id: id,
 				$analyst_session_id: sessions.analystSessionId ?? null,
 				$execution_director_session_id: sessions.executionDirectorSessionId ?? null,
+				$coordinator_session_id: sessions.coordinatorSessionId ?? null,
 				$updated_at: new Date().toISOString(),
 			});
+		},
+
+		bindCoordinatorSession(id: string, sessionId: string): void {
+			bindCoordinatorSessionStmt.run({
+				$id: id,
+				$coordinator_session_id: sessionId,
+				$updated_at: new Date().toISOString(),
+			});
+		},
+
+		updatePausedLeads(id: string, names: string[]): void {
+			updatePausedLeadsStmt.run({
+				$id: id,
+				$paused_lead_names: JSON.stringify(names),
+				$updated_at: new Date().toISOString(),
+			});
+		},
+
+		updatePauseReason(id: string, reason: string | null): void {
+			updatePauseReasonStmt.run({
+				$id: id,
+				$pause_reason: reason,
+				$updated_at: new Date().toISOString(),
+			});
+		},
+
+		start(id: string): void {
+			const now = new Date().toISOString();
+			startStmt.run({ $id: id, $started_at: now, $updated_at: now });
+		},
+
+		complete(id: string): void {
+			const now = new Date().toISOString();
+			completeStmt.run({ $id: id, $completed_at: now, $updated_at: now });
 		},
 
 		close(): void {

@@ -363,14 +363,10 @@ export async function startPersistentAgent(
  * Kills the tmux session, marks the session completed, and completes
  * the associated run. Caller is responsible for stopping ancillary
  * processes (watchdog, monitor, autopull) before or after calling this.
- *
- * NOTE: RunStatus = "stopped" requires types.ts + store.ts changes (not yet
- * in scope). Until those land, stopped agents use status "completed" in the
- * run record.
  */
 export async function stopPersistentAgent(
 	agentName: string,
-	opts: { projectRoot: string; overstoryDir: string },
+	opts: { projectRoot: string; overstoryDir: string; runStatus?: "completed" | "stopped" },
 	tmuxDeps?: PersistentAgentTmuxDeps,
 ): Promise<StopPersistentAgentResult> {
 	const tmux = tmuxDeps ?? {
@@ -410,7 +406,7 @@ export async function stopPersistentAgent(
 			try {
 				const runStore = createRunStore(join(overstoryDir, "sessions.db"));
 				try {
-					runStore.completeRun(session.runId, "completed");
+					runStore.completeRun(session.runId, opts.runStatus ?? "stopped");
 					runCompleted = true;
 				} finally {
 					runStore.close();
@@ -443,7 +439,7 @@ export async function stopPersistentAgent(
 					if (runId.length > 0) {
 						const runStore = createRunStore(join(overstoryDir, "sessions.db"));
 						try {
-							runStore.completeRun(runId, "completed");
+							runStore.completeRun(runId, opts.runStatus ?? "stopped");
 							runCompleted = true;
 						} finally {
 							runStore.close();
