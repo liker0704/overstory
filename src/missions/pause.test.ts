@@ -112,6 +112,16 @@ describe("pauseWorkstream", () => {
 		).not.toThrow();
 	});
 
+	test("wires reason to store.updatePauseReason when provided", () => {
+		pauseWorkstream(store, MISSION_ID, "ws-auth", "waiting for upstream task");
+		expect(getMission().pauseReason).toBe("waiting for upstream task");
+	});
+
+	test("does not update pauseReason when reason is omitted", () => {
+		pauseWorkstream(store, MISSION_ID, "ws-auth");
+		expect(getMission().pauseReason).toBeNull();
+	});
+
 	test("persists to store", () => {
 		pauseWorkstream(store, MISSION_ID, "ws-auth");
 		expect(getMission().pausedWorkstreamIds).toContain("ws-auth");

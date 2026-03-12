@@ -1015,6 +1015,6 @@ export interface MissionStore {
 	updatePausedLeads(id: string, names: string[]): void;
 	updatePauseReason(id: string, reason: string | null): void;
 	start(id: string): void;
-	complete(id: string): void;
+	completeMission(id: string): void;
 	close(): void;
 }

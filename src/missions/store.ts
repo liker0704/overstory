@@ -257,12 +257,12 @@ export function createMissionStore(dbPath: string): MissionStore {
 		WHERE id = $id
 	`);
 
-	const completeStmt = db.prepare<
+	const completeMissionStmt = db.prepare<
 		void,
 		{ $id: string; $completed_at: string; $updated_at: string }
 	>(`
 		UPDATE missions
-		SET completed_at = $completed_at, updated_at = $updated_at
+		SET state = 'completed', completed_at = $completed_at, updated_at = $updated_at
 		WHERE id = $id
 	`);
 
@@ -302,19 +302,38 @@ export function createMissionStore(dbPath: string): MissionStore {
 		},
 
 		list(opts?: { state?: MissionState; limit?: number }): Mission[] {
-			const conditions: string[] = [];
-			const params: Record<string, string | number> = {};
+			const hasState = opts?.state !== undefined;
+			const hasLimit = opts?.limit !== undefined;
 
-			if (opts?.state !== undefined) {
-				conditions.push("state = $state");
-				params.$state = opts.state;
+			if (hasState && hasLimit) {
+				const rows = db
+					.prepare<MissionRow, { $state: string; $limit: number }>(
+						`SELECT * FROM missions WHERE state = $state ORDER BY created_at DESC LIMIT $limit`,
+					)
+					.all({ $state: opts!.state as string, $limit: opts!.limit as number });
+				return rows.map(rowToMission);
 			}
-
-			const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-			const limitClause = opts?.limit !== undefined ? `LIMIT ${opts.limit}` : "";
-			const query = `SELECT * FROM missions ${whereClause} ORDER BY created_at DESC ${limitClause}`;
-
-			const rows = db.prepare<MissionRow, Record<string, string | number>>(query).all(params);
+			if (hasState) {
+				const rows = db
+					.prepare<MissionRow, { $state: string }>(
+						`SELECT * FROM missions WHERE state = $state ORDER BY created_at DESC`,
+					)
+					.all({ $state: opts!.state as string });
+				return rows.map(rowToMission);
+			}
+			if (hasLimit) {
+				const rows = db
+					.prepare<MissionRow, { $limit: number }>(
+						`SELECT * FROM missions ORDER BY created_at DESC LIMIT $limit`,
+					)
+					.all({ $limit: opts!.limit as number });
+				return rows.map(rowToMission);
+			}
+			const rows = db
+				.prepare<MissionRow, Record<string, never>>(
+					`SELECT * FROM missions ORDER BY created_at DESC`,
+				)
+				.all({});
 			return rows.map(rowToMission);
 		},
 
@@ -397,9 +416,9 @@ export function createMissionStore(dbPath: string): MissionStore {
 			startStmt.run({ $id: id, $started_at: now, $updated_at: now });
 		},
 
-		complete(id: string): void {
+		completeMission(id: string): void {
 			const now = new Date().toISOString();
-			completeStmt.run({ $id: id, $completed_at: now, $updated_at: now });
+			completeMissionStmt.run({ $id: id, $completed_at: now, $updated_at: now });
 		},
 
 		close(): void {

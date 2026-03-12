@@ -458,18 +458,19 @@ describe("start", () => {
 	});
 });
 
-describe("complete", () => {
+describe("completeMission", () => {
 	test("new missions have null completedAt by default", () => {
 		store.create(makeMission());
 		const mission = store.getById("mission-001");
 		expect(mission?.completedAt).toBeNull();
 	});
 
-	test("sets completedAt", () => {
+	test("sets completedAt and state=completed atomically", () => {
 		store.create(makeMission());
-		store.complete("mission-001");
+		store.completeMission("mission-001");
 		const result = store.getById("mission-001");
 		expect(result?.completedAt).not.toBeNull();
+		expect(result?.state).toBe("completed");
 	});
 });
 

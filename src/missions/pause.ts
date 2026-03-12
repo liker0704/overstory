@@ -55,7 +55,7 @@ export function pauseWorkstream(
 	store: MissionStore,
 	missionId: string,
 	workstreamId: string,
-	_reason?: string,
+	reason?: string,
 ): PauseResult {
 	const mission = store.getById(missionId);
 	if (mission === null) {
@@ -66,6 +66,10 @@ export function pauseWorkstream(
 
 	if (!alreadyPaused) {
 		store.updatePausedWorkstreams(missionId, [...mission.pausedWorkstreamIds, workstreamId]);
+	}
+
+	if (reason !== undefined) {
+		store.updatePauseReason(missionId, reason);
 	}
 
 	const pausedWorkstreamCount = alreadyPaused

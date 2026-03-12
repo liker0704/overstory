@@ -400,60 +400,50 @@ export async function stopPersistentAgent(
 		store.updateState(agentName, "completed");
 		store.updateLastActivity(agentName);
 
-		// Complete the run linked to this session
+		// Resolve runId: prefer session field, fall back to current-run.txt
+		const currentRunPath = join(overstoryDir, "current-run.txt");
+		let resolvedRunId: string | null = session.runId ?? null;
+		if (!resolvedRunId) {
+			try {
+				const currentRunFile = Bun.file(currentRunPath);
+				if (await currentRunFile.exists()) {
+					const text = (await currentRunFile.text()).trim();
+					if (text.length > 0) {
+						resolvedRunId = text;
+					}
+				}
+			} catch {
+				// Non-fatal
+			}
+		}
+
+		// Complete the run and clean up current-run.txt
 		let runCompleted = false;
-		if (session.runId) {
+		if (resolvedRunId) {
 			try {
 				const runStore = createRunStore(join(overstoryDir, "sessions.db"));
 				try {
-					runStore.completeRun(session.runId, opts.runStatus ?? "stopped");
+					runStore.completeRun(resolvedRunId, opts.runStatus ?? "stopped");
 					runCompleted = true;
 				} finally {
 					runStore.close();
 				}
 
-				// Clear current-run.txt only if it points to this agent's run
-				const currentRunPath = join(overstoryDir, "current-run.txt");
-				const currentRunFile = Bun.file(currentRunPath);
-				if (await currentRunFile.exists()) {
-					const currentRunId = (await currentRunFile.text()).trim();
-					if (currentRunId === session.runId) {
-						try {
+				// Clear current-run.txt if it points to the resolved run
+				try {
+					const currentRunFile = Bun.file(currentRunPath);
+					if (await currentRunFile.exists()) {
+						const currentRunId = (await currentRunFile.text()).trim();
+						if (currentRunId === resolvedRunId) {
 							const { unlink } = await import("node:fs/promises");
 							await unlink(currentRunPath);
-						} catch {
-							// File may already be gone — not an error
 						}
 					}
+				} catch {
+					// File may already be gone — not an error
 				}
 			} catch {
 				// Non-fatal: run completion should not break the stop
-			}
-		} else {
-			// No runId on session — fall back to reading current-run.txt
-			try {
-				const currentRunPath = join(overstoryDir, "current-run.txt");
-				const currentRunFile = Bun.file(currentRunPath);
-				if (await currentRunFile.exists()) {
-					const runId = (await currentRunFile.text()).trim();
-					if (runId.length > 0) {
-						const runStore = createRunStore(join(overstoryDir, "sessions.db"));
-						try {
-							runStore.completeRun(runId, opts.runStatus ?? "stopped");
-							runCompleted = true;
-						} finally {
-							runStore.close();
-						}
-						try {
-							const { unlink } = await import("node:fs/promises");
-							await unlink(currentRunPath);
-						} catch {
-							// File may already be gone
-						}
-					}
-				}
-			} catch {
-				// Non-fatal
 			}
 		}
 
