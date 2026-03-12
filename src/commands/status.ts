@@ -16,8 +16,9 @@ import { renderHeader } from "../logging/theme.ts";
 import { createMailStore } from "../mail/store.ts";
 import { createMergeQueue } from "../merge/queue.ts";
 import { createMetricsStore } from "../metrics/store.ts";
+import { createMissionStore } from "../missions/store.ts";
 import { openSessionStore } from "../sessions/compat.ts";
-import type { AgentSession } from "../types.ts";
+import type { AgentSession, Mission } from "../types.ts";
 import { evaluateHealth } from "../watchdog/health.ts";
 import { listWorktrees } from "../worktree/manager.ts";
 import { isProcessAlive, listSessions } from "../worktree/tmux.ts";
@@ -87,6 +88,7 @@ export interface StatusData {
 	mergeQueueCount: number;
 	recentMetricsCount: number;
 	verboseDetails?: Record<string, VerboseAgentDetail>;
+	mission?: Mission | null;
 }
 
 async function readCurrentRunId(overstoryDir: string): Promise<string | null> {
@@ -222,6 +224,22 @@ export async function gatherStatus(
 			mailStore.close();
 		}
 
+		let mission: Mission | null = null;
+		try {
+			const sessionsDbPath = join(overstoryDir, "sessions.db");
+			const dbFile = Bun.file(sessionsDbPath);
+			if (await dbFile.exists()) {
+				const missionStore = createMissionStore(sessionsDbPath);
+				try {
+					mission = missionStore.getActive();
+				} finally {
+					missionStore.close();
+				}
+			}
+		} catch {
+			// mission store unavailable
+		}
+
 		return {
 			currentRunId: runId,
 			agents: sessions,
@@ -231,9 +249,27 @@ export async function gatherStatus(
 			mergeQueueCount,
 			recentMetricsCount,
 			verboseDetails,
+			mission,
 		};
 	} finally {
 		store.close();
+	}
+}
+
+function missionStateColor(state: string): (s: string) => string {
+	switch (state) {
+		case "active":
+			return color.green;
+		case "frozen":
+			return color.yellow;
+		case "completed":
+			return color.cyan;
+		case "failed":
+			return color.red;
+		case "cancelled":
+			return color.dim;
+		default:
+			return (s: string) => s;
 	}
 }
 
@@ -247,6 +283,21 @@ export function printStatus(data: StatusData): void {
 	w(`${renderHeader("Overstory Status")}\n\n`);
 	if (data.currentRunId) {
 		w(`Run: ${accent(data.currentRunId)}\n`);
+	}
+
+	// Mission section (only when active mission exists)
+	if (data.mission) {
+		const m = data.mission;
+		const stateColorFn = missionStateColor(m.state);
+		const stateStr = stateColorFn(`${m.state}/${m.phase}`);
+		w(`Mission: ${accent(m.slug)} (${stateStr})\n`);
+		w(`   Objective:    ${m.objective}\n`);
+		const pending = m.pendingUserInput ? (m.pendingInputKind ?? "input") : "none";
+		w(`   Pending:      ${pending}\n`);
+		w(`   First freeze: ${m.firstFreezeAt ?? "never"}\n`);
+		w(`   Reopens:      ${m.reopenCount}\n`);
+		w(`   Paused:       ${m.pausedWorkstreamIds.length} workstreams\n`);
+		w("\n");
 	}
 
 	// Active agents
