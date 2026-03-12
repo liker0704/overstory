@@ -36,6 +36,7 @@ import { stateColor, stateIcon } from "../logging/theme.ts";
 import { createMailStore, type MailStore } from "../mail/store.ts";
 import { createMergeQueue, type MergeQueue } from "../merge/queue.ts";
 import { createMetricsStore, type MetricsStore } from "../metrics/store.ts";
+import { createMissionStore } from "../missions/store.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import type { SessionStore } from "../sessions/store.ts";
 import { createTrackerClient, resolveBackend } from "../tracker/factory.ts";
@@ -44,6 +45,7 @@ import type {
 	AgentSession,
 	EventStore,
 	MailMessage,
+	Mission,
 	OverstoryConfig,
 	StoredEvent,
 } from "../types.ts";
@@ -325,6 +327,7 @@ interface DashboardData {
 	feedColorMap: Map<string, (s: string) => string>;
 	/** Runtime config for resolving per-capability runtime names in the agent panel. */
 	runtimeConfig?: OverstoryConfig["runtime"];
+	mission?: Mission | null;
 }
 
 /**
@@ -538,6 +541,22 @@ async function loadDashboardData(
 		}
 	}
 
+	// Load active mission inline (fast, open/close per tick)
+	let mission: Mission | null = null;
+	try {
+		const sessionsDbPath = join(root, ".overstory", "sessions.db");
+		if (existsSync(sessionsDbPath)) {
+			const missionStore = createMissionStore(sessionsDbPath);
+			try {
+				mission = missionStore.getActive();
+			} finally {
+				missionStore.close();
+			}
+		}
+	} catch {
+		// mission store unavailable
+	}
+
 	return {
 		currentRunId: runId,
 		status,
@@ -548,6 +567,7 @@ async function loadDashboardData(
 		recentEvents,
 		feedColorMap,
 		runtimeConfig,
+		mission,
 	};
 }
 
@@ -957,6 +977,45 @@ function renderMetricsPanel(
 	return output;
 }
 
+function missionStateColor(state: string): (s: string) => string {
+	switch (state) {
+		case "active":
+			return color.green;
+		case "frozen":
+			return color.yellow;
+		case "completed":
+			return color.cyan;
+		case "failed":
+			return color.red;
+		case "cancelled":
+			return color.dim;
+		default:
+			return (s: string) => s;
+	}
+}
+
+/**
+ * Render a compact mission strip (2 rows: content line + separator).
+ */
+function renderMissionStrip(mission: Mission, width: number, startRow: number): string {
+	const stateColorFn = missionStateColor(mission.state);
+	const stateStr = stateColorFn(`${mission.state}/${mission.phase}`);
+	const pendingStr = mission.pendingUserInput
+		? ` ${color.yellow(`⏳ ${mission.pendingInputKind ?? "input"}`)}`
+		: "";
+
+	const contentLine = `${dimBox.vertical} Mission: ${accent(mission.slug)} [${stateStr}]${pendingStr}`;
+	const contentPadding = " ".repeat(
+		Math.max(0, width - visibleLength(contentLine) - visibleLength(dimBox.vertical)),
+	);
+	const sep = dimHorizontalLine(width, dimBox.tee, dimBox.teeRight);
+
+	return (
+		`${CURSOR.cursorTo(startRow, 1)}${contentLine}${contentPadding}${dimBox.vertical}\n` +
+		`${CURSOR.cursorTo(startRow + 1, 1)}${sep}\n`
+	);
+}
+
 /**
  * Render the full dashboard.
  */
@@ -969,8 +1028,14 @@ function renderDashboard(data: DashboardData, interval: number): void {
 	// Header (rows 1-2)
 	output += renderHeader(width, interval, data.currentRunId);
 
+	// Mission strip (rows 3-4 if active mission exists)
+	let agentPanelStart = 3;
+	if (data.mission) {
+		output += renderMissionStrip(data.mission, width, 3);
+		agentPanelStart = 5;
+	}
+
 	// Agent panel: full width, capped at 35% of height
-	const agentPanelStart = 3;
 	const agentCount = data.status.agents.length;
 	const agentPanelHeight = computeAgentPanelHeight(height, agentCount);
 	output += renderAgentPanel(data, width, agentPanelHeight, agentPanelStart);

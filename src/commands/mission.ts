@@ -19,8 +19,9 @@ import { join } from "node:path";
 import { Command } from "commander";
 import { loadConfig } from "../config.ts";
 import { jsonError, jsonOutput } from "../json.ts";
-import { accent, printError, printHint, printSuccess } from "../logging/color.ts";
-import { renderHeader, separator } from "../logging/theme.ts";
+import { accent, color, printError, printHint, printSuccess } from "../logging/color.ts";
+import { renderHeader, renderSubHeader, separator } from "../logging/theme.ts";
+import { openSessionStore } from "../sessions/compat.ts";
 import { startMissionAnalyst, stopMissionRole } from "../missions/roles.ts";
 import { createMissionStore } from "../missions/store.ts";
 import { createRunStore } from "../sessions/store.ts";
@@ -238,24 +239,75 @@ async function missionOutput(overstoryDir: string, json: boolean): Promise<void>
 			return;
 		}
 
+		// Resolve role session states
+		let analystRunning = false;
+		let executionDirectorRunning = false;
+		try {
+			const { store: sessionStore } = openSessionStore(overstoryDir);
+			try {
+				const allSessions = sessionStore.getAll();
+				if (mission.analystSessionId) {
+					const s = allSessions.find((x) => x.id === mission.analystSessionId);
+					if (s && s.state !== "completed" && s.state !== "zombie") {
+						analystRunning = true;
+					}
+				}
+				if (mission.executionDirectorSessionId) {
+					const s = allSessions.find((x) => x.id === mission.executionDirectorSessionId);
+					if (s && s.state !== "completed" && s.state !== "zombie") {
+						executionDirectorRunning = true;
+					}
+				}
+			} finally {
+				sessionStore.close();
+			}
+		} catch {
+			// session store unavailable
+		}
+
 		if (json) {
 			jsonOutput("mission output", {
 				mission: toSummary(mission),
 				artifactRoot: mission.artifactRoot,
 				pausedWorkstreamIds: mission.pausedWorkstreamIds,
+				roles: {
+					analyst: { sessionId: mission.analystSessionId, running: analystRunning },
+					executionDirector: {
+						sessionId: mission.executionDirectorSessionId,
+						running: executionDirectorRunning,
+					},
+				},
 			});
 			return;
 		}
 
-		process.stdout.write(`${renderHeader("Mission Output")}\n`);
-		process.stdout.write(`  ID:        ${accent(mission.id)}\n`);
-		process.stdout.write(`  State:     ${mission.state} / ${mission.phase}\n`);
-		if (mission.artifactRoot) {
-			process.stdout.write(`  Artifacts: ${mission.artifactRoot}\n`);
-		}
-		if (mission.pausedWorkstreamIds.length > 0) {
-			process.stdout.write(`  Paused:    ${mission.pausedWorkstreamIds.join(", ")}\n`);
-		}
+		const w = process.stdout.write.bind(process.stdout);
+		w(`${renderHeader("Mission Output")}\n`);
+		w(`  ID:           ${accent(mission.id)}\n`);
+		w(`  Slug:         ${mission.slug}\n`);
+		w(`  Objective:    ${mission.objective}\n`);
+		w(`  State:        ${mission.state} / ${mission.phase}\n`);
+		const pending = mission.pendingUserInput ? (mission.pendingInputKind ?? "input") : "none";
+		w(`  Pending:      ${pending}\n`);
+		w(`  Reopens:      ${mission.reopenCount}\n`);
+		w(`  First freeze: ${mission.firstFreezeAt ?? "never"}\n`);
+		w("\n");
+
+		w(`${renderSubHeader("Workstreams")}\n`);
+		const paused =
+			mission.pausedWorkstreamIds.length > 0
+				? mission.pausedWorkstreamIds.join(", ")
+				: "none";
+		w(`  Paused: ${paused}\n`);
+		w("\n");
+
+		w(`${renderSubHeader("Roles")}\n`);
+		const analystStatus = analystRunning ? color.green("running") : color.dim("not started");
+		const edStatus = executionDirectorRunning
+			? color.green("running")
+			: color.dim("not started");
+		w(`  Analyst:            ${analystStatus}\n`);
+		w(`  Execution Director: ${edStatus}\n`);
 	} finally {
 		missionStore.close();
 	}
