@@ -117,7 +117,7 @@ CREATE TABLE IF NOT EXISTS runs (
   coordinator_session_id TEXT,
   coordinator_name TEXT,
   status TEXT NOT NULL DEFAULT 'active'
-    CHECK(status IN ('active','completed','failed'))
+    CHECK(status IN ('active','completed','failed','stopped'))
 )`;
 
 const CREATE_RUNS_INDEXES = `
@@ -256,6 +256,8 @@ export function createSessionStore(dbPath: string): SessionStore {
 	// Migrate: add original_runtime column (swap-back support)
 	migrateAddOriginalRuntime(db);
 	migrateAddCoordinatorName(db);
+	// Migrate: extend runs.status CHECK constraint to include 'stopped'
+	migrateRunsStatusStopped(db);
 
 	// Now safe to create indexes (all columns exist).
 	db.exec(CREATE_INDEXES);
@@ -567,6 +569,41 @@ function migrateAddCoordinatorName(db: Database): void {
 }
 
 /**
+ * Migrate an existing runs table to extend the status CHECK constraint to include 'stopped'.
+ *
+ * SQLite does not support ALTER TABLE ... MODIFY COLUMN, so we rebuild the table.
+ * The rebuild is a no-op when the constraint already includes 'stopped'.
+ */
+function migrateRunsStatusStopped(db: Database): void {
+	const result = db
+		.prepare<{ sql: string }, []>(
+			"SELECT sql FROM sqlite_master WHERE type='table' AND name='runs'",
+		)
+		.get();
+	if (!result || result.sql.includes("'stopped'")) {
+		return;
+	}
+	db.exec(`
+		BEGIN;
+		CREATE TABLE runs_new (
+			id TEXT PRIMARY KEY,
+			started_at TEXT NOT NULL,
+			completed_at TEXT,
+			agent_count INTEGER NOT NULL DEFAULT 0,
+			coordinator_session_id TEXT,
+			coordinator_name TEXT,
+			status TEXT NOT NULL DEFAULT 'active'
+				CHECK(status IN ('active','completed','failed','stopped'))
+		);
+		INSERT INTO runs_new (id, started_at, completed_at, agent_count, coordinator_session_id, coordinator_name, status)
+			SELECT id, started_at, completed_at, agent_count, coordinator_session_id, coordinator_name, status FROM runs;
+		DROP TABLE runs;
+		ALTER TABLE runs_new RENAME TO runs;
+		COMMIT;
+	`);
+}
+
+/**
  * Create a new RunStore backed by a SQLite database at the given path.
  *
  * Shares the same sessions.db file as SessionStore. Initializes the runs
@@ -586,6 +623,8 @@ export function createRunStore(dbPath: string): RunStore {
 	// Migrate: add coordinator_name column BEFORE creating indexes that reference it.
 	// The migration is a no-op on new databases (column already in CREATE_RUNS_TABLE).
 	migrateAddCoordinatorName(db);
+	// Migrate: extend runs.status CHECK constraint to include 'stopped'
+	migrateRunsStatusStopped(db);
 
 	db.exec(CREATE_RUNS_INDEXES);
 
@@ -682,7 +721,7 @@ export function createRunStore(dbPath: string): RunStore {
 			incrementAgentCountStmt.run({ $id: runId });
 		},
 
-		completeRun(runId: string, status: "completed" | "failed"): void {
+		completeRun(runId: string, status: "completed" | "failed" | "stopped"): void {
 			completeRunStmt.run({
 				$id: runId,
 				$status: status,
