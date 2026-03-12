@@ -32,5 +32,10 @@
 	"prompt-files-builder": 1773342651341,
 	"prompt-wiring-builder": 1773342726174,
 	"mission-review-fix-lead": 1773344213569,
-	"mission-fix-builder": 1773344023310
+	"mission-fix-builder": 1773344023310,
+	"fix-tests-builder": 1773352644570,
+	"fix-prompts-store-builder": 1773351669493,
+	"fix-prompts-store-lead": 1773351737706,
+	"fix-errors-builder": 1773351794375,
+	"fix-errors-tests-lead": 1773352762554
 }
