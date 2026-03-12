@@ -897,11 +897,12 @@
 			"overstory-4b7e",
 			"overstory-e35d",
 			"overstory-a516",
-			"overstory-608c"
+			"overstory-608c",
+			"overstory-5dc7"
 		],
-		"status": "completed",
+		"status": "active",
 		"createdAt": "2026-03-10T14:11:29.988Z",
-		"completedAt": "2026-03-12T12:27:10.953Z"
+		"completedAt": null
 	},
 	{
 		"id": "group-060562dd",
@@ -934,6 +935,16 @@
 		],
 		"status": "active",
 		"createdAt": "2026-03-12T12:30:36.793Z",
+		"completedAt": null
+	},
+	{
+		"id": "group-58c577ce",
+		"name": "mission-epic-batch2",
+		"memberIssueIds": [
+			"overstory-5dc7"
+		],
+		"status": "active",
+		"createdAt": "2026-03-12T12:52:32.339Z",
 		"completedAt": null
 	}
 ]
