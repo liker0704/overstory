@@ -50,6 +50,7 @@ function makeStartResult(agentName: string): StartPersistentAgentResult {
 
 function makeStoreWithSpy(): {
 	store: {
+		getById: (id: string) => { id: string } | null;
 		bindSessions: (
 			id: string,
 			sessions: { analystSessionId?: string; executionDirectorSessionId?: string },
@@ -59,13 +60,16 @@ function makeStoreWithSpy(): {
 	calls: Array<{ id: string; sessions: Record<string, string | undefined> }>;
 } {
 	const calls: Array<{ id: string; sessions: Record<string, string | undefined> }> = [];
+	function mockGetById(id: string): { id: string } | null {
+		return { id };
+	}
 	function mockBindSessions(
 		id: string,
 		sessions: { analystSessionId?: string; executionDirectorSessionId?: string },
 	): void {
 		calls.push({ id, sessions });
 	}
-	const store = { bindSessions: mockBindSessions, close: () => {} };
+	const store = { getById: mockGetById, bindSessions: mockBindSessions, close: () => {} };
 	return { store, calls };
 }
 
@@ -204,15 +208,14 @@ describe("startExecutionDirector", () => {
 // === startMissionAnalyst edge cases ===
 
 describe("startMissionAnalyst edge cases", () => {
-	test("throws AgentError when missionId does not exist (fixed: bindSessions validates missionId)", async () => {
-		// Fixed behavior: bindSessions will validate the missionId and throw AgentError if missing.
+	test("throws AgentError when missionId does not exist (getById returns null)", async () => {
+		// getById returns null to simulate a missing mission — validation throws before bindSessions.
 		const deps: MissionRoleDeps = {
 			startAgent: async () => makeStartResult("mission-analyst"),
 			createStore: () =>
 				({
-					bindSessions: (id: string) => {
-						throw new AgentError(`Mission not found: ${id}`, {});
-					},
+					getById: (_id: string) => null,
+					bindSessions: () => {},
 					close: () => {},
 				}) as never,
 		};
@@ -234,15 +237,14 @@ describe("startMissionAnalyst edge cases", () => {
 // === startExecutionDirector edge cases ===
 
 describe("startExecutionDirector edge cases", () => {
-	test("throws AgentError when missionId does not exist (fixed: bindSessions validates missionId)", async () => {
-		// Fixed behavior: bindSessions will validate the missionId and throw AgentError if missing.
+	test("throws AgentError when missionId does not exist (getById returns null)", async () => {
+		// getById returns null to simulate a missing mission — validation throws before bindSessions.
 		const deps: MissionRoleDeps = {
 			startAgent: async () => makeStartResult("execution-director"),
 			createStore: () =>
 				({
-					bindSessions: (id: string) => {
-						throw new AgentError(`Mission not found: ${id}`, {});
-					},
+					getById: (_id: string) => null,
+					bindSessions: () => {},
 					close: () => {},
 				}) as never,
 		};
