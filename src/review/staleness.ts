@@ -33,6 +33,12 @@ export const WATCHED_SURFACES: Record<ReviewSubjectType, string[]> = {
 		"agents/builder.md",
 	],
 	spec: ["src/commands/spec.ts", "agents/lead.md", "templates/overlay.md.tmpl"],
+	mission: [
+		"src/missions/store.ts",
+		"src/missions/bundle.ts",
+		"src/missions/narrative.ts",
+		"src/review/analyzers/mission.ts",
+	],
 };
 
 /**
@@ -103,7 +109,7 @@ export async function checkAndMarkStale(
 	repoRoot: string,
 	store: ReviewStore,
 ): Promise<{ subjectType: ReviewSubjectType; changedPaths: string[] }[]> {
-	const subjectTypes: ReviewSubjectType[] = ["session", "handoff", "spec"];
+	const subjectTypes: ReviewSubjectType[] = ["session", "handoff", "spec", "mission"];
 	const stored = store.loadStalenessState();
 	const results: { subjectType: ReviewSubjectType; changedPaths: string[] }[] = [];
 	const allCurrentHashes: Record<string, string> = {};
