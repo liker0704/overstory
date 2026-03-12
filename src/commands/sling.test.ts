@@ -353,6 +353,17 @@ describe("getSharedWritableDirs", () => {
 	test("includes canonical .git for lead agents", () => {
 		expect(getSharedWritableDirs("/repo", "lead")).toEqual(["/repo/.overstory", "/repo/.git"]);
 	});
+
+	test("includes canonical .git for execution-director agents", () => {
+		expect(getSharedWritableDirs("/repo", "execution-director")).toEqual([
+			"/repo/.overstory",
+			"/repo/.git",
+		]);
+	});
+
+	test("returns only .overstory for mission-analyst agents", () => {
+		expect(getSharedWritableDirs("/repo", "mission-analyst")).toEqual(["/repo/.overstory"]);
+	});
 });
 
 describe("generateAgentName", () => {
@@ -451,6 +462,30 @@ describe("validateHierarchy", () => {
 			expect(he.message).toContain("reviewer");
 			expect(he.message).toContain("lead");
 		}
+	});
+
+	test("allows mission-analyst when parentAgent is null", () => {
+		expect(() =>
+			validateHierarchy(null, "mission-analyst", "test-analyst", 0, false),
+		).not.toThrow();
+	});
+
+	test("allows execution-director when parentAgent is null", () => {
+		expect(() =>
+			validateHierarchy(null, "execution-director", "test-director", 0, false),
+		).not.toThrow();
+	});
+
+	test("allows mission-analyst when parentAgent is provided", () => {
+		expect(() =>
+			validateHierarchy("coordinator", "mission-analyst", "test-analyst", 1, false),
+		).not.toThrow();
+	});
+
+	test("allows execution-director when parentAgent is provided", () => {
+		expect(() =>
+			validateHierarchy("coordinator", "execution-director", "test-director", 1, false),
+		).not.toThrow();
 	});
 });
 

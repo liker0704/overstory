@@ -132,6 +132,43 @@
 				"read-only",
 				"no-worktree"
 			]
+		},
+		"mission-analyst": {
+			"file": "mission-analyst.md",
+			"model": "opus",
+			"tools": [
+				"Read",
+				"Glob",
+				"Grep",
+				"Bash"
+			],
+			"capabilities": [
+				"analyze",
+				"coordinate"
+			],
+			"canSpawn": false,
+			"constraints": [
+				"read-only",
+				"no-worktree"
+			]
+		},
+		"execution-director": {
+			"file": "execution-director.md",
+			"model": "opus",
+			"tools": [
+				"Read",
+				"Glob",
+				"Grep",
+				"Bash"
+			],
+			"capabilities": [
+				"dispatch",
+				"coordinate"
+			],
+			"canSpawn": true,
+			"constraints": [
+				"no-worktree"
+			]
 		}
 	},
 	"capabilityIndex": {
@@ -160,7 +197,9 @@
 		],
 		"coordinate": [
 			"lead",
-			"coordinator"
+			"coordinator",
+			"mission-analyst",
+			"execution-director"
 		],
 		"merge": [
 			"merger"
@@ -169,7 +208,8 @@
 			"merger"
 		],
 		"dispatch": [
-			"coordinator"
+			"coordinator",
+			"execution-director"
 		],
 		"escalate": [
 			"coordinator"
@@ -179,6 +219,9 @@
 		],
 		"patrol": [
 			"monitor"
+		],
+		"analyze": [
+			"mission-analyst"
 		]
 	}
 }
