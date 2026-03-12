@@ -9,7 +9,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cleanupTempDir } from "../test-helpers.ts";
-import type { InsertMission, Mission, MissionStore } from "../types.ts";
+import type { InsertMission, MissionStore } from "../types.ts";
 import { createMissionStore } from "./store.ts";
 
 let tempDir: string;
@@ -315,6 +315,53 @@ describe("updateArtifactRoot", () => {
 		store.updateArtifactRoot("mission-001", "/missions/mission-001/artifacts");
 		const result = store.getById("mission-001");
 		expect(result?.artifactRoot).toBe("/missions/mission-001/artifacts");
+	});
+});
+
+// === bindSessions ===
+
+describe("bindSessions", () => {
+	test("new missions have null session IDs by default", () => {
+		store.create(makeMission());
+		const mission = store.getById("mission-001");
+		expect(mission?.analystSessionId).toBeNull();
+		expect(mission?.executionDirectorSessionId).toBeNull();
+	});
+
+	test("binds analystSessionId", () => {
+		store.create(makeMission());
+		store.bindSessions("mission-001", { analystSessionId: "session-analyst-abc" });
+		const mission = store.getById("mission-001");
+		expect(mission?.analystSessionId).toBe("session-analyst-abc");
+		expect(mission?.executionDirectorSessionId).toBeNull();
+	});
+
+	test("binds executionDirectorSessionId", () => {
+		store.create(makeMission());
+		store.bindSessions("mission-001", { executionDirectorSessionId: "session-director-xyz" });
+		const mission = store.getById("mission-001");
+		expect(mission?.analystSessionId).toBeNull();
+		expect(mission?.executionDirectorSessionId).toBe("session-director-xyz");
+	});
+
+	test("binds both session IDs independently", () => {
+		store.create(makeMission());
+		store.bindSessions("mission-001", { analystSessionId: "session-analyst-1" });
+		store.bindSessions("mission-001", { executionDirectorSessionId: "session-director-1" });
+		const mission = store.getById("mission-001");
+		expect(mission?.analystSessionId).toBe("session-analyst-1");
+		expect(mission?.executionDirectorSessionId).toBe("session-director-1");
+	});
+
+	test("session IDs round-trip through create and read", () => {
+		store.create(makeMission());
+		store.bindSessions("mission-001", {
+			analystSessionId: "session-a",
+			executionDirectorSessionId: "session-b",
+		});
+		const mission = store.getById("mission-001");
+		expect(mission?.analystSessionId).toBe("session-a");
+		expect(mission?.executionDirectorSessionId).toBe("session-b");
 	});
 });
 

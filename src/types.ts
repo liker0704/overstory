@@ -265,7 +265,13 @@ export type MailProtocolType =
 	| "health_check"
 	| "dispatch"
 	| "assign"
-	| "rate_limited";
+	| "rate_limited"
+	| "mission_finding"
+	| "analyst_resolution"
+	| "execution_guidance"
+	| "analyst_recommendation"
+	| "execution_handoff"
+	| "mission_resolution";
 
 /** All valid mail message types. */
 export type MailMessageType = MailSemanticType | MailProtocolType;
@@ -285,6 +291,12 @@ export const MAIL_MESSAGE_TYPES: readonly MailMessageType[] = [
 	"dispatch",
 	"assign",
 	"rate_limited",
+	"mission_finding",
+	"analyst_resolution",
+	"execution_guidance",
+	"analyst_recommendation",
+	"execution_handoff",
+	"mission_resolution",
 ] as const;
 
 export interface MailMessage {
@@ -377,6 +389,56 @@ export interface RateLimitedPayload {
 	message: string;
 }
 
+/** Category for qualifying mission-level escalations. All shared types live in types.ts. */
+export type IngressCategory =
+	| "cross-stream"
+	| "brief-invalidating"
+	| "shared-assumption-changing"
+	| "accepted-semantics-risk";
+
+/** Lead escalates a cross-stream or brief-invalidating finding to analyst. */
+export interface MissionFindingPayload {
+	workstreamId: string;
+	category: IngressCategory;
+	summary: string;
+	affectedWorkstreams: string[];
+}
+
+/** Analyst resolves a finding (stays within mission contract). */
+export interface AnalystResolutionPayload {
+	findingThreadId: string;
+	resolution: string;
+	briefsToRefresh: string[];
+}
+
+/** Execution director sends operational guidance to leads. */
+export interface ExecutionGuidancePayload {
+	targetWorkstream: string;
+	guidance: string;
+	action: "pause" | "resume" | "adjust" | "proceed";
+}
+
+/** Analyst recommends action to coordinator (mission-contract impact). */
+export interface AnalystRecommendationPayload {
+	category: "scope_change" | "constraint_change" | "risk_escalation" | "decision_needed";
+	summary: string;
+	evidence: string;
+}
+
+/** Coordinator hands off execution to execution director. */
+export interface ExecutionHandoffPayload {
+	missionId: string;
+	workstreamIds: string[];
+	briefPaths: string[];
+}
+
+/** Coordinator resolves a mission-level decision. */
+export interface MissionResolutionPayload {
+	decisionId: string;
+	resolution: string;
+	affectedWorkstreams: string[];
+}
+
 /** Maps protocol message types to their payload interfaces. */
 export interface MailPayloadMap {
 	worker_done: WorkerDonePayload;
@@ -388,6 +450,12 @@ export interface MailPayloadMap {
 	dispatch: DispatchPayload;
 	assign: AssignPayload;
 	rate_limited: RateLimitedPayload;
+	mission_finding: MissionFindingPayload;
+	analyst_resolution: AnalystResolutionPayload;
+	execution_guidance: ExecutionGuidancePayload;
+	analyst_recommendation: AnalystRecommendationPayload;
+	execution_handoff: ExecutionHandoffPayload;
+	mission_resolution: MissionResolutionPayload;
 }
 
 // === Overlay ===
@@ -894,6 +962,8 @@ export interface Mission {
 	reopenCount: number;
 	artifactRoot: string | null;
 	pausedWorkstreamIds: string[];
+	analystSessionId: string | null;
+	executionDirectorSessionId: string | null;
 	createdAt: string;
 	updatedAt: string;
 }
@@ -926,5 +996,9 @@ export interface MissionStore {
 	unfreeze(id: string): void;
 	updatePausedWorkstreams(id: string, ids: string[]): void;
 	updateArtifactRoot(id: string, path: string): void;
+	bindSessions(
+		id: string,
+		sessions: { analystSessionId?: string; executionDirectorSessionId?: string },
+	): void;
 	close(): void;
 }
