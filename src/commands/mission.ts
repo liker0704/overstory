@@ -19,11 +19,18 @@ import { join } from "node:path";
 import { Command } from "commander";
 import { loadConfig } from "../config.ts";
 import { jsonError, jsonOutput } from "../json.ts";
-import { accent, color, printError, printHint, printSuccess } from "../logging/color.ts";
+import {
+	accent,
+	color,
+	printError,
+	printHint,
+	printSuccess,
+	printWarning,
+} from "../logging/color.ts";
 import { renderHeader, renderSubHeader, separator } from "../logging/theme.ts";
-import { openSessionStore } from "../sessions/compat.ts";
 import { startMissionAnalyst, stopMissionRole } from "../missions/roles.ts";
 import { createMissionStore } from "../missions/store.ts";
+import { openSessionStore } from "../sessions/compat.ts";
 import { createRunStore } from "../sessions/store.ts";
 import type { InsertMission, Mission, MissionSummary } from "../types.ts";
 
@@ -295,17 +302,13 @@ async function missionOutput(overstoryDir: string, json: boolean): Promise<void>
 
 		w(`${renderSubHeader("Workstreams")}\n`);
 		const paused =
-			mission.pausedWorkstreamIds.length > 0
-				? mission.pausedWorkstreamIds.join(", ")
-				: "none";
+			mission.pausedWorkstreamIds.length > 0 ? mission.pausedWorkstreamIds.join(", ") : "none";
 		w(`  Paused: ${paused}\n`);
 		w("\n");
 
 		w(`${renderSubHeader("Roles")}\n`);
 		const analystStatus = analystRunning ? color.green("running") : color.dim("not started");
-		const edStatus = executionDirectorRunning
-			? color.green("running")
-			: color.dim("not started");
+		const edStatus = executionDirectorRunning ? color.green("running") : color.dim("not started");
 		w(`  Analyst:            ${analystStatus}\n`);
 		w(`  Execution Director: ${edStatus}\n`);
 	} finally {
@@ -477,6 +480,17 @@ async function missionStop(
 			}
 		}
 
+		// Export result bundle (non-fatal)
+		let bundlePath: string | null = null;
+		try {
+			const { exportBundle } = await import("../missions/bundle.ts");
+			const bundleResult = await exportBundle({ overstoryDir, dbPath, missionId });
+			bundlePath = bundleResult.outputDir;
+			if (!json) printSuccess("Bundle exported", bundleResult.outputDir);
+		} catch (err) {
+			if (!json) printWarning("Bundle export failed", String(err));
+		}
+
 		// Clear pointer files
 		const { unlink } = await import("node:fs/promises");
 		for (const path of [currentMissionPath(overstoryDir), currentRunPath(overstoryDir)]) {
@@ -488,7 +502,7 @@ async function missionStop(
 		}
 
 		if (json) {
-			jsonOutput("mission stop", { missionId, slug: mission.slug, state: "cancelled" });
+			jsonOutput("mission stop", { missionId, slug: mission.slug, state: "cancelled", bundlePath });
 		} else {
 			printSuccess("Mission stopped", mission.slug);
 		}
@@ -593,6 +607,68 @@ async function missionShow(overstoryDir: string, idOrSlug: string, json: boolean
 		process.stdout.write(`  Updated:      ${mission.updatedAt}\n`);
 	} finally {
 		missionStore.close();
+	}
+}
+
+// === ov mission bundle ===
+
+interface BundleOpts {
+	missionId?: string;
+	force?: boolean;
+	json?: boolean;
+}
+
+async function missionBundle(overstoryDir: string, opts: BundleOpts): Promise<void> {
+	const dbPath = join(overstoryDir, "sessions.db");
+
+	// Resolve mission ID: explicit flag or active mission
+	let missionId = opts.missionId ?? null;
+	if (!missionId) {
+		missionId = await readCurrentMissionId(overstoryDir);
+	}
+	if (!missionId) {
+		if (opts.json) {
+			jsonError("mission bundle", "No active mission and no --mission-id provided");
+		} else {
+			printError("No active mission and no --mission-id provided");
+		}
+		process.exitCode = 1;
+		return;
+	}
+
+	const { exportBundle } = await import("../missions/bundle.ts");
+	try {
+		const result = await exportBundle({
+			overstoryDir,
+			dbPath,
+			missionId,
+			force: opts.force,
+		});
+
+		if (opts.json) {
+			jsonOutput("mission bundle", {
+				outputDir: result.outputDir,
+				manifest: result.manifest,
+				filesWritten: result.filesWritten,
+			});
+		} else {
+			if (result.filesWritten.length === 0) {
+				printHint("Bundle is already up to date");
+				process.stdout.write(`  Path: ${result.outputDir}\n`);
+			} else {
+				printSuccess("Bundle exported", result.outputDir);
+				for (const f of result.filesWritten) {
+					process.stdout.write(`  ${f}\n`);
+				}
+			}
+		}
+	} catch (err) {
+		if (opts.json) {
+			jsonError("mission bundle", String(err));
+		} else {
+			printError("Bundle export failed", String(err));
+		}
+		process.exitCode = 1;
 	}
 }
 
@@ -713,6 +789,20 @@ export function createMissionCommand(): Command {
 			const config = await loadConfig(cwd);
 			const overstoryDir = join(config.project.root, ".overstory");
 			await missionShow(overstoryDir, idOrSlug, opts.json ?? false);
+		});
+
+	// ov mission bundle
+	cmd
+		.command("bundle")
+		.description("Export a result bundle (events, sessions, metrics) for a mission")
+		.option("--mission-id <id>", "Mission ID (defaults to active mission)")
+		.option("--force", "Force regeneration even if bundle is fresh")
+		.option("--json", "Output as JSON")
+		.action(async (opts: { missionId?: string; force?: boolean; json?: boolean }) => {
+			const cwd = process.cwd();
+			const config = await loadConfig(cwd);
+			const overstoryDir = join(config.project.root, ".overstory");
+			await missionBundle(overstoryDir, opts);
 		});
 
 	return cmd;
