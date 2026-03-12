@@ -18,13 +18,13 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { Command } from "commander";
 import { loadConfig } from "../config.ts";
-import { ValidationError } from "../errors.ts";
 import { jsonError, jsonOutput } from "../json.ts";
 import { accent, printError, printHint, printSuccess } from "../logging/color.ts";
 import { renderHeader, separator } from "../logging/theme.ts";
+import { startMissionAnalyst, stopMissionRole } from "../missions/roles.ts";
 import { createMissionStore } from "../missions/store.ts";
 import { createRunStore } from "../sessions/store.ts";
-import type { InsertMission, Mission, MissionSummary, PendingInputKind } from "../types.ts";
+import type { InsertMission, Mission, MissionSummary } from "../types.ts";
 
 /** Path to current-mission.txt pointer file. */
 function currentMissionPath(overstoryDir: string): string {
@@ -67,7 +67,11 @@ interface StartOpts {
 	json?: boolean;
 }
 
-async function missionStart(overstoryDir: string, opts: StartOpts): Promise<void> {
+async function missionStart(
+	overstoryDir: string,
+	projectRoot: string,
+	opts: StartOpts,
+): Promise<void> {
 	if (!opts.objective) {
 		printError("--objective is required");
 		process.exitCode = 1;
@@ -123,6 +127,14 @@ async function missionStart(overstoryDir: string, opts: StartOpts): Promise<void
 			artifactRoot,
 		};
 		const mission = missionStore.create(insertMission);
+
+		// Start mission-analyst role linked to the mission's run
+		await startMissionAnalyst({
+			missionId,
+			projectRoot,
+			overstoryDir,
+			existingRunId: runId,
+		});
 
 		// Write pointer files
 		await Bun.write(currentMissionPath(overstoryDir), missionId);
@@ -361,7 +373,11 @@ async function missionArtifacts(overstoryDir: string, json: boolean): Promise<vo
 
 // === ov mission stop ===
 
-async function missionStop(overstoryDir: string, json: boolean): Promise<void> {
+async function missionStop(
+	overstoryDir: string,
+	projectRoot: string,
+	json: boolean,
+): Promise<void> {
 	const missionId = await readCurrentMissionId(overstoryDir);
 	if (!missionId) {
 		if (json) {
@@ -385,6 +401,15 @@ async function missionStop(overstoryDir: string, json: boolean): Promise<void> {
 			}
 			process.exitCode = 1;
 			return;
+		}
+
+		// Stop mission roles (agents may not be running — ignore errors)
+		for (const roleName of ["mission-analyst", "execution-director"]) {
+			try {
+				await stopMissionRole(roleName, { projectRoot, overstoryDir });
+			} catch {
+				// Agent may not be running — non-fatal
+			}
 		}
 
 		// Terminalize the mission
@@ -449,9 +474,7 @@ async function missionList(overstoryDir: string, json: boolean): Promise<void> {
 		}
 
 		process.stdout.write(`${renderHeader("Missions")}\n`);
-		process.stdout.write(
-			`${"ID".padEnd(18)} ${"State".padEnd(12)} ${"Phase".padEnd(10)} Slug\n`,
-		);
+		process.stdout.write(`${"ID".padEnd(18)} ${"State".padEnd(12)} ${"Phase".padEnd(10)} Slug\n`);
 		process.stdout.write(`${separator()}\n`);
 		for (const mission of missions) {
 			const id = accent(mission.id.slice(0, 16).padEnd(18));
@@ -551,7 +574,7 @@ export function createMissionCommand(): Command {
 			const cwd = process.cwd();
 			const config = await loadConfig(cwd);
 			const overstoryDir = join(config.project.root, ".overstory");
-			await missionStart(overstoryDir, opts);
+			await missionStart(overstoryDir, config.project.root, opts);
 		});
 
 	// ov mission status
@@ -612,7 +635,7 @@ export function createMissionCommand(): Command {
 			const cwd = process.cwd();
 			const config = await loadConfig(cwd);
 			const overstoryDir = join(config.project.root, ".overstory");
-			await missionStop(overstoryDir, opts.json ?? false);
+			await missionStop(overstoryDir, config.project.root, opts.json ?? false);
 		});
 
 	// ov mission list

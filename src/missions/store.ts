@@ -30,6 +30,8 @@ interface MissionRow {
 	reopen_count: number;
 	artifact_root: string | null;
 	paused_workstream_ids: string;
+	analyst_session_id: string | null;
+	execution_director_session_id: string | null;
 	created_at: string;
 	updated_at: string;
 }
@@ -51,6 +53,8 @@ CREATE TABLE IF NOT EXISTS missions (
   reopen_count INTEGER NOT NULL DEFAULT 0,
   artifact_root TEXT,
   paused_workstream_ids TEXT NOT NULL DEFAULT '[]',
+  analyst_session_id TEXT,
+  execution_director_session_id TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 )`;
@@ -76,6 +80,8 @@ function rowToMission(row: MissionRow): Mission {
 		reopenCount: row.reopen_count,
 		artifactRoot: row.artifact_root,
 		pausedWorkstreamIds: JSON.parse(row.paused_workstream_ids) as string[],
+		analystSessionId: row.analyst_session_id,
+		executionDirectorSessionId: row.execution_director_session_id,
 		createdAt: row.created_at,
 		updatedAt: row.updated_at,
 	};
@@ -184,6 +190,22 @@ export function createMissionStore(dbPath: string): MissionStore {
 		UPDATE missions SET artifact_root = $artifact_root, updated_at = $updated_at WHERE id = $id
 	`);
 
+	const bindSessionsStmt = db.prepare<
+		void,
+		{
+			$id: string;
+			$analyst_session_id: string | null;
+			$execution_director_session_id: string | null;
+			$updated_at: string;
+		}
+	>(`
+		UPDATE missions
+		SET analyst_session_id = COALESCE($analyst_session_id, analyst_session_id),
+		    execution_director_session_id = COALESCE($execution_director_session_id, execution_director_session_id),
+		    updated_at = $updated_at
+		WHERE id = $id
+	`);
+
 	return {
 		create(mission: InsertMission): Mission {
 			const now = new Date().toISOString();
@@ -264,6 +286,18 @@ export function createMissionStore(dbPath: string): MissionStore {
 			updateArtifactRootStmt.run({
 				$id: id,
 				$artifact_root: path,
+				$updated_at: new Date().toISOString(),
+			});
+		},
+
+		bindSessions(
+			id: string,
+			sessions: { analystSessionId?: string; executionDirectorSessionId?: string },
+		): void {
+			bindSessionsStmt.run({
+				$id: id,
+				$analyst_session_id: sessions.analystSessionId ?? null,
+				$execution_director_session_id: sessions.executionDirectorSessionId ?? null,
 				$updated_at: new Date().toISOString(),
 			});
 		},
