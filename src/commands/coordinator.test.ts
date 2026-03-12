@@ -1027,7 +1027,7 @@ describe("stopCoordinator", () => {
 });
 
 describe("stopCoordinator run completion", () => {
-	test("coordinator stop auto-completes the active run", async () => {
+	test("coordinator stop marks the active run as stopped", async () => {
 		// Create a coordinator session
 		const session = makeCoordinatorSession({ state: "working" });
 		saveSessionsToDb([session]);
@@ -1050,11 +1050,11 @@ describe("stopCoordinator run completion", () => {
 		const { deps } = makeDeps({ "overstory-test-project-coordinator": true });
 		await captureStdout(() => coordinatorCommand(["stop"], deps));
 
-		// Verify run status is "completed"
+		// Verify run status is "stopped"
 		const runStoreCheck = createRunStore(dbPath);
 		const run = runStoreCheck.getRun("run-test-123");
 		runStoreCheck.close();
-		expect(run?.status).toBe("completed");
+		expect(run?.status).toBe("stopped");
 
 		// Verify current-run.txt is deleted
 		const currentRunFile = Bun.file(join(overstoryDir, "current-run.txt"));
@@ -2942,7 +2942,7 @@ describe("persistent-root: stopPersistentAgent", () => {
 		expect(result.sessionId).toBe("session-111-mission-analyst");
 	});
 
-	test("completes the run when runId is set", async () => {
+	test("marks the run as stopped when runId is set", async () => {
 		// Create a run first
 		const runStore = createRunStore(join(overstoryDir, "sessions.db"));
 		try {
@@ -2999,14 +2999,14 @@ describe("persistent-root: stopPersistentAgent", () => {
 
 		expect(result.runCompleted).toBe(true);
 
-		// Verify run is now completed in the store
-		const runStore2 = createRunStore(join(overstoryDir, "sessions.db"));
-		try {
-			const run = runStore2.getRun("run-stop-test-123");
-			expect(run?.status).toBe("completed");
-		} finally {
-			runStore2.close();
-		}
+			// Verify run is now stopped in the store
+			const runStore2 = createRunStore(join(overstoryDir, "sessions.db"));
+			try {
+				const run = runStore2.getRun("run-stop-test-123");
+				expect(run?.status).toBe("stopped");
+			} finally {
+				runStore2.close();
+			}
 
 		// Verify current-run.txt was cleared
 		expect(await Bun.file(join(overstoryDir, "current-run.txt")).exists()).toBe(false);
