@@ -1452,6 +1452,69 @@ describe("daemon mulch failure recording", () => {
 		expect(reloaded[0]?.lastActivity).not.toBe(oldActivity);
 	});
 
+	test("ready zombie session with prior session_end is reconciled to completed", async () => {
+		const oldActivity = new Date(Date.now() - 600_000).toISOString();
+		const session = makeSession({
+			agentName: "ended-zombie-agent",
+			tmuxSession: "overstory-ended-zombie-agent",
+			state: "zombie",
+			lastActivity: oldActivity,
+		});
+		writeSessionsToStore(tempRoot, [session]);
+
+		const eventStore = createEventStore(join(tempRoot, ".overstory", "events.db"));
+		try {
+			eventStore.insert({
+				runId: null,
+				agentName: "ended-zombie-agent",
+				sessionId: "runtime-session-1",
+				eventType: "session_end",
+				toolName: null,
+				toolArgs: null,
+				toolDurationMs: null,
+				level: "info",
+				data: JSON.stringify({ transcriptPath: "/tmp/fake.jsonl" }),
+			});
+			eventStore.insert({
+				runId: null,
+				agentName: "ended-zombie-agent",
+				sessionId: null,
+				eventType: "custom",
+				toolName: null,
+				toolArgs: null,
+				toolDurationMs: null,
+				level: "info",
+				data: JSON.stringify({ type: "rate_limit_cleared" }),
+			});
+		} finally {
+			eventStore.close();
+		}
+
+		await runDaemonTick({
+			root: tempRoot,
+			...THRESHOLDS,
+			_tmux: tmuxWithLiveness({
+				"overstory-ended-zombie-agent": true,
+			}),
+			_triage: triageAlways("extend"),
+			_capturePaneContent: async () => 'Try "help" to get started\n❯\nbypass permissions',
+		});
+
+		const reloaded = readSessionsFromStore(tempRoot);
+		expect(reloaded[0]?.state).toBe("completed");
+		expect(reloaded[0]?.lastActivity).not.toBe(oldActivity);
+
+		const reloadedEvents = createEventStore(join(tempRoot, ".overstory", "events.db"));
+		try {
+			const latest = reloadedEvents.getByAgent("ended-zombie-agent");
+			const finalEvent = latest[latest.length - 1];
+			expect(finalEvent?.eventType).toBe("custom");
+			expect(finalEvent?.data).toContain("zombie_session_end_reconciled");
+		} finally {
+			reloadedEvents.close();
+		}
+	});
+
 	test("Tier 0: recordFailure called at escalation level 3+ (progressive termination)", async () => {
 		const staleActivity = new Date(Date.now() - 60_000).toISOString();
 		const stalledSince = new Date(Date.now() - 200_000).toISOString();

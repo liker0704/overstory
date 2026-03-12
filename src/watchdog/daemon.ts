@@ -156,6 +156,25 @@ function recordEvent(
 	}
 }
 
+function latestNonCustomEventType(
+	eventStore: EventStore | null,
+	agentName: string,
+): string | null {
+	if (!eventStore) return null;
+	try {
+		const events = eventStore.getByAgent(agentName);
+		for (let i = events.length - 1; i >= 0; i--) {
+			const event = events[i];
+			if (event && event.eventType !== "custom") {
+				return event.eventType;
+			}
+		}
+	} catch {
+		// Best-effort reconciliation only
+	}
+	return null;
+}
+
 function isRateLimitOptionsDialog(paneContent: string): boolean {
 	const lower = paneContent.toLowerCase();
 	return (
@@ -739,21 +758,21 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 				}
 			}
 
-			// Nudge idle TUI agents that have unread mail
-		if (
-			mailStore &&
-			tmuxAlive &&
-			session.tmuxSession !== "" &&
-			session.state !== "completed"
-		) {
-			try {
-				const unread = mailStore.getUnread(session.agentName);
-				if (unread.length > 0) {
+			// TUI reconciliation: unread-mail wakeups and held session-end completion.
+			if (
+				mailStore &&
+				tmuxAlive &&
+				session.tmuxSession !== "" &&
+				session.state !== "completed"
+			) {
+				try {
+					const unread = mailStore.getUnread(session.agentName);
 					const paneContent = lastPaneContent ?? (await capturePane(session.tmuxSession));
-						if (paneContent) {
-							const runtime = getRuntime(session.runtime, options.config, session.capability);
-							const readyState = runtime.detectReady(paneContent);
-							if (readyState.phase === "ready") {
+					if (paneContent) {
+						const runtime = getRuntime(session.runtime, options.config, session.capability);
+						const readyState = runtime.detectReady(paneContent);
+						if (readyState.phase === "ready") {
+							if (unread.length > 0) {
 								const subjects = unread
 									.slice(0, 3)
 									.map((m) => m.subject)
@@ -768,11 +787,30 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 									store.updateState(session.agentName, "working");
 									session.state = "working";
 								}
+							} else if (
+								session.state === "zombie" &&
+								latestNonCustomEventType(eventStore, session.agentName) === "session_end"
+							) {
+								store.updateState(session.agentName, "completed");
+								store.updateLastActivity(session.agentName);
+								session.state = "completed";
+								session.lastActivity = new Date().toISOString();
+								recordEvent(eventStore, {
+									runId,
+									agentName: session.agentName,
+									eventType: "custom",
+									level: "info",
+									data: {
+										type: "zombie_session_end_reconciled",
+										runtime: session.runtime,
+									},
+								});
+								continue;
 							}
 						}
 					}
 				} catch {
-					// Non-fatal: mail nudge failure shouldn't break watchdog
+					// Non-fatal: reconciliation failure shouldn't break watchdog
 				}
 			}
 
