@@ -169,6 +169,45 @@
 			"constraints": [
 				"no-worktree"
 			]
+		},
+		"coordinator-mission": {
+			"file": "coordinator-mission.md",
+			"model": "opus",
+			"tools": [
+				"Read",
+				"Glob",
+				"Grep",
+				"Bash"
+			],
+			"capabilities": [
+				"coordinate",
+				"dispatch"
+			],
+			"canSpawn": false,
+			"constraints": [
+				"read-only",
+				"no-worktree"
+			]
+		},
+		"lead-mission": {
+			"file": "lead-mission.md",
+			"model": "opus",
+			"tools": [
+				"Read",
+				"Write",
+				"Edit",
+				"Glob",
+				"Grep",
+				"Bash",
+				"Task"
+			],
+			"capabilities": [
+				"coordinate",
+				"implement",
+				"review"
+			],
+			"canSpawn": true,
+			"constraints": []
 		}
 	},
 	"capabilityIndex": {
@@ -180,7 +219,8 @@
 		],
 		"implement": [
 			"builder",
-			"lead"
+			"lead",
+			"lead-mission"
 		],
 		"refactor": [
 			"builder"
@@ -190,7 +230,8 @@
 		],
 		"review": [
 			"reviewer",
-			"lead"
+			"lead",
+			"lead-mission"
 		],
 		"validate": [
 			"reviewer"
@@ -199,7 +240,9 @@
 			"lead",
 			"coordinator",
 			"mission-analyst",
-			"execution-director"
+			"execution-director",
+			"coordinator-mission",
+			"lead-mission"
 		],
 		"merge": [
 			"merger"
@@ -209,7 +252,8 @@
 		],
 		"dispatch": [
 			"coordinator",
-			"execution-director"
+			"execution-director",
+			"coordinator-mission"
 		],
 		"escalate": [
 			"coordinator"
