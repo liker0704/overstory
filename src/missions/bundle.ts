@@ -95,7 +95,8 @@ export async function exportBundle(opts: BundleOptions): Promise<BundleResult> {
 		const manifestFile = Bun.file(manifestPath);
 		if (await manifestFile.exists()) {
 			const existing = (await manifestFile.json()) as BundleManifest;
-			if (existing.generatedAt >= mission.updatedAt) {
+			const bundleIsFresh = existing.generatedAt >= mission.updatedAt;
+			if (bundleIsFresh) {
 				return { outputDir, manifest: existing, filesWritten: [] };
 			}
 		}

@@ -125,7 +125,12 @@ async function missionStart(
 		// Create artifact root directory
 		const missionId = `mission-${Date.now()}-${opts.slug}`;
 		const artifactRoot = join(overstoryDir, "missions", missionId);
-		await mkdir(artifactRoot, { recursive: true });
+		try {
+			await mkdir(artifactRoot, { recursive: true });
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			throw new Error(`Failed to create mission artifact directory ${artifactRoot}: ${msg}`);
+		}
 
 		const insertMission: InsertMission = {
 			id: missionId,

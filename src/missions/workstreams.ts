@@ -230,7 +230,20 @@ export async function bridgeWorkstreamsToTasks(
 		try {
 			await tracker.show(ws.taskId);
 			results.push({ workstreamId: ws.id, taskId: ws.taskId, created: false });
-		} catch {
+		} catch (showErr) {
+			// Distinguish 'not found' from API/network errors
+			const showMsg = showErr instanceof Error ? showErr.message : String(showErr);
+			const isNotFound = /not found|does not exist|no such/i.test(showMsg);
+			if (!isNotFound) {
+				// Real API error — don't attempt create, report directly
+				results.push({
+					workstreamId: ws.id,
+					taskId: ws.taskId,
+					created: false,
+					error: `Failed to check task: ${showMsg}`,
+				});
+				continue;
+			}
 			try {
 				await tracker.create(ws.objective, {
 					type: "task",

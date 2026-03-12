@@ -13,6 +13,7 @@ import type {
 	StopPersistentAgentResult,
 } from "../agents/persistent-root.ts";
 import { startPersistentAgent, stopPersistentAgent } from "../agents/persistent-root.ts";
+import { AgentError } from "../errors.ts";
 import type { MissionStore } from "../types.ts";
 import { createMissionStore } from "./store.ts";
 
@@ -76,6 +77,10 @@ export async function startMissionAnalyst(
 
 	const store = storeFactory(join(opts.overstoryDir, "sessions.db"));
 	try {
+		const mission = store.getById(opts.missionId);
+		if (!mission) {
+			throw new AgentError(`Mission not found: ${opts.missionId}`, { agentName: "mission-analyst" });
+		}
 		store.bindSessions(opts.missionId, { analystSessionId: result.session.id });
 	} finally {
 		store.close();
@@ -110,6 +115,12 @@ export async function startExecutionDirector(
 
 	const store = storeFactory(join(opts.overstoryDir, "sessions.db"));
 	try {
+		const mission = store.getById(opts.missionId);
+		if (!mission) {
+			throw new AgentError(`Mission not found: ${opts.missionId}`, {
+				agentName: "execution-director",
+			});
+		}
 		store.bindSessions(opts.missionId, {
 			executionDirectorSessionId: result.session.id,
 		});
