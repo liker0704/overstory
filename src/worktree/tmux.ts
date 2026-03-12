@@ -107,6 +107,15 @@ async function runCommand(
 }
 
 /**
+ * Overstory agents start in the first window's only pane. Target the top-left
+ * pane of the first window explicitly so operator-created splits do not steal
+ * input or pane capture, regardless of tmux base-index settings.
+ */
+function primaryPaneTarget(name: string): string {
+	return `${name}:^.{top-left}`;
+}
+
+/**
  * Create a new detached tmux session running the given command.
  *
  * @param name - Session name (e.g., "overstory-myproject-auth-login")
@@ -174,12 +183,19 @@ export async function createSession(
 		await writeAgentEnvFile(cwd, env);
 	}
 
-	// Retrieve the actual PID of the process running inside the tmux pane.
+	// Retrieve the actual PID of the process running inside the primary tmux pane.
 	// Retry up to maxRetries times with backoff for WSL2 race conditions where
 	// the session exists but the pane hasn't been registered yet (#73).
 	let pidResult: { stdout: string; stderr: string; exitCode: number } | undefined;
 	for (let attempt = 0; attempt < maxRetries; attempt++) {
-		pidResult = await runCommand(["tmux", "list-panes", "-t", name, "-F", "#{pane_pid}"]);
+		pidResult = await runCommand([
+			"tmux",
+			"display-message",
+			"-p",
+			"-t",
+			primaryPaneTarget(name),
+			"#{pane_pid}",
+		]);
 		if (pidResult.exitCode === 0) break;
 		await Bun.sleep(250 * (attempt + 1));
 	}
@@ -269,7 +285,7 @@ export async function getPanePid(name: string): Promise<number | null> {
 		"display-message",
 		"-p",
 		"-t",
-		name,
+		primaryPaneTarget(name),
 		"#{pane_pid}",
 	]);
 
@@ -525,7 +541,7 @@ export async function capturePaneContent(name: string, lines = 50): Promise<stri
 		"tmux",
 		"capture-pane",
 		"-t",
-		name,
+		primaryPaneTarget(name),
 		"-p",
 		"-S",
 		`-${lines}`,
@@ -659,7 +675,7 @@ export async function sendKeys(name: string, keys: string, maxRetries = 3): Prom
 			"tmux",
 			"send-keys",
 			"-t",
-			name,
+			primaryPaneTarget(name),
 			flatKeys,
 			"Enter",
 		]);
@@ -711,7 +727,13 @@ export async function sendKeys(name: string, keys: string, maxRetries = 3): Prom
 
 async function sendRawKeys(name: string, keys: string): Promise<void> {
 	const flatKeys = keys.replace(/\n/g, " ");
-	const { exitCode, stderr } = await runCommand(["tmux", "send-keys", "-t", name, flatKeys]);
+	const { exitCode, stderr } = await runCommand([
+		"tmux",
+		"send-keys",
+		"-t",
+		primaryPaneTarget(name),
+		flatKeys,
+	]);
 
 	if (exitCode !== 0) {
 		const trimmedStderr = stderr.trim();

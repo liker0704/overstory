@@ -69,7 +69,7 @@ describe("createSession", () => {
 				// tmux new-session
 				return mockSpawnResult("", "", 0);
 			}
-			// tmux list-panes -t overstory-auth -F '#{pane_pid}'
+			// tmux display-message -p -t overstory-auth:^.{top-left} '#{pane_pid}'
 			return mockSpawnResult("42\n", "", 0);
 		});
 
@@ -116,7 +116,7 @@ describe("createSession", () => {
 		expect(opts.cwd).toBe("/work/dir");
 	});
 
-	test("calls list-panes after creating to get pane PID", async () => {
+	test("calls display-message after creating to get pane PID", async () => {
 		let callCount = 0;
 		spawnSpy.mockImplementation(() => {
 			callCount++;
@@ -132,11 +132,18 @@ describe("createSession", () => {
 
 		await createSession("test-agent", "/tmp", "ls");
 
-		// 3 calls: which overstory, tmux new-session, tmux list-panes
+		// 3 calls: which overstory, tmux new-session, tmux display-message
 		expect(spawnSpy).toHaveBeenCalledTimes(3);
 		const thirdCallArgs = spawnSpy.mock.calls[2] as unknown[];
 		const cmd = thirdCallArgs[0] as string[];
-		expect(cmd).toEqual(["tmux", "list-panes", "-t", "test-agent", "-F", "#{pane_pid}"]);
+		expect(cmd).toEqual([
+			"tmux",
+			"display-message",
+			"-p",
+			"-t",
+			"test-agent:^.{top-left}",
+			"#{pane_pid}",
+		]);
 	});
 
 	test("throws AgentError if session creation fails", async () => {
@@ -153,7 +160,7 @@ describe("createSession", () => {
 		await expect(createSession("my-session", "/tmp", "ls")).rejects.toThrow(AgentError);
 	});
 
-	test("throws AgentError if list-panes fails after creation", async () => {
+	test("throws AgentError if pane PID lookup fails after creation", async () => {
 		let callCount = 0;
 		spawnSpy.mockImplementation(() => {
 			callCount++;
@@ -165,7 +172,7 @@ describe("createSession", () => {
 				// new-session succeeds
 				return mockSpawnResult("", "", 0);
 			}
-			// list-panes fails
+			// pane PID lookup fails
 			return mockSpawnResult("", "error listing panes", 1);
 		});
 
@@ -183,7 +190,7 @@ describe("createSession", () => {
 			if (callCount === 2) {
 				return mockSpawnResult("", "", 0);
 			}
-			// list-panes returns empty output
+			// pane PID lookup returns empty output
 			return mockSpawnResult("", "", 0);
 		});
 
@@ -228,7 +235,7 @@ describe("createSession", () => {
 				// tmux new-session
 				return mockSpawnResult("", "", 0);
 			}
-			// tmux list-panes
+			// tmux display-message
 			return mockSpawnResult("5555\n", "", 0);
 		});
 
@@ -243,7 +250,7 @@ describe("createSession", () => {
 		expect(tmuxCmd).toContain("echo test");
 	});
 
-	test("retries list-panes on transient failure", async () => {
+	test("retries pane PID lookup on transient failure", async () => {
 		let callCount = 0;
 		spawnSpy.mockImplementation(() => {
 			callCount++;
@@ -256,20 +263,20 @@ describe("createSession", () => {
 				return mockSpawnResult("", "", 0);
 			}
 			if (callCount === 3) {
-				// First list-panes fails (WSL2 race)
+				// First pane PID lookup fails (WSL2 race)
 				return mockSpawnResult("", "can't find pane\n", 1);
 			}
-			// Second list-panes succeeds
+			// Second pane PID lookup succeeds
 			return mockSpawnResult("42\n", "", 0);
 		});
 
 		const pid = await createSession("retry-session", "/work/dir", "echo hello");
 		expect(pid).toBe(42);
-		// which + new-session + list-panes(fail) + list-panes(ok)
+		// which + new-session + display-message(fail) + display-message(ok)
 		expect(spawnSpy).toHaveBeenCalledTimes(4);
 	});
 
-	test("throws after exhausting all list-panes retries", async () => {
+	test("throws after exhausting all pane PID lookup retries", async () => {
 		let callCount = 0;
 		spawnSpy.mockImplementation(() => {
 			callCount++;
@@ -281,7 +288,7 @@ describe("createSession", () => {
 				// tmux new-session
 				return mockSpawnResult("", "", 0);
 			}
-			// All list-panes attempts fail
+			// All pane PID lookup attempts fail
 			return mockSpawnResult("", "can't find pane\n", 1);
 		});
 
@@ -397,7 +404,14 @@ describe("getPanePid", () => {
 		expect(pid).toBe(42);
 		const callArgs = spawnSpy.mock.calls[0] as unknown[];
 		const cmd = callArgs[0] as string[];
-		expect(cmd).toEqual(["tmux", "display-message", "-p", "-t", "overstory-auth", "#{pane_pid}"]);
+		expect(cmd).toEqual([
+			"tmux",
+			"display-message",
+			"-p",
+			"-t",
+			"overstory-auth:^.{top-left}",
+			"#{pane_pid}",
+		]);
 	});
 
 	test("returns null when session does not exist", async () => {
@@ -717,7 +731,7 @@ describe("killSession", () => {
 			"display-message",
 			"-p",
 			"-t",
-			"overstory-auth",
+			"overstory-auth:^.{top-left}",
 			"#{pane_pid}",
 		]);
 		expect(cmds[1]).toEqual(["pgrep", "-P", "500"]);
@@ -921,7 +935,14 @@ describe("sendKeys", () => {
 		expect(spawnSpy).toHaveBeenCalledTimes(1);
 		const callArgs = spawnSpy.mock.calls[0] as unknown[];
 		const cmd = callArgs[0] as string[];
-		expect(cmd).toEqual(["tmux", "send-keys", "-t", "overstory-auth", "echo hello world", "Enter"]);
+		expect(cmd).toEqual([
+			"tmux",
+			"send-keys",
+			"-t",
+			"overstory-auth:^.{top-left}",
+			"echo hello world",
+			"Enter",
+		]);
 	});
 
 	test("flattens newlines in keys to spaces", async () => {
@@ -936,7 +957,7 @@ describe("sendKeys", () => {
 			"tmux",
 			"send-keys",
 			"-t",
-			"overstory-agent",
+			"overstory-agent:^.{top-left}",
 			"line1 line2 line3",
 			"Enter",
 		]);
@@ -970,7 +991,14 @@ describe("sendKeys", () => {
 		expect(spawnSpy).toHaveBeenCalledTimes(1);
 		const callArgs = spawnSpy.mock.calls[0] as unknown[];
 		const cmd = callArgs[0] as string[];
-		expect(cmd).toEqual(["tmux", "send-keys", "-t", "overstory-agent", "", "Enter"]);
+		expect(cmd).toEqual([
+			"tmux",
+			"send-keys",
+			"-t",
+			"overstory-agent:^.{top-left}",
+			"",
+			"Enter",
+		]);
 	});
 
 	test("throws descriptive error when tmux server is not running", async () => {
@@ -1053,7 +1081,15 @@ describe("capturePaneContent", () => {
 
 		const callArgs = spawnSpy.mock.calls[0] as unknown[];
 		const cmd = callArgs[0] as string[];
-		expect(cmd).toEqual(["tmux", "capture-pane", "-t", "my-session", "-p", "-S", "-100"]);
+		expect(cmd).toEqual([
+			"tmux",
+			"capture-pane",
+			"-t",
+			"my-session:^.{top-left}",
+			"-p",
+			"-S",
+			"-100",
+		]);
 	});
 
 	test("uses default 50 lines when not specified", async () => {
@@ -1308,7 +1344,14 @@ describe("waitForTuiReady", () => {
 		// sendKeys should have been called once to confirm the trust dialog
 		expect(sendKeysCalls).toHaveLength(1);
 		const trustCall = sendKeysCalls[0];
-		expect(trustCall).toEqual(["tmux", "send-keys", "-t", "overstory-agent", "", "Enter"]);
+		expect(trustCall).toEqual([
+			"tmux",
+			"send-keys",
+			"-t",
+			"overstory-agent:^.{top-left}",
+			"",
+			"Enter",
+		]);
 	});
 
 	test("detects bypass permissions dialog and types 2 before Enter", async () => {
@@ -1338,8 +1381,21 @@ describe("waitForTuiReady", () => {
 
 		expect(ready).toBe(true);
 		expect(sendKeysCalls).toHaveLength(2);
-		expect(sendKeysCalls[0]).toEqual(["tmux", "send-keys", "-t", "overstory-agent", "2"]);
-		expect(sendKeysCalls[1]).toEqual(["tmux", "send-keys", "-t", "overstory-agent", "", "Enter"]);
+		expect(sendKeysCalls[0]).toEqual([
+			"tmux",
+			"send-keys",
+			"-t",
+			"overstory-agent:^.{top-left}",
+			"2",
+		]);
+		expect(sendKeysCalls[1]).toEqual([
+			"tmux",
+			"send-keys",
+			"-t",
+			"overstory-agent:^.{top-left}",
+			"",
+			"Enter",
+		]);
 	});
 
 	test("retries typed bypass dialog action when the same dialog persists", async () => {
@@ -1369,10 +1425,36 @@ describe("waitForTuiReady", () => {
 
 		expect(ready).toBe(true);
 		expect(sendKeysCalls).toHaveLength(4);
-		expect(sendKeysCalls[0]).toEqual(["tmux", "send-keys", "-t", "overstory-agent", "2"]);
-		expect(sendKeysCalls[1]).toEqual(["tmux", "send-keys", "-t", "overstory-agent", "", "Enter"]);
-		expect(sendKeysCalls[2]).toEqual(["tmux", "send-keys", "-t", "overstory-agent", "2"]);
-		expect(sendKeysCalls[3]).toEqual(["tmux", "send-keys", "-t", "overstory-agent", "", "Enter"]);
+		expect(sendKeysCalls[0]).toEqual([
+			"tmux",
+			"send-keys",
+			"-t",
+			"overstory-agent:^.{top-left}",
+			"2",
+		]);
+		expect(sendKeysCalls[1]).toEqual([
+			"tmux",
+			"send-keys",
+			"-t",
+			"overstory-agent:^.{top-left}",
+			"",
+			"Enter",
+		]);
+		expect(sendKeysCalls[2]).toEqual([
+			"tmux",
+			"send-keys",
+			"-t",
+			"overstory-agent:^.{top-left}",
+			"2",
+		]);
+		expect(sendKeysCalls[3]).toEqual([
+			"tmux",
+			"send-keys",
+			"-t",
+			"overstory-agent:^.{top-left}",
+			"",
+			"Enter",
+		]);
 	});
 
 	test("handles trust dialog only once (trustHandled flag)", async () => {

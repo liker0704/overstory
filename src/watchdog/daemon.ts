@@ -434,6 +434,7 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 		sendKeys,
 		...options._tmux,
 	};
+	const sendInput = tmux.sendKeys ?? sendKeys;
 	const proc = options._process ?? { isAlive: isProcessAlive, killTree: killProcessTree };
 	const triage = options._triage ?? triageAgent;
 	const nudge = options._nudge ?? nudgeAgent;
@@ -727,29 +728,28 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 						data: { type: "rate_limit_cleared", runtime: session.runtime },
 					});
 
-					// Nudge completed+rate-limited sessions to dismiss the rate limit dialog
-					if (session.state === "completed" && session.tmuxSession) {
-						try {
-							await sendKeys(session.tmuxSession, "");
-						} catch {
-							// Non-fatal: tmux session may have died
+						// Nudge completed+rate-limited sessions to dismiss the rate limit dialog
+						if (session.state === "completed" && session.tmuxSession) {
+							try {
+								await sendInput(session.tmuxSession, "");
+							} catch {
+								// Non-fatal: tmux session may have died
+							}
 						}
-					}
 				}
 			}
 
 			// Nudge idle TUI agents that have unread mail
-			if (
-				mailStore &&
-				tmuxAlive &&
-				session.tmuxSession !== "" &&
-				session.state !== "completed" &&
-				session.state !== "zombie"
-			) {
-				try {
-					const unread = mailStore.getUnread(session.agentName);
-					if (unread.length > 0) {
-						const paneContent = lastPaneContent ?? (await capturePane(session.tmuxSession));
+		if (
+			mailStore &&
+			tmuxAlive &&
+			session.tmuxSession !== "" &&
+			session.state !== "completed"
+		) {
+			try {
+				const unread = mailStore.getUnread(session.agentName);
+				if (unread.length > 0) {
+					const paneContent = lastPaneContent ?? (await capturePane(session.tmuxSession));
 						if (paneContent) {
 							const runtime = getRuntime(session.runtime, options.config, session.capability);
 							const readyState = runtime.detectReady(paneContent);
@@ -759,9 +759,15 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 									.map((m) => m.subject)
 									.join("; ");
 								const msg = `You have ${unread.length} unread message(s): ${subjects} — check mail: ov mail check --agent ${session.agentName}`;
-								await sendKeys(session.tmuxSession, msg);
+								await sendInput(session.tmuxSession, msg);
 								await Bun.sleep(500);
-								await sendKeys(session.tmuxSession, "");
+								await sendInput(session.tmuxSession, "");
+								store.updateLastActivity(session.agentName);
+								session.lastActivity = new Date().toISOString();
+								if (session.state !== "working") {
+									store.updateState(session.agentName, "working");
+									session.state = "working";
+								}
 							}
 						}
 					}

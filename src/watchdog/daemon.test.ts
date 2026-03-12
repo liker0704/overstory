@@ -19,6 +19,7 @@ import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEventStore } from "../events/store.ts";
+import { createMailStore } from "../mail/store.ts";
 import { createSessionStore } from "../sessions/store.ts";
 import { cleanupTempDir } from "../test-helpers.ts";
 import type { AgentSession, HealthCheck, OverstoryConfig, StoredEvent } from "../types.ts";
@@ -1397,6 +1398,58 @@ describe("daemon mulch failure recording", () => {
 
 		const reloaded = readSessionsFromStore(tempRoot);
 		expect(reloaded[0]?.rateLimitedSince).not.toBeNull();
+	});
+
+	test("ready zombie session with unread mail is nudged and restored to working", async () => {
+		const oldActivity = new Date(Date.now() - 600_000).toISOString();
+		const session = makeSession({
+			agentName: "mail-blocked-agent",
+			tmuxSession: "overstory-mail-blocked-agent",
+			state: "zombie",
+			lastActivity: oldActivity,
+		});
+		writeSessionsToStore(tempRoot, [session]);
+
+		const mailStore = createMailStore(join(tempRoot, ".overstory", "mail.db"));
+		try {
+			mailStore.insert({
+				id: "msg-mail-blocked-agent",
+				from: "lead",
+				to: "mail-blocked-agent",
+				subject: "Need synthesis",
+				body: "Check mail and continue.",
+				type: "dispatch",
+				priority: "high",
+				threadId: null,
+				payload: null,
+			});
+		} finally {
+			mailStore.close();
+		}
+
+		const tmuxMock = tmuxWithLivenessAndInput({
+			"overstory-mail-blocked-agent": true,
+		});
+
+		await runDaemonTick({
+			root: tempRoot,
+			...THRESHOLDS,
+			_tmux: tmuxMock,
+			_triage: triageAlways("extend"),
+			_capturePaneContent: async () => 'Try "help" to get started\n❯\nbypass permissions',
+		});
+
+		expect(tmuxMock.sentKeys).toEqual([
+			{
+				name: "overstory-mail-blocked-agent",
+				keys: "You have 1 unread message(s): Need synthesis — check mail: ov mail check --agent mail-blocked-agent",
+			},
+			{ name: "overstory-mail-blocked-agent", keys: "" },
+		]);
+
+		const reloaded = readSessionsFromStore(tempRoot);
+		expect(reloaded[0]?.state).toBe("working");
+		expect(reloaded[0]?.lastActivity).not.toBe(oldActivity);
 	});
 
 	test("Tier 0: recordFailure called at escalation level 3+ (progressive termination)", async () => {
