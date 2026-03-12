@@ -8,7 +8,7 @@
 	"review-store-builder": 1773215545939,
 	"review-analyzers-builder": 1773215841028,
 	"review-cli-builder": 1773215857860,
-	"coordinator": 1773341904242,
+	"coordinator": 1773343007116,
 	"eval-runner-builder": 1773318208289,
 	"mission-phase0-lead": 1773319920308,
 	"phase0-types-builder": 1773319194679,
@@ -27,5 +27,8 @@
 	"result-bundle-lead": 1773341882032,
 	"events-narrative-builder": 1773341586411,
 	"bundle-wire-builder": 1773341803773,
-	"review-contour-builder": 1773341613926
+	"review-contour-builder": 1773341613926,
+	"mission-prompts-lead": 1773343010576,
+	"prompt-files-builder": 1773342651341,
+	"prompt-wiring-builder": 1773342726174
 }

@@ -978,5 +978,15 @@
 		"status": "active",
 		"createdAt": "2026-03-12T18:45:46.856Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-46dfa427",
+		"name": "mission-epic-batch6-final",
+		"memberIssueIds": [
+			"overstory-bcb5"
+		],
+		"status": "active",
+		"createdAt": "2026-03-12T18:59:48.255Z",
+		"completedAt": null
 	}
 ]
