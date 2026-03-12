@@ -290,6 +290,18 @@ export function evaluateHealth(
 		};
 	}
 
+	// ZFC Rule 2: pid dead but tmux alive → the agent process exited but the
+	// tmux pane shell survived. The agent is not doing work.
+	if (pidAlive === false) {
+		return {
+			...base,
+			processAlive: false,
+			state: "zombie",
+			action: "terminate",
+			reconciliationNote: `ZFC: pid ${session.pid} dead but tmux alive — agent process exited, shell survived`,
+		};
+	}
+
 	// Rate-limited tmux sessions with a live pane are waiting, not zombies.
 	// This branch must run before the recorded-state zombie guard so a stale
 	// status/dashboard reconciliation can recover the session back to working.
@@ -297,7 +309,7 @@ export function evaluateHealth(
 		return evaluateTimeBased(session, base, elapsedMs, thresholds, rateLimitState);
 	}
 
-	// ZFC Rule 2: tmux alive but sessions.json says zombie → investigate.
+	// ZFC Rule 3: tmux alive but sessions.json says zombie → investigate.
 	// Something marked it zombie but the process is still running. Don't auto-kill;
 	// a human or higher-tier agent should decide.
 	if (session.state === "zombie") {
@@ -308,18 +320,6 @@ export function evaluateHealth(
 			action: "investigate",
 			reconciliationNote:
 				"ZFC: tmux alive but sessions.json says zombie — investigation needed (don't auto-kill)",
-		};
-	}
-
-	// ZFC Rule 3: pid dead but tmux alive → the agent process exited but the
-	// tmux pane shell survived. The agent is not doing work.
-	if (pidAlive === false) {
-		return {
-			...base,
-			processAlive: false,
-			state: "zombie",
-			action: "terminate",
-			reconciliationNote: `ZFC: pid ${session.pid} dead but tmux alive — agent process exited, shell survived`,
 		};
 	}
 

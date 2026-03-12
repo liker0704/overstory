@@ -579,6 +579,19 @@ describe("evaluateHealth rate limit bypass", () => {
 		expect(check.action).toBe("none");
 	});
 
+	test("rate-limited agent with dead pid still becomes zombie", () => {
+		const session = makeSession({
+			state: "working",
+			pid: DEAD_PID,
+			lastActivity: new Date(Date.now() - 300_000).toISOString(),
+		});
+		const rateLimitState = { limited: true, resumesAt: null, message: "Usage cap" };
+
+		const check = evaluateHealth(session, true, THRESHOLDS, rateLimitState);
+		expect(check.state).toBe("zombie");
+		expect(check.action).toBe("terminate");
+	});
+
 	test("non-rate-limited stale agent still gets escalated", () => {
 		const session = makeSession({
 			state: "working",
