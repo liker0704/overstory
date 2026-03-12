@@ -300,6 +300,27 @@ export function createManifestLoader(manifestPath: string, agentBaseDir: string)
 	};
 }
 
+/**
+ * Map a base capability to its mission variant when an active mission exists.
+ * Returns the original capability if no mission variant applies.
+ *
+ * Mapping:
+ *   coordinator → coordinator-mission (when mission is active)
+ *   lead → lead-mission (when mission is active)
+ *   All others → unchanged
+ */
+export function resolveMissionCapability(
+	capability: string,
+	hasMission: boolean,
+): string {
+	if (!hasMission) return capability;
+	const MISSION_VARIANTS: Record<string, string> = {
+		coordinator: "coordinator-mission",
+		lead: "lead-mission",
+	};
+	return MISSION_VARIANTS[capability] ?? capability;
+}
+
 const DEFAULT_GATEWAY_ALIAS = "sonnet";
 
 /**

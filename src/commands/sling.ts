@@ -22,7 +22,7 @@ import { mkdirSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createIdentity, loadIdentity } from "../agents/identity.ts";
-import { createManifestLoader, resolveModel } from "../agents/manifest.ts";
+import { createManifestLoader, resolveMissionCapability, resolveModel } from "../agents/manifest.ts";
 import { writeOverlay } from "../agents/overlay.ts";
 import { loadConfig } from "../config.ts";
 import { AgentError, HierarchyError, ValidationError } from "../errors.ts";
@@ -582,7 +582,13 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 	);
 	const manifest = await manifestLoader.load();
 
-	const agentDef = manifest.agents[capability];
+	// Check for active mission to resolve mission-variant capabilities
+	const currentMissionFile = Bun.file(join(config.project.root, ".overstory", "current-mission.txt"));
+	const hasMission =
+		(await currentMissionFile.exists()) && (await currentMissionFile.text()).trim().length > 0;
+	const resolvedCapability = resolveMissionCapability(capability, hasMission);
+
+	const agentDef = manifest.agents[resolvedCapability];
 	if (!agentDef) {
 		throw new AgentError(
 			`Unknown capability "${capability}". Available: ${Object.keys(manifest.agents).join(", ")}`,
