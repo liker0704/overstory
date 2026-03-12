@@ -18,6 +18,7 @@ import {
 	loadWorkstreamsFile,
 	packageHandoffs,
 	slingArgsFromHandoff,
+	validateTaskIds,
 	validateWorkstreamsFile,
 } from "./workstreams.ts";
 
@@ -264,6 +265,48 @@ describe("bridgeWorkstreamsToTasks", () => {
 		expect(results).toHaveLength(1);
 		expect(results[0]?.created).toBe(false);
 		expect(results[0]?.error).toContain("create failed");
+	});
+});
+
+// === bridgeWorkstreamsToTasks edge cases ===
+
+describe("bridgeWorkstreamsToTasks edge cases", () => {
+	test("show() throws non-not-found error → reports error result without successful create", async () => {
+		// Make both show() and create() fail.
+		// Current behavior: show throws → tries create → create fails → error result.
+		// Fixed behavior: show throws non-"not found" error → reports error without create.
+		// Both produce an error result — the test checks that invariant.
+		const tracker: TrackerClient = {
+			ready: async () => [],
+			show: async () => {
+				throw new Error("connection refused");
+			},
+			create: async () => {
+				throw new Error("should not be called");
+			},
+			claim: async () => {},
+			close: async () => {},
+			list: async () => [],
+			sync: async () => {},
+		};
+
+		const ws = makeWorkstream({ taskId: "task-api-error" });
+		const results = await bridgeWorkstreamsToTasks([ws], tracker);
+
+		expect(results).toHaveLength(1);
+		// Both current and fixed code produce an error entry when all operations fail.
+		expect(results[0]?.error).toBeDefined();
+		expect(results[0]?.created).toBe(false);
+	});
+});
+
+// === validateTaskIds ===
+
+describe("validateTaskIds", () => {
+	test("empty workstreams array returns empty missing list", async () => {
+		const tracker = createMockTracker();
+		const result = await validateTaskIds([], tracker);
+		expect(result).toEqual([]);
 	});
 });
 

@@ -292,6 +292,42 @@ describe("buildNarrative", () => {
 	});
 });
 
+// === buildNarrative edge cases ===
+
+describe("buildNarrative edge cases", () => {
+	test("empty events array produces narrative with empty events", () => {
+		const narrative = buildNarrative(makeMission(), []);
+		expect(narrative.events).toHaveLength(0);
+		expect(Array.isArray(narrative.events)).toBe(true);
+	});
+
+	test("only skippable events (tool_start, tool_end, turn_start, turn_end, custom) → events array is empty", () => {
+		const events = [
+			makeEvent({ eventType: "tool_start", id: 1 }),
+			makeEvent({ eventType: "tool_end", id: 2 }),
+			makeEvent({ eventType: "turn_start", id: 3 }),
+			makeEvent({ eventType: "turn_end", id: 4 }),
+			makeEvent({ eventType: "custom", id: 5 }),
+		];
+		const narrative = buildNarrative(makeMission(), events);
+		expect(narrative.events).toHaveLength(0);
+	});
+
+	test("events with corrupted data JSON still produce narrative events", () => {
+		const events = [
+			makeEvent({ eventType: "mission", data: "{ corrupted json }" }),
+			makeEvent({ eventType: "error", data: "{ also broken", id: 2 }),
+		];
+		const narrative = buildNarrative(makeMission(), events);
+		// Both events should still appear — corrupted data falls back gracefully.
+		expect(narrative.events).toHaveLength(2);
+		// mission event with bad JSON falls back to "Mission event" label
+		expect(narrative.events[0]?.label).toBe("Mission event");
+		// error event with bad data string still renders
+		expect(narrative.events[1]?.label).toBe("Error");
+	});
+});
+
 // === renderNarrative ===
 
 describe("renderNarrative", () => {
