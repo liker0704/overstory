@@ -415,6 +415,84 @@ describe("logCommand", () => {
 		expect(updatedSession?.state).toBe("working");
 	});
 
+	test("session-end does NOT transition mission-analyst to completed (persistent mission role)", async () => {
+		const dbPath = join(tempDir, ".overstory", "sessions.db");
+		const session: AgentSession = {
+			id: "session-analyst",
+			agentName: "mission-analyst",
+			capability: "mission-analyst",
+			runtime: "claude",
+			worktreePath: tempDir,
+			branchName: "main",
+			taskId: "",
+			tmuxSession: "ov-mission-analyst",
+			state: "working",
+			pid: 33333,
+			parentAgent: null,
+			depth: 0,
+			runId: "run-mission-1",
+			startedAt: new Date().toISOString(),
+			lastActivity: new Date(Date.now() - 60_000).toISOString(),
+			escalationLevel: 0,
+			stalledSince: null,
+			rateLimitedSince: null,
+			runtimeSessionId: null,
+			transcriptPath: null,
+			originalRuntime: null,
+		};
+		const store = createSessionStore(dbPath);
+		store.upsert(session);
+		store.close();
+
+		await logCommand(["session-end", "--agent", "mission-analyst"]);
+
+		const readStore = createSessionStore(dbPath);
+		const updatedSession = readStore.getByName("mission-analyst");
+		readStore.close();
+
+		expect(updatedSession).toBeDefined();
+		expect(updatedSession?.state).toBe("working");
+	});
+
+	test("session-end does NOT transition execution-director to completed (persistent mission role)", async () => {
+		const dbPath = join(tempDir, ".overstory", "sessions.db");
+		const session: AgentSession = {
+			id: "session-director",
+			agentName: "execution-director",
+			capability: "execution-director",
+			runtime: "claude",
+			worktreePath: tempDir,
+			branchName: "main",
+			taskId: "",
+			tmuxSession: "ov-execution-director",
+			state: "working",
+			pid: 44444,
+			parentAgent: null,
+			depth: 0,
+			runId: "run-mission-1",
+			startedAt: new Date().toISOString(),
+			lastActivity: new Date(Date.now() - 60_000).toISOString(),
+			escalationLevel: 0,
+			stalledSince: null,
+			rateLimitedSince: null,
+			runtimeSessionId: null,
+			transcriptPath: null,
+			originalRuntime: null,
+		};
+		const store = createSessionStore(dbPath);
+		store.upsert(session);
+		store.close();
+
+		await logCommand(["session-end", "--agent", "execution-director"]);
+
+		const readStore = createSessionStore(dbPath);
+		const updatedSession = readStore.getByName("execution-director");
+		readStore.close();
+
+		expect(updatedSession).toBeDefined();
+		expect(updatedSession?.state).toBe("working");
+	});
+
 	describe("session-end coordinator run completion", () => {
 		test("session-end does NOT auto-complete the active run for coordinator agent (per-turn Stop hook guard)", async () => {
 			// Regression test for overstory-adc5:

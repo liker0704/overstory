@@ -171,6 +171,23 @@ describe("createSeedsTracker — show()", () => {
 		const tracker = createSeedsTracker(TEST_CWD);
 		await expect(tracker.show("sd-999")).rejects.toThrow(AgentError);
 	});
+
+	test("surfaces JSON envelope error from stdout when sd exits non-zero", async () => {
+		spawnSpy.mockImplementation(() =>
+			mockSpawnResult(
+				JSON.stringify({
+					success: false,
+					command: "show",
+					error: "Issue not found: sd-999",
+				}),
+				"",
+				1,
+			),
+		);
+
+		const tracker = createSeedsTracker(TEST_CWD);
+		await expect(tracker.show("sd-999")).rejects.toThrow("Issue not found: sd-999");
+	});
 });
 
 describe("createSeedsTracker — create()", () => {

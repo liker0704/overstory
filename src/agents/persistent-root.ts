@@ -181,15 +181,27 @@ export async function startPersistentAgent(
 
 	const { store } = openSessionStore(overstoryDir);
 	try {
-		// Check for an existing non-terminal session for this agent
 		const existing = store.getByName(agentName);
-		if (existing && existing.state !== "completed" && existing.state !== "zombie") {
+		if (existing) {
 			const sessionState = await tmux.checkSessionState(existing.tmuxSession);
+			const tmuxAlive = sessionState === "alive";
+			const processRunning = existing.pid !== null && isProcessRunning(existing.pid);
 
-			if (sessionState === "alive") {
+			if (existing.state === "completed" || existing.state === "zombie") {
+				if (tmuxAlive) {
+					await tmux.killSession(existing.tmuxSession);
+				}
+				store.updateState(agentName, "completed");
+			} else if (tmuxAlive) {
 				// Tmux session exists — check whether the process inside is still running.
 				// A crashed process leaves a zombie tmux pane that blocks retries.
-				if (existing.pid !== null && !isProcessRunning(existing.pid)) {
+				if (existing.pid === null) {
+					throw new AgentError(
+						`${capability} agent '${agentName}' is already running (tmux: ${existing.tmuxSession}, since: ${existing.startedAt})`,
+						{ agentName },
+					);
+				}
+				if (!processRunning) {
 					// Zombie: kill the empty session and reclaim the slot.
 					await tmux.killSession(existing.tmuxSession);
 					store.updateState(agentName, "completed");

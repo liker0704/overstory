@@ -8,8 +8,9 @@
  * 3. Marking it as completed in the SessionStore
  * 4. Optionally removing its worktree and branch (--clean-worktree)
  *
- * Completed agents: ov stop <name> without --clean-worktree throws a helpful error.
- * With --clean-worktree, completed agents skip the kill step and proceed to cleanup.
+ * Completed agents: ov stop <name> without --clean-worktree throws a helpful error
+ * when no stale runtime is still alive. If a completed agent still has a live tmux
+ * session or headless PID, stop reclaims that stale runtime before returning.
  */
 
 import { join } from "node:path";
@@ -110,35 +111,38 @@ export async function stopCommand(
 			throw new AgentError(`Agent "${agentName}" not found`, { agentName });
 		}
 
+		const isZombie = session.state === "zombie";
 		const isAlreadyCompleted = session.state === "completed";
+		const isHeadless = session.tmuxSession === "" && session.pid !== null;
+		let staleRuntimeAlive = false;
+		if (isHeadless && session.pid !== null) {
+			staleRuntimeAlive = proc.isAlive(session.pid);
+		} else if (session.tmuxSession.length > 0) {
+			staleRuntimeAlive = await tmux.isSessionAlive(session.tmuxSession);
+		}
 
-		// Completed agents without --clean-worktree: throw with helpful message
-		if (isAlreadyCompleted && !cleanWorktree) {
+		// Completed agents without --clean-worktree still error unless a stale
+		// runtime needs reclaiming.
+		if (isAlreadyCompleted && !cleanWorktree && !staleRuntimeAlive) {
 			throw new AgentError(
 				`Agent "${agentName}" is already completed. Use --clean-worktree to remove its worktree.`,
 				{ agentName },
 			);
 		}
 
-		const isZombie = session.state === "zombie";
-		const isHeadless = session.tmuxSession === "" && session.pid !== null;
-
 		let tmuxKilled = false;
 		let pidKilled = false;
 
-		// Skip kill operations for already-completed agents (process/tmux already gone)
-		if (!isAlreadyCompleted) {
+		if (!isAlreadyCompleted || staleRuntimeAlive || isZombie) {
 			if (isHeadless && session.pid !== null) {
 				// Headless agent: kill via process tree instead of tmux
-				const alive = proc.isAlive(session.pid);
-				if (alive) {
+				if (staleRuntimeAlive) {
 					await proc.killTree(session.pid);
 					pidKilled = true;
 				}
 			} else {
 				// TUI agent: kill via tmux session
-				const alive = await tmux.isSessionAlive(session.tmuxSession);
-				if (alive) {
+				if (staleRuntimeAlive) {
 					await tmux.killSession(session.tmuxSession);
 					tmuxKilled = true;
 				}
@@ -213,8 +217,10 @@ export async function stopCommand(
 			if (isZombie) {
 				process.stdout.write(`  Zombie agent cleaned up (state → completed)\n`);
 			}
-			if (isAlreadyCompleted) {
+			if (isAlreadyCompleted && !staleRuntimeAlive) {
 				process.stdout.write(`  Agent was already completed (skipped kill)\n`);
+			} else if (isAlreadyCompleted && staleRuntimeAlive) {
+				process.stdout.write(`  Reclaimed stale runtime from completed session\n`);
 			}
 			if (cleanWorktree && worktreeRemoved) {
 				process.stdout.write(`  Worktree removed: ${session.worktreePath}\n`);

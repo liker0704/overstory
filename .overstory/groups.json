@@ -998,35 +998,5 @@
 		"status": "active",
 		"createdAt": "2026-03-13T18:15:23.058Z",
 		"completedAt": null
-	},
-	{
-		"id": "group-6be32dc6",
-		"name": "v5-docs-smoke",
-		"memberIssueIds": [
-			"overstory-891c"
-		],
-		"status": "completed",
-		"createdAt": "2026-03-13T18:30:40.527Z",
-		"completedAt": "2026-03-13T18:31:22.027Z"
-	},
-	{
-		"id": "group-052637fe",
-		"name": "cli-high-level-e2e-v6",
-		"memberIssueIds": [
-			"overstory-284b"
-		],
-		"status": "active",
-		"createdAt": "2026-03-13T18:34:52.185Z",
-		"completedAt": null
-	},
-	{
-		"id": "group-13b1461f",
-		"name": "mission-v7-batch",
-		"memberIssueIds": [
-			"overstory-ea72"
-		],
-		"status": "active",
-		"createdAt": "2026-03-13T18:44:45.111Z",
-		"completedAt": null
 	}
 ]

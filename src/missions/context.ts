@@ -29,6 +29,49 @@ export interface MaterializedMissionRolePrompt {
 	promptPath: string;
 }
 
+function buildMissionPlanningContract(): string {
+	return [
+		"## Workstream Handoff Contract",
+		"",
+		"Treat `plan/workstreams.json` as a runtime-consumed contract, not a loose planning note.",
+		"Before declaring the mission ready for `ov mission handoff`, ensure every dispatchable workstream satisfies all of these rules:",
+		"",
+		"- The file stays valid JSON with top-level shape `{ \"version\": 1, \"workstreams\": [...] }`.",
+		"- Each workstream object uses only the runtime fields below:",
+		"  - `id`: stable kebab-case workstream identifier",
+		"  - `taskId`: non-empty task identifier; if the final canonical tracker ID is not known yet, choose a stable provisional ID and let `ov mission handoff` canonicalize it before dispatch",
+		"  - `objective`: concise execution objective",
+		"  - `fileScope`: array of repo-relative files or globs owned by that workstream",
+		"  - `dependsOn`: array of workstream `id` strings",
+		"  - `briefPath`: mission-relative markdown brief path, usually `workstreams/<id>/brief.md`",
+		"  - `status`: one of `planned`, `active`, `paused`, `completed`",
+		"- Do not use legacy/non-runtime fields like `name`, `capability`, `files`, or `dependencies`.",
+		"- Every dispatchable workstream must have a real brief file at the referenced `briefPath` before handoff.",
+		"- Keep `fileScope` ownership non-overlapping across workstreams.",
+		"",
+		"Minimum valid example:",
+		"",
+		"```json",
+		"{",
+		'  "version": 1,',
+		'  "workstreams": [',
+		"    {",
+		'      "id": "docs-smoke",',
+		'      "taskId": "docs-smoke",',
+		'      "objective": "Write the mission smoke note.",',
+		'      "fileScope": ["docs/mission-e2e-smoke.md"],',
+		'      "dependsOn": [],',
+		'      "briefPath": "workstreams/docs-smoke/brief.md",',
+		'      "status": "planned"',
+		"    }",
+		"  ]",
+		"}",
+		"```",
+		"",
+		"Each referenced brief should be a focused execution brief for the lead: objective, exact file scope, constraints, acceptance checks, and any mission-specific context needed to execute without rereading the whole mission.",
+	].join("\n");
+}
+
 function ensureArtifactRoot(mission: Pick<Mission, "id" | "artifactRoot">): string {
 	if (!mission.artifactRoot) {
 		throw new Error(`Mission ${mission.id} has no artifact root`);
@@ -156,6 +199,8 @@ export async function materializeMissionRolePrompt(opts: {
 		"- You are mission-scoped.",
 		"- Update mission artifacts directly under the paths above.",
 		"- Use ov mail for coordination and operator questions.",
+		"",
+		buildMissionPlanningContract(),
 		"",
 	].join("\n");
 

@@ -1,10 +1,11 @@
+import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MailError } from "../errors.ts";
 import { cleanupTempDir } from "../test-helpers.ts";
-import type { MailMessage } from "../types.ts";
+import { MAIL_MESSAGE_TYPES, type MailMessage } from "../types.ts";
 import { createMailStore, type MailStore } from "./store.ts";
 
 describe("createMailStore", () => {
@@ -539,20 +540,7 @@ describe("createMailStore", () => {
 		});
 
 		test("accepts all valid type values including protocol types", () => {
-			const types: MailMessage["type"][] = [
-				"status",
-				"question",
-				"result",
-				"error",
-				"worker_done",
-				"merge_ready",
-				"merged",
-				"merge_failed",
-				"escalation",
-				"health_check",
-				"dispatch",
-				"assign",
-			];
+			const types: MailMessage["type"][] = [...MAIL_MESSAGE_TYPES];
 			for (const type of types) {
 				const msg = store.insert({
 					id: "",
@@ -586,21 +574,41 @@ describe("createMailStore", () => {
 		});
 
 		test("migrates existing table to add payload column and protocol types", () => {
-			// Create a second store to verify migration works on an existing DB
-			// The beforeEach already created the DB with constraints,
-			// so this tests that reopening is safe
-			const store2 = createMailStore(join(tempDir, "mail.db"));
+			const legacyPath = join(tempDir, "legacy-mail.db");
+			const legacyDb = new Database(legacyPath);
+			legacyDb.exec(`
+CREATE TABLE messages (
+  id TEXT PRIMARY KEY,
+  from_agent TEXT NOT NULL,
+  to_agent TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  body TEXT NOT NULL,
+  type TEXT NOT NULL DEFAULT 'status' CHECK(type IN ('status','question','result','error','worker_done','merge_ready','merged','merge_failed','escalation','health_check','dispatch','assign')),
+  priority TEXT NOT NULL DEFAULT 'normal' CHECK(priority IN ('low','normal','high','urgent')),
+  thread_id TEXT,
+  read INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_inbox ON messages(to_agent, read);
+CREATE INDEX idx_thread ON messages(thread_id);
+`);
+			legacyDb.close();
+
+			const store2 = createMailStore(legacyPath);
 			const msg = store2.insert({
 				id: "msg-after-migration",
 				from: "agent-a",
 				to: "orchestrator",
 				subject: "migration test",
 				body: "body",
-				type: "status",
+				type: "execution_handoff",
 				priority: "normal",
 				threadId: null,
+				payload: JSON.stringify({ missionId: "mission-1", handoffs: [] }),
 			});
 			expect(msg.id).toBe("msg-after-migration");
+			expect(msg.type).toBe("execution_handoff");
+			expect(store2.getById("msg-after-migration")?.payload).toContain("mission-1");
 
 			// Invalid values should still be rejected
 			expect(() =>

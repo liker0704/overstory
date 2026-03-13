@@ -909,6 +909,10 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 			const mailStore = createMailStore(join(overstoryDir, "mail.db"));
 			try {
 				const mailClient = createMailClient(mailStore);
+				// Agent names can be reused after a prior session completes. Drain any
+				// stale unread mail before queuing the new dispatch so the fresh agent
+				// only sees the current assignment on first mail check.
+				mailClient.check(name);
 				mailClient.send({
 					from: dispatch.from,
 					to: dispatch.to,

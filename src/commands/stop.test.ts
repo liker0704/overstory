@@ -352,6 +352,23 @@ describe("stopCommand zombie cleanup", () => {
 });
 
 describe("stopCommand completed agent cleanup", () => {
+	test("completed agent with live tmux is reclaimed even without --clean-worktree", async () => {
+		const session = makeAgentSession({ state: "completed" });
+		saveSessionsToDb([session]);
+
+		const { deps, tmuxCalls } = makeDeps({ [session.tmuxSession]: true });
+		const output = await captureStdout(() => stopCommand("my-builder", {}, deps));
+
+		expect(output).toContain("Agent stopped");
+		expect(output).toContain("Reclaimed stale runtime");
+		expect(tmuxCalls.killSession).toHaveLength(1);
+
+		const { store } = openSessionStore(overstoryDir);
+		const updated = store.getByName("my-builder");
+		store.close();
+		expect(updated?.state).toBe("completed");
+	});
+
 	test("completed + --clean-worktree removes worktree and branch", async () => {
 		const session = makeAgentSession({ state: "completed" });
 		saveSessionsToDb([session]);
@@ -366,8 +383,8 @@ describe("stopCommand completed agent cleanup", () => {
 		expect(output).toContain(`Worktree removed`);
 		expect(output).toContain(`Branch deleted`);
 
-		// No kill operations
-		expect(tmuxCalls.isSessionAlive).toHaveLength(0);
+		// Liveness is checked, but no kill is needed for a cleanly completed session.
+		expect(tmuxCalls.isSessionAlive).toHaveLength(1);
 		expect(tmuxCalls.killSession).toHaveLength(0);
 
 		// Worktree removed

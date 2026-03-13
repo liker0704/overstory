@@ -2663,8 +2663,13 @@ function makePersistentTmux(
 		ensureTmuxAvailableError?: Error;
 		checkSessionStateMap?: Record<string, "alive" | "dead" | "no_server">;
 	} = {},
-): { tmux: PersistentAgentTmuxDeps; createSessionCalls: Array<{ name: string; cwd: string }> } {
+): {
+	tmux: PersistentAgentTmuxDeps;
+	createSessionCalls: Array<{ name: string; cwd: string }>;
+	killSessionCalls: string[];
+} {
 	const createSessionCalls: Array<{ name: string; cwd: string }> = [];
+	const killSessionCalls: string[] = [];
 	const tmux: PersistentAgentTmuxDeps = {
 		createSession: async (name, cwd) => {
 			createSessionCalls.push({ name, cwd });
@@ -2675,14 +2680,16 @@ function makePersistentTmux(
 			const stateMap = options.checkSessionStateMap ?? {};
 			return stateMap[name] ?? (sessionAliveMap[name] ? "alive" : "dead");
 		},
-		killSession: async () => {},
+		killSession: async (name) => {
+			killSessionCalls.push(name);
+		},
 		sendKeys: async () => {},
 		waitForTuiReady: async () => options.waitForTuiReadyResult ?? true,
 		ensureTmuxAvailable: async () => {
 			if (options.ensureTmuxAvailableError) throw options.ensureTmuxAvailableError;
 		},
 	};
-	return { tmux, createSessionCalls };
+	return { tmux, createSessionCalls, killSessionCalls };
 }
 
 describe("persistent-root: startPersistentAgent", () => {
@@ -2887,6 +2894,61 @@ describe("persistent-root: startPersistentAgent", () => {
 		} finally {
 			Bun.sleep = originalSleep;
 		}
+	});
+
+	test("reclaims a live tmux session left behind by a completed session record", async () => {
+		const store = createSessionStore(join(overstoryDir, "sessions.db"));
+		try {
+			store.upsert({
+				id: "session-existing",
+				agentName: "mission-analyst",
+				capability: "coordinator",
+				runtime: "claude",
+				worktreePath: tempDir,
+				branchName: "main",
+				taskId: "",
+				tmuxSession: "overstory-test-project-analyst",
+				state: "completed",
+				pid: 12345,
+				parentAgent: null,
+				depth: 0,
+				runId: null,
+				startedAt: new Date().toISOString(),
+				lastActivity: new Date().toISOString(),
+				escalationLevel: 0,
+				stalledSince: null,
+				rateLimitedSince: null,
+				runtimeSessionId: null,
+				transcriptPath: null,
+				originalRuntime: null,
+			});
+		} finally {
+			store.close();
+		}
+
+		const { tmux, killSessionCalls } = makePersistentTmux(
+			{ "overstory-test-project-analyst": true },
+			{ checkSessionStateMap: { "overstory-test-project-analyst": "alive" } },
+		);
+		const originalSleep = Bun.sleep;
+		Bun.sleep = (() => Promise.resolve()) as typeof Bun.sleep;
+		try {
+			await startPersistentAgent(
+				{
+					agentName: "mission-analyst",
+					capability: "coordinator",
+					projectRoot: tempDir,
+					overstoryDir,
+					tmuxSession: "overstory-test-project-analyst",
+					createRun: false,
+				},
+				tmux,
+			);
+		} finally {
+			Bun.sleep = originalSleep;
+		}
+
+		expect(killSessionCalls).toContain("overstory-test-project-analyst");
 	});
 });
 

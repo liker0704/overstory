@@ -5,7 +5,7 @@
  */
 
 import { mkdir, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { Command } from "commander";
 import { loadConfig } from "../config.ts";
 import { jsonError, jsonOutput } from "../json.ts";
@@ -52,12 +52,16 @@ import { openSessionStore } from "../sessions/compat.ts";
 import { createRunStore } from "../sessions/store.ts";
 import { createTrackerClient, resolveBackend } from "../tracker/factory.ts";
 import type { InsertMission, Mission, MissionSummary } from "../types.ts";
+import { nudgeAgent } from "./nudge.ts";
+import { stopCommand } from "./stop.ts";
 
 export interface MissionCommandDeps {
 	startMissionAnalyst?: typeof startMissionAnalyst;
 	startExecutionDirector?: typeof startExecutionDirector;
 	stopMissionRole?: typeof stopMissionRole;
+	stopAgentCommand?: typeof stopCommand;
 	ensureCanonicalWorkstreamTasks?: typeof ensureCanonicalWorkstreamTasks;
+	nudgeAgent?: typeof nudgeAgent;
 }
 
 export async function resolveCurrentMissionId(overstoryDir: string): Promise<string | null> {
@@ -85,6 +89,15 @@ function toSummary(mission: Mission): MissionSummary {
 
 function openMailClient(overstoryDir: string) {
 	return createMailClient(createMailStore(join(overstoryDir, "mail.db")));
+}
+
+function drainAgentInbox(overstoryDir: string, agentName: string): number {
+	const client = openMailClient(overstoryDir);
+	try {
+		return client.check(agentName).length;
+	} finally {
+		client.close();
+	}
 }
 
 async function readAnswerBody(opts: { body?: string; file?: string }): Promise<string | null> {
@@ -172,12 +185,167 @@ async function sendMissionControlMail(opts: {
 	}
 }
 
+async function nudgeMissionRoleBestEffort(
+	projectRoot: string,
+	agentName: string,
+	message: string,
+	deps: MissionCommandDeps = {},
+): Promise<void> {
+	try {
+		await (deps.nudgeAgent ?? nudgeAgent)(projectRoot, agentName, message, true);
+	} catch {
+		// Best-effort wake-up only.
+	}
+}
+
+async function pendingMissionQuestionSender(
+	overstoryDir: string,
+	messageId: string,
+): Promise<string | null> {
+	const store = createMailStore(join(overstoryDir, "mail.db"));
+	try {
+		return store.getById(messageId)?.from ?? null;
+	} finally {
+		store.close();
+	}
+}
+
+async function ensureMissionRoleResponsive(opts: {
+	projectRoot: string;
+	overstoryDir: string;
+	mission: Mission;
+	roleName: string;
+	threadId: string;
+	replyId: string;
+	deps?: MissionCommandDeps;
+}): Promise<void> {
+	const { projectRoot, overstoryDir, mission, roleName, threadId, replyId, deps = {} } = opts;
+	const nudgeMessage = `Operator replied in thread ${threadId} (${replyId}). Check mail and continue the mission.`;
+
+	if (roleName === "coordinator-mission" || roleName === "coordinator") {
+		await nudgeMissionRoleBestEffort(projectRoot, "coordinator", nudgeMessage, deps);
+		return;
+	}
+
+	if (roleName !== "mission-analyst" && roleName !== "execution-director") {
+		return;
+	}
+
+	const { store } = openSessionStore(overstoryDir);
+	let sessionState: string | null = null;
+	try {
+		sessionState = store.getByName(roleName)?.state ?? null;
+	} finally {
+		store.close();
+	}
+
+	if (sessionState && sessionState !== "completed" && sessionState !== "zombie") {
+		await nudgeMissionRoleBestEffort(projectRoot, roleName, nudgeMessage, deps);
+		return;
+	}
+
+	if (!mission.runId) {
+		return;
+	}
+
+	const roleLabel = roleName === "mission-analyst" ? "Mission Analyst" : "Execution Director";
+	const prompt = await materializeMissionRolePrompt({
+		overstoryDir,
+		agentName: roleName,
+		capability: roleName,
+		roleLabel,
+		mission,
+	});
+	const beacon = [
+		buildMissionRoleBeacon({
+			agentName: roleName,
+			missionId: mission.id,
+			contextPath: prompt.contextPath,
+		}),
+		`Operator replied in thread ${threadId}. Check mail and continue the mission.`,
+	].join(" ");
+
+	const startRole =
+		roleName === "mission-analyst"
+			? (deps.startMissionAnalyst ?? startMissionAnalyst)
+			: (deps.startExecutionDirector ?? startExecutionDirector);
+	const result = await startRole({
+		missionId: mission.id,
+		projectRoot,
+		overstoryDir,
+		existingRunId: mission.runId,
+		appendSystemPromptFile: prompt.promptPath,
+		beacon,
+	});
+
+	const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
+	try {
+		if (roleName === "mission-analyst") {
+			missionStore.bindSessions(mission.id, { analystSessionId: result.session.id });
+		} else {
+			missionStore.bindSessions(mission.id, { executionDirectorSessionId: result.session.id });
+		}
+	} finally {
+		missionStore.close();
+	}
+
+	recordMissionEvent({
+		overstoryDir,
+		mission,
+		agentName: "operator",
+		data: { kind: "role_started", detail: `${roleName} restarted after operator reply` },
+	});
+}
+
 function shellQuote(arg: string): string {
 	return /^[A-Za-z0-9_./:=+-]+$/.test(arg) ? arg : `'${arg.replaceAll("'", `'\\''`)}'`;
 }
 
 function renderShellCommand(args: string[]): string {
 	return args.map(shellQuote).join(" ");
+}
+
+async function stopMissionRunDescendants(opts: {
+	overstoryDir: string;
+	projectRoot: string;
+	runId: string | null;
+	excludedAgentNames: ReadonlySet<string>;
+	stopAgentCommand: typeof stopCommand;
+}): Promise<string[]> {
+	if (!opts.runId) {
+		return [];
+	}
+
+	const { store } = openSessionStore(opts.overstoryDir);
+	try {
+		const descendants = store
+			.getByRun(opts.runId)
+			.filter((session) => !opts.excludedAgentNames.has(session.agentName))
+			.sort((left, right) => {
+				if (right.depth !== left.depth) {
+					return right.depth - left.depth;
+				}
+				return left.agentName.localeCompare(right.agentName);
+			});
+		const stopped: string[] = [];
+		const originalCwd = process.cwd();
+		process.chdir(opts.projectRoot);
+		try {
+			for (const session of descendants) {
+				try {
+					await opts.stopAgentCommand(session.agentName, { force: true });
+					stopped.push(session.agentName);
+				} catch {
+					// Completed descendants without a live runtime do not need additional cleanup.
+				}
+			}
+		} finally {
+			process.chdir(originalCwd);
+		}
+		return stopped;
+	} finally {
+		store.close();
+	}
 }
 
 async function terminalizeMission(opts: {
@@ -192,6 +360,7 @@ async function terminalizeMission(opts: {
 	const dbPath = join(overstoryDir, "sessions.db");
 	const missionStore = createMissionStore(dbPath);
 	const stopRole = deps?.stopMissionRole ?? stopMissionRole;
+	const stopAgent = deps?.stopAgentCommand ?? stopCommand;
 
 	try {
 		for (const roleName of ["mission-analyst", "execution-director"]) {
@@ -211,6 +380,36 @@ async function terminalizeMission(opts: {
 			} catch {
 				// Role may not be running.
 			}
+		}
+
+		const descendantStops = await stopMissionRunDescendants({
+			overstoryDir,
+			projectRoot,
+			runId: mission.runId,
+			excludedAgentNames: new Set(["mission-analyst", "execution-director"]),
+			stopAgentCommand: stopAgent,
+		});
+		for (const agentName of descendantStops) {
+			recordMissionEvent({
+				overstoryDir,
+				mission,
+				agentName: "operator",
+				data: { kind: "role_stopped", detail: `${agentName} stopped` },
+			});
+		}
+		const drainedAgentNames = new Set<string>(["mission-analyst", "execution-director"]);
+		if (mission.runId) {
+			const { store } = openSessionStore(overstoryDir);
+			try {
+				for (const session of store.getByRun(mission.runId)) {
+					drainedAgentNames.add(session.agentName);
+				}
+			} finally {
+				store.close();
+			}
+		}
+		for (const agentName of drainedAgentNames) {
+			drainAgentInbox(overstoryDir, agentName);
 		}
 
 		const beforeState = mission.state;
@@ -386,6 +585,7 @@ export async function missionStart(
 		});
 
 		await writeMissionRuntimePointers(overstoryDir, mission.id, runId);
+		drainAgentInbox(overstoryDir, "mission-analyst");
 
 		const analystResult = await startAnalyst({
 			missionId: mission.id,
@@ -413,6 +613,12 @@ export async function missionStart(
 				`Context file: ${prompt.contextPath}`,
 			].join("\n"),
 		});
+		await nudgeMissionRoleBestEffort(
+			projectRoot,
+			"mission-analyst",
+			`Mission started: ${mission.slug}. Check mail and begin mission work.`,
+			deps,
+		);
 
 		recordMissionEvent({
 			overstoryDir,
@@ -627,7 +833,11 @@ interface AnswerOpts {
 	json?: boolean;
 }
 
-export async function missionAnswer(overstoryDir: string, opts: AnswerOpts): Promise<void> {
+export async function missionAnswer(
+	overstoryDir: string,
+	opts: AnswerOpts,
+	deps: MissionCommandDeps = {},
+): Promise<void> {
 	const missionId = await resolveCurrentMissionId(overstoryDir);
 	if (!missionId) {
 		if (opts.json) {
@@ -662,6 +872,7 @@ export async function missionAnswer(overstoryDir: string, opts: AnswerOpts): Pro
 	}
 
 	const dbPath = join(overstoryDir, "sessions.db");
+	const projectRoot = dirname(overstoryDir);
 	const missionStore = createMissionStore(dbPath);
 	try {
 		const mission = missionStore.getById(missionId);
@@ -687,8 +898,10 @@ export async function missionAnswer(overstoryDir: string, opts: AnswerOpts): Pro
 
 		const client = openMailClient(overstoryDir);
 		let replyId: string;
+		const pendingThreadId = mission.pendingInputThreadId;
+		const pendingSender = await pendingMissionQuestionSender(overstoryDir, pendingThreadId);
 		try {
-			replyId = client.reply(mission.pendingInputThreadId, body, "operator");
+			replyId = client.reply(pendingThreadId, body, "operator");
 		} finally {
 			client.close();
 		}
@@ -700,8 +913,8 @@ export async function missionAnswer(overstoryDir: string, opts: AnswerOpts): Pro
 			agentName: "operator",
 			data: {
 				kind: "user_answer",
-				detail: `Operator replied in thread ${mission.pendingInputThreadId}`,
-				threadId: mission.pendingInputThreadId,
+				detail: `Operator replied in thread ${pendingThreadId}`,
+				threadId: pendingThreadId,
 				replyId,
 			},
 		});
@@ -711,6 +924,18 @@ export async function missionAnswer(overstoryDir: string, opts: AnswerOpts): Pro
 			agentName: "operator",
 			data: { kind: "state_change", from: "frozen", to: "active" },
 		});
+		const refreshedMission = missionStore.getById(missionId) ?? mission;
+		if (pendingSender) {
+			await ensureMissionRoleResponsive({
+				projectRoot,
+				overstoryDir,
+				mission: refreshedMission,
+				roleName: pendingSender,
+				threadId: pendingThreadId,
+				replyId,
+				deps,
+			});
+		}
 
 		if (opts.json) {
 			jsonOutput("mission answer", { missionId, answered: true, replyId, body });
@@ -930,6 +1155,7 @@ export async function missionHandoff(
 			roleLabel: "Execution Director",
 			mission,
 		});
+		drainAgentInbox(overstoryDir, "execution-director");
 
 		const executionDirectorResult = await startDirector({
 			missionId: mission.id,
@@ -991,6 +1217,12 @@ export async function missionHandoff(
 		} finally {
 			client.close();
 		}
+		await nudgeMissionRoleBestEffort(
+			projectRoot,
+			"execution-director",
+			`Execution handoff is ready for mission ${mission.slug}. Check mail and dispatch workstreams.`,
+			deps,
+		);
 
 		recordMissionEvent({
 			overstoryDir,
@@ -1044,6 +1276,7 @@ export async function missionPause(
 	overstoryDir: string,
 	workstreamId: string,
 	opts: PauseOpts,
+	deps: MissionCommandDeps = {},
 ): Promise<void> {
 	const missionId = await resolveCurrentMissionId(overstoryDir);
 	if (!missionId) {
@@ -1057,6 +1290,7 @@ export async function missionPause(
 	}
 
 	const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
+	const projectRoot = dirname(overstoryDir);
 	try {
 		const mission = missionStore.getById(missionId);
 		if (!mission) {
@@ -1114,6 +1348,12 @@ export async function missionPause(
 					`Paused workstreams: ${refreshedMission.pausedWorkstreamIds.join(", ")}`,
 				].join("\n"),
 			});
+			await nudgeMissionRoleBestEffort(
+				projectRoot,
+				"execution-director",
+				`Mission pause control for ${workstreamId}. Check mail and update execution.`,
+				deps,
+			);
 			recordMissionEvent({
 				overstoryDir,
 				mission: refreshedMission,
@@ -1156,6 +1396,7 @@ export async function missionResume(
 	projectRoot: string,
 	workstreamId: string,
 	json: boolean,
+	deps: MissionCommandDeps = {},
 ): Promise<void> {
 	const missionId = await resolveCurrentMissionId(overstoryDir);
 	if (!missionId) {
@@ -1241,6 +1482,12 @@ export async function missionResume(
 					}`,
 				].join("\n"),
 			});
+			await nudgeMissionRoleBestEffort(
+				projectRoot,
+				"execution-director",
+				`Mission resume control for ${workstreamId}. Check mail and continue execution.`,
+				deps,
+			);
 			recordMissionEvent({
 				overstoryDir,
 				mission: refreshedMission,
@@ -1281,6 +1528,7 @@ export async function missionRefreshBriefsCommand(
 	overstoryDir: string,
 	projectRoot: string,
 	opts: RefreshBriefOpts,
+	deps: MissionCommandDeps = {},
 ): Promise<void> {
 	const missionId = await resolveCurrentMissionId(overstoryDir);
 	if (!missionId) {
@@ -1420,6 +1668,14 @@ export async function missionRefreshBriefsCommand(
 					refreshSummary,
 				].join("\n"),
 			});
+			await nudgeMissionRoleBestEffort(
+				projectRoot,
+				recipientConfig.recipient,
+				pausedList.length > 0
+					? `Mission briefs refreshed. ${pausedList.length} workstream(s) need regeneration. Check mail.`
+					: "Mission briefs refreshed. Check mail for updated context.",
+				deps,
+			);
 			controlMessageIds.push(controlMessageId);
 			recordMissionEvent({
 				overstoryDir,

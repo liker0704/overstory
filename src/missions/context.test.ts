@@ -85,6 +85,9 @@ describe("mission context helpers", () => {
 
 		expect(context).toContain("Mission ID: mission-context-001");
 		expect(context).toContain("plan/workstreams.json");
+		expect(context).toContain("## Workstream Handoff Contract");
+		expect(context).toContain('"briefPath": "workstreams/docs-smoke/brief.md"');
+		expect(context).toContain("Do not use legacy/non-runtime fields like `name`, `capability`, `files`, or `dependencies`.");
 		expect(prompt).toContain(materialized.contextPath);
 		expect(prompt).not.toContain("{{INSTRUCTION_PATH}}");
 	});

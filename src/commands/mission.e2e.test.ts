@@ -52,30 +52,34 @@ function makeRoleDeps(
 ): MissionCommandDeps & {
 	started: string[];
 	stopped: string[];
+	nudged: Array<{ agentName: string; message: string }>;
 } {
 	const started: string[] = [];
 	const stopped: string[] = [];
+	const nudged: Array<{ agentName: string; message: string }> = [];
 	const dbPath = join(overstoryDirPath, "sessions.db");
 
 	function upsertSession(
-		agentName: "mission-analyst" | "execution-director",
+		agentName: string,
+		capability: string,
 		missionId: string,
 		runId: string,
+		overrides: Partial<AgentSession> = {},
 	): AgentSession {
 		const now = new Date().toISOString();
 		return {
-			id: `sess-${agentName}`,
+			id: overrides.id ?? `sess-${agentName}`,
 			agentName,
-			capability: agentName,
+			capability,
 			runtime: "claude",
-			worktreePath: projectRoot,
-			branchName: "main",
-			taskId: missionId,
-			tmuxSession: `ov-${agentName}`,
-			state: "working",
-			pid: 1000 + started.length,
-			parentAgent: null,
-			depth: 0,
+			worktreePath: overrides.worktreePath ?? projectRoot,
+			branchName: overrides.branchName ?? "main",
+			taskId: overrides.taskId ?? missionId,
+			tmuxSession: overrides.tmuxSession ?? `ov-${agentName}`,
+			state: overrides.state ?? "working",
+			pid: overrides.pid ?? (1000 + started.length),
+			parentAgent: overrides.parentAgent ?? null,
+			depth: overrides.depth ?? 0,
 			runId,
 			startedAt: now,
 			lastActivity: now,
@@ -83,9 +87,26 @@ function makeRoleDeps(
 			stalledSince: null,
 			rateLimitedSince: null,
 			runtimeSessionId: null,
-			transcriptPath: null,
+			transcriptPath: overrides.transcriptPath ?? null,
 			originalRuntime: null,
+			...overrides,
 		};
+	}
+
+	function markCompleted(agentName: string): { sessionKilled: boolean; sessionId: string } {
+		const sessionStore = createSessionStore(dbPath);
+		try {
+			const existing = sessionStore.getByName(agentName);
+			if (existing) {
+				sessionStore.updateState(agentName, "completed");
+			}
+			return {
+				sessionKilled: existing !== null,
+				sessionId: existing?.id ?? `sess-${agentName}`,
+			};
+		} finally {
+			sessionStore.close();
+		}
 	}
 
 	async function startRole(
@@ -93,7 +114,7 @@ function makeRoleDeps(
 		opts: { missionId: string; existingRunId: string },
 	) {
 		started.push(agentName);
-		const session = upsertSession(agentName, opts.missionId, opts.existingRunId);
+		const session = upsertSession(agentName, agentName, opts.missionId, opts.existingRunId);
 		const sessionStore = createSessionStore(dbPath);
 		try {
 			sessionStore.upsert(session);
@@ -112,6 +133,7 @@ function makeRoleDeps(
 	return {
 		started,
 		stopped,
+		nudged,
 		ensureCanonicalWorkstreamTasks: async (filePath) => {
 			const validation = await loadWorkstreamsFile(filePath);
 			if (!validation.valid || !validation.workstreams) {
@@ -131,20 +153,19 @@ function makeRoleDeps(
 		startExecutionDirector: async (opts) => startRole("execution-director", opts),
 		stopMissionRole: async (agentName) => {
 			stopped.push(agentName);
-			const sessionStore = createSessionStore(dbPath);
-			try {
-				const existing = sessionStore.getByName(agentName);
-				if (existing) {
-					sessionStore.updateState(agentName, "completed");
-				}
-				return {
-					sessionKilled: existing !== null,
-					sessionId: existing?.id ?? `sess-${agentName}`,
-					runCompleted: false,
-				};
-			} finally {
-				sessionStore.close();
-			}
+			const result = markCompleted(agentName);
+			return {
+				...result,
+				runCompleted: false,
+			};
+		},
+		stopAgentCommand: async (agentName) => {
+			stopped.push(agentName);
+			markCompleted(agentName);
+		},
+		nudgeAgent: async (_projectRoot, agentName, message) => {
+			nudged.push({ agentName, message: message ?? "" });
+			return { delivered: true };
 		},
 	};
 }
@@ -190,6 +211,7 @@ describe("mission command e2e", () => {
 		expect(mission).not.toBeNull();
 		expect(mission?.slug).toBe("auth-refresh");
 		expect(deps.started).toEqual(["mission-analyst"]);
+		expect(deps.nudged.some((entry) => entry.agentName === "mission-analyst")).toBe(true);
 		expect(await Bun.file(join(overstoryDir, "current-mission.txt")).exists()).toBe(true);
 		expect(await Bun.file(join(overstoryDir, "current-run.txt")).exists()).toBe(true);
 
@@ -235,15 +257,17 @@ describe("mission command e2e", () => {
 			type: "question",
 		});
 		missionStore.freeze(mission!.id, "clarification", questionId);
-		await missionAnswer(overstoryDir, { body: "Use the login entrypoint", json: true });
+		await missionAnswer(overstoryDir, { body: "Use the login entrypoint", json: true }, deps);
 
 		const repliesToAnalyst = mailStore.getAll({ from: "operator", to: "mission-analyst" });
 		expect(repliesToAnalyst.some((message) => message.threadId === questionId)).toBe(true);
 		expect(missionStore.getById(mission!.id)?.pendingUserInput).toBe(false);
 		expect(missionStore.getById(mission!.id)?.reopenCount).toBe(1);
+		expect(deps.nudged.some((entry) => entry.agentName === "mission-analyst")).toBe(true);
 
 		await missionHandoff(overstoryDir, tempDir, true, deps);
 		expect(deps.started).toEqual(["mission-analyst", "execution-director"]);
+		expect(deps.nudged.some((entry) => entry.agentName === "execution-director")).toBe(true);
 
 		const handoffMessage = mailStore
 			.getAll({ to: "execution-director" })
@@ -263,7 +287,7 @@ describe("mission command e2e", () => {
 		await missionRefreshBriefsCommand(overstoryDir, tempDir, {
 			workstream: "ws-auth",
 			json: true,
-		});
+		}, deps);
 
 		const refreshedMission = missionStore.getById(mission!.id);
 		expect(refreshedMission?.pausedWorkstreamIds).toContain("ws-auth");
@@ -282,7 +306,7 @@ describe("mission command e2e", () => {
 			briefPath: relative(tempDir, briefPath),
 		});
 
-		await missionResume(overstoryDir, tempDir, "ws-auth", true);
+		await missionResume(overstoryDir, tempDir, "ws-auth", true, deps);
 		expect(missionStore.getById(mission!.id)?.pausedWorkstreamIds).toEqual([]);
 		expect((await readSpecMeta(tempDir, "task-auth"))?.status).toBe("current");
 
@@ -307,6 +331,48 @@ describe("mission command e2e", () => {
 
 		mailStore.close();
 		missionStore.close();
+	});
+
+	test("mission answer restarts mission-analyst when the pending role session was marked completed", async () => {
+		const deps = makeRoleDeps(tempDir, overstoryDir);
+
+		await missionStart(
+			overstoryDir,
+			tempDir,
+			{ slug: "restart-analyst", objective: "Recover the pending mission analyst", json: true },
+			deps,
+		);
+
+		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
+		const mission = missionStore.getActive();
+		expect(mission).not.toBeNull();
+
+		const mailStore = createMailStore(join(overstoryDir, "mail.db"));
+		const mailClient = createMailClient(mailStore);
+		const questionId = mailClient.send({
+			from: "mission-analyst",
+			to: "operator",
+			subject: "Need clarification",
+			body: "Please confirm the recovery path",
+			type: "question",
+		});
+		missionStore.freeze(mission!.id, "question", questionId);
+
+		const sessionStore = createSessionStore(join(overstoryDir, "sessions.db"));
+		try {
+			sessionStore.updateState("mission-analyst", "completed");
+		} finally {
+			sessionStore.close();
+		}
+
+		await missionAnswer(overstoryDir, { body: "Restart and continue", json: true }, deps);
+
+		expect(deps.started).toEqual(["mission-analyst", "mission-analyst"]);
+		expect(missionStore.getById(mission!.id)?.pendingUserInput).toBe(false);
+		expect(missionStore.getById(mission!.id)?.analystSessionId).toBe("sess-mission-analyst");
+
+		missionStore.close();
+		mailClient.close();
 	});
 
 	test("refresh-briefs with missing meta still pauses the workstream and blocks resume until spec regeneration", async () => {
@@ -353,13 +419,13 @@ describe("mission command e2e", () => {
 		await missionRefreshBriefsCommand(overstoryDir, tempDir, {
 			workstream: "ws-auth",
 			json: true,
-		});
+		}, deps);
 
 		const refreshedMission = missionStore.getById(mission!.id);
 		expect(refreshedMission?.pausedWorkstreamIds).toContain("ws-auth");
 		expect((await readSpecMeta(tempDir, "task-auth"))).toBeNull();
 
-		await missionResume(overstoryDir, tempDir, "ws-auth", true);
+		await missionResume(overstoryDir, tempDir, "ws-auth", true, deps);
 		expect(process.exitCode).toBe(1);
 		process.exitCode = 0;
 
@@ -370,7 +436,7 @@ describe("mission command e2e", () => {
 			briefPath: relative(tempDir, briefPath),
 		});
 
-		await missionResume(overstoryDir, tempDir, "ws-auth", true);
+		await missionResume(overstoryDir, tempDir, "ws-auth", true, deps);
 		expect(missionStore.getById(mission!.id)?.pausedWorkstreamIds).toEqual([]);
 
 		missionStore.close();
@@ -435,6 +501,78 @@ describe("mission command e2e", () => {
 		missionStore.close();
 	});
 
+	test("mission start and handoff drain stale unread root-role mail before reuse", async () => {
+		const deps = makeRoleDeps(tempDir, overstoryDir);
+		const staleMailStore = createMailStore(join(overstoryDir, "mail.db"));
+		const staleMailClient = createMailClient(staleMailStore);
+		const staleAnalystId = staleMailClient.send({
+			from: "operator",
+			to: "mission-analyst",
+			subject: "Old analyst mail",
+			body: "stale analyst message",
+			type: "status",
+		});
+
+		await missionStart(
+			overstoryDir,
+			tempDir,
+			{ slug: "mail-drain", objective: "Drain stale root-role mail", json: true },
+			deps,
+		);
+
+		expect(staleMailStore.getById(staleAnalystId)?.read).toBe(true);
+
+		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
+		const mission = missionStore.getActive();
+		expect(mission).not.toBeNull();
+
+		const paths = getMissionArtifactPaths(mission!);
+		await Bun.write(
+			paths.workstreamsJson,
+			`${JSON.stringify(
+				{
+					version: 1,
+					workstreams: [
+						{
+							id: "ws-auth",
+							taskId: "task-auth",
+							objective: "Refresh authentication flow",
+							fileScope: ["src/auth.ts"],
+							dependsOn: [],
+							briefPath: "plan/ws-auth.md",
+							status: "planned",
+						},
+					],
+				},
+				null,
+				2,
+			)}\n`,
+		);
+		const briefPath = join(paths.planDir, "ws-auth.md");
+		await Bun.write(briefPath, "# Auth brief v1\n");
+		await specWriteCommand("task-auth", {
+			body: "# Auth spec v1",
+			agent: "lead-auth",
+			workstreamId: "ws-auth",
+			briefPath: relative(tempDir, briefPath),
+		});
+
+		const staleDirectorId = staleMailClient.send({
+			from: "lead-auth",
+			to: "execution-director",
+			subject: "Old execution director mail",
+			body: "stale execution-director message",
+			type: "status",
+		});
+
+		await missionHandoff(overstoryDir, tempDir, true, deps);
+
+		expect(staleMailStore.getById(staleDirectorId)?.read).toBe(true);
+
+		staleMailClient.close();
+		missionStore.close();
+	});
+
 	test("mission stop exports result bundle and review for stopped terminal state", async () => {
 		const deps = makeRoleDeps(tempDir, overstoryDir);
 
@@ -465,6 +603,62 @@ describe("mission command e2e", () => {
 		} finally {
 			runStore.close();
 		}
+
+		missionStore.close();
+	});
+
+	test("mission stop also completes descendant agent sessions from the same mission run", async () => {
+		const deps = makeRoleDeps(tempDir, overstoryDir);
+
+		await missionStart(
+			overstoryDir,
+			tempDir,
+			{ slug: "stop-descendants", objective: "Verify mission descendant cleanup", json: true },
+			deps,
+		);
+
+		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
+		const mission = missionStore.getActive();
+		expect(mission).not.toBeNull();
+
+		const sessionStore = createSessionStore(join(overstoryDir, "sessions.db"));
+		try {
+			sessionStore.upsert({
+				id: "sess-docs-smoke-lead",
+				agentName: "docs-smoke-lead",
+				capability: "lead",
+				runtime: "claude",
+				worktreePath: join(tempDir, ".overstory", "worktrees", "docs-smoke-lead"),
+				branchName: "overstory/docs-smoke-lead/task-1",
+				taskId: "task-1",
+				tmuxSession: "overstory-overstory-docs-smoke-lead",
+				state: "working",
+				pid: 4242,
+				parentAgent: "execution-director",
+				depth: 1,
+				runId: mission!.runId,
+				startedAt: "2026-03-13T00:00:00.000Z",
+				lastActivity: "2026-03-13T00:00:00.000Z",
+				escalationLevel: 0,
+				stalledSince: null,
+				rateLimitedSince: null,
+				runtimeSessionId: null,
+				transcriptPath: null,
+				originalRuntime: null,
+			});
+		} finally {
+			sessionStore.close();
+		}
+
+		await missionStop(overstoryDir, tempDir, true, deps);
+
+		const verifySessionStore = createSessionStore(join(overstoryDir, "sessions.db"));
+		try {
+			expect(verifySessionStore.getByName("docs-smoke-lead")?.state).toBe("completed");
+		} finally {
+			verifySessionStore.close();
+		}
+		expect(deps.stopped).toEqual(["mission-analyst", "execution-director", "docs-smoke-lead"]);
 
 		missionStore.close();
 	});

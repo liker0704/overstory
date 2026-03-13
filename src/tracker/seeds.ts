@@ -21,7 +21,16 @@ async function runSd(
 	const stderr = await new Response(proc.stderr).text();
 	const exitCode = await proc.exited;
 	if (exitCode !== 0) {
-		throw new AgentError(`sd ${context} failed (exit ${exitCode}): ${stderr.trim()}`);
+		let detail = stderr.trim();
+		if (!detail) {
+			try {
+				const envelope = parseSdJson<SdEnvelopeBase>(stdout, context);
+				detail = envelope.error ?? stdout.trim();
+			} catch {
+				detail = stdout.trim();
+			}
+		}
+		throw new AgentError(`sd ${context} failed (exit ${exitCode}): ${detail}`);
 	}
 	return { stdout, stderr };
 }

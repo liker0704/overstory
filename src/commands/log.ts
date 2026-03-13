@@ -85,7 +85,13 @@ function updateLastActivity(projectRoot: string, agentName: string): void {
  * The Stop hook fires every turn for these agents (not just at session end),
  * so they must NOT auto-transition to 'completed' on session-end events.
  */
-const PERSISTENT_CAPABILITIES = new Set(["coordinator", "monitor"]);
+const PERSISTENT_CAPABILITIES = new Set([
+	"coordinator",
+	"coordinator-mission",
+	"monitor",
+	"mission-analyst",
+	"execution-director",
+]);
 
 /**
  * Transition agent state to 'completed' in the SessionStore.
