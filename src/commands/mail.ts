@@ -16,6 +16,8 @@ import { accent, printHint, printSuccess } from "../logging/color.ts";
 import { isGroupAddress, resolveGroupAddress } from "../mail/broadcast.ts";
 import { createMailClient } from "../mail/client.ts";
 import { createMailStore } from "../mail/store.ts";
+import { recordMissionEvent } from "../missions/events.ts";
+import { createMissionStore } from "../missions/store.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import type { MailMessage, MailMessageType } from "../types.ts";
 import { MAIL_MESSAGE_TYPES } from "../types.ts";
@@ -92,6 +94,64 @@ interface PendingNudge {
 	subject: string;
 	messageId: string;
 	createdAt: string;
+}
+
+const MISSION_PENDING_SENDERS = new Set([
+	"mission-analyst",
+	"execution-director",
+	"coordinator-mission",
+]);
+
+async function syncMissionPendingInputFromMail(
+	cwd: string,
+	msg: {
+		id: string;
+		from: string;
+		to: string;
+		type: MailMessageType;
+		subject: string;
+	},
+): Promise<void> {
+	if (msg.to !== "operator" || msg.type !== "question" || !MISSION_PENDING_SENDERS.has(msg.from)) {
+		return;
+	}
+
+	const overstoryDir = join(cwd, ".overstory");
+	const dbPath = join(overstoryDir, "sessions.db");
+	const missionStore = createMissionStore(dbPath);
+	try {
+		const currentMissionFile = Bun.file(join(overstoryDir, "current-mission.txt"));
+		let mission =
+			(await currentMissionFile.exists())
+				? missionStore.getById((await currentMissionFile.text()).trim())
+				: null;
+		if (!mission) {
+			mission = missionStore.getActive();
+		}
+		if (!mission) {
+			return;
+		}
+
+		missionStore.freeze(mission.id, "question", msg.id);
+		recordMissionEvent({
+			overstoryDir,
+			mission,
+			agentName: msg.from,
+			data: {
+				kind: "pending_input",
+				detail: `${msg.from} asked operator: ${msg.subject}`,
+				threadId: msg.id,
+			},
+		});
+		recordMissionEvent({
+			overstoryDir,
+			mission,
+			agentName: msg.from,
+			data: { kind: "state_change", from: mission.state, to: "frozen" },
+		});
+	} finally {
+		missionStore.close();
+	}
 }
 
 /**
@@ -325,10 +385,17 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 			try {
 				// Fan out: send individual message to each recipient
 				for (const recipient of recipients) {
-					const id = client.send({ from, to: recipient, subject, body, type, priority, payload });
-					messageIds.push(id);
+						const id = client.send({ from, to: recipient, subject, body, type, priority, payload });
+						messageIds.push(id);
+						await syncMissionPendingInputFromMail(cwd, {
+							id,
+							from,
+							to: recipient,
+							type,
+							subject,
+						});
 
-					// Record mail_sent event for each individual message (fire-and-forget)
+						// Record mail_sent event for each individual message (fire-and-forget)
 					try {
 						const eventsDbPath = join(cwd, ".overstory", "events.db");
 						const eventStore = createEventStore(eventsDbPath);
@@ -407,10 +474,11 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 
 	// Single-recipient message (existing logic)
 	const client = openClient(cwd);
-	try {
-		const id = client.send({ from, to, subject, body, type, priority, payload });
+		try {
+			const id = client.send({ from, to, subject, body, type, priority, payload });
+			await syncMissionPendingInputFromMail(cwd, { id, from, to, type, subject });
 
-		// Record mail_sent event to EventStore (fire-and-forget)
+			// Record mail_sent event to EventStore (fire-and-forget)
 		try {
 			const eventsDbPath = join(cwd, ".overstory", "events.db");
 			const eventStore = createEventStore(eventsDbPath);

@@ -93,6 +93,10 @@ export interface StartPersistentAgentOpts {
 	beaconDelays?: number[];
 	/** Shell init delay ms (from config.runtime.shellInitDelayMs). */
 	shellInitDelayMs?: number;
+	/** Inline system prompt suffix override for this session. */
+	appendSystemPrompt?: string;
+	/** System prompt file override for this session. */
+	appendSystemPromptFile?: string;
 }
 
 /** Result from starting a persistent root agent. */
@@ -168,10 +172,12 @@ export async function startPersistentAgent(
 		createRun: shouldCreateRun,
 		existingRunId,
 		coordinatorName,
-		beacon,
-		beaconDelays = [1_000, 2_000, 3_000, 5_000],
-		shellInitDelayMs = 0,
-	} = opts;
+			beacon,
+			beaconDelays = [1_000, 2_000, 3_000, 5_000],
+			shellInitDelayMs = 0,
+			appendSystemPrompt,
+			appendSystemPromptFile: customAppendSystemPromptFile,
+		} = opts;
 
 	const { store } = openSessionStore(overstoryDir);
 	try {
@@ -236,22 +242,25 @@ export async function startPersistentAgent(
 		// Preflight: verify tmux is installed before attempting to spawn
 		await tmux.ensureTmuxAvailable();
 
-		// Build spawn command and launch the tmux session
-		const agentDefPath = join(overstoryDir, "agent-defs", `${capability}.md`);
-		const agentDefFile = Bun.file(agentDefPath);
-		let appendSystemPromptFile: string | undefined;
-		if (await agentDefFile.exists()) {
-			appendSystemPromptFile = agentDefPath;
-		}
-		const runtimeSessionId = crypto.randomUUID();
-		const spawnCmd = runtime.buildSpawnCommand({
-			model: resolvedModel.model,
-			permissionMode: "bypass",
-			sessionId: runtimeSessionId,
-			cwd: projectRoot,
-			appendSystemPromptFile,
-			env: {
-				...runtime.buildEnv(resolvedModel),
+			// Build spawn command and launch the tmux session
+			let appendSystemPromptFile = customAppendSystemPromptFile;
+			if (!appendSystemPromptFile && appendSystemPrompt === undefined) {
+				const agentDefPath = join(overstoryDir, "agent-defs", `${capability}.md`);
+				const agentDefFile = Bun.file(agentDefPath);
+				if (await agentDefFile.exists()) {
+					appendSystemPromptFile = agentDefPath;
+				}
+			}
+			const runtimeSessionId = crypto.randomUUID();
+			const spawnCmd = runtime.buildSpawnCommand({
+				model: resolvedModel.model,
+				permissionMode: "bypass",
+				sessionId: runtimeSessionId,
+				cwd: projectRoot,
+				appendSystemPrompt,
+				appendSystemPromptFile,
+				env: {
+					...runtime.buildEnv(resolvedModel),
 				OVERSTORY_AGENT_NAME: agentName,
 			},
 		});
@@ -366,7 +375,12 @@ export async function startPersistentAgent(
  */
 export async function stopPersistentAgent(
 	agentName: string,
-	opts: { projectRoot: string; overstoryDir: string; runStatus?: "completed" | "stopped" },
+	opts: {
+		projectRoot: string;
+		overstoryDir: string;
+		runStatus?: "completed" | "stopped";
+		completeRun?: boolean;
+	},
 	tmuxDeps?: PersistentAgentTmuxDeps,
 ): Promise<StopPersistentAgentResult> {
 	const tmux = tmuxDeps ?? {
@@ -419,10 +433,10 @@ export async function stopPersistentAgent(
 
 		// Complete the run and clean up current-run.txt
 		let runCompleted = false;
-		if (resolvedRunId) {
-			try {
-				const runStore = createRunStore(join(overstoryDir, "sessions.db"));
+			if (resolvedRunId && opts.completeRun !== false) {
 				try {
+					const runStore = createRunStore(join(overstoryDir, "sessions.db"));
+					try {
 					runStore.completeRun(resolvedRunId, opts.runStatus ?? "stopped");
 					runCompleted = true;
 				} finally {

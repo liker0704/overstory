@@ -104,6 +104,36 @@ describe("startMissionAnalyst", () => {
 		expect(capturedOpts?.createRun).toBe(false);
 	});
 
+	test("passes prompt overrides and beacon through to persistent-root", async () => {
+		let capturedOpts: StartPersistentAgentOpts | undefined;
+		const { store } = makeStoreWithSpy();
+
+		const deps: MissionRoleDeps = {
+			startAgent: async (opts) => {
+				capturedOpts = opts;
+				return makeStartResult("mission-analyst");
+			},
+			createStore: () => store as never,
+		};
+
+		await startMissionAnalyst(
+			{
+				missionId: "m-001",
+				projectRoot: "/proj",
+				overstoryDir: "/proj/.overstory",
+				existingRunId: "run-1",
+				appendSystemPromptFile: "/proj/.overstory/agents/mission-analyst/system-prompt.md",
+				beacon: "Read context and begin",
+			},
+			deps,
+		);
+
+		expect(capturedOpts?.appendSystemPromptFile).toBe(
+			"/proj/.overstory/agents/mission-analyst/system-prompt.md",
+		);
+		expect(capturedOpts?.beacon).toBe("Read context and begin");
+	});
+
 	test("calls bindSessions with analystSessionId after start", async () => {
 		const { store, calls } = makeStoreWithSpy();
 
@@ -287,6 +317,33 @@ describe("stopMissionRole", () => {
 		expect(capturedName).toBe("mission-analyst");
 		expect(capturedOpts?.projectRoot).toBe("/proj");
 		expect(capturedOpts?.overstoryDir).toBe("/proj/.overstory");
+	});
+
+	test("passes completeRun=false through for shared mission run shutdown", async () => {
+		let capturedOpts:
+			| {
+					projectRoot: string;
+					overstoryDir: string;
+					runStatus?: "completed" | "stopped";
+					completeRun?: boolean;
+			  }
+			| undefined;
+
+		const deps: MissionRoleDeps = {
+			stopAgent: async (_name, opts) => {
+				capturedOpts = opts;
+				return { sessionKilled: true, sessionId: "session-1", runCompleted: false };
+			},
+		};
+
+		await stopMissionRole(
+			"mission-analyst",
+			{ projectRoot: "/proj", overstoryDir: "/proj/.overstory", completeRun: false },
+			deps,
+		);
+
+		expect(capturedOpts?.completeRun).toBe(false);
+		expect(capturedOpts?.runStatus).toBe("stopped");
 	});
 
 	test("returns the StopPersistentAgentResult from stopAgent", async () => {

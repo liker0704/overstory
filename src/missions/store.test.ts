@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Database } from "bun:sqlite";
 import { cleanupTempDir } from "../test-helpers.ts";
 import type { InsertMission, MissionStore } from "../types.ts";
 import { createMissionStore } from "./store.ts";
@@ -201,12 +202,22 @@ describe("updateState", () => {
 	test("updates updated_at on state change", () => {
 		store.create(makeMission());
 		const before = store.getById("mission-001");
-		store.updateState("mission-001", "cancelled");
+		store.updateState("mission-001", "stopped");
 		const after = store.getById("mission-001");
 		// updated_at may be equal if very fast, but should be >= before
 		const afterUpdatedAt = after?.updatedAt ?? "";
 		const beforeUpdatedAt = before?.updatedAt ?? "";
 		expect(afterUpdatedAt >= beforeUpdatedAt).toBe(true);
+	});
+});
+
+// === delete ===
+
+describe("delete", () => {
+	test("removes the mission record", () => {
+		store.create(makeMission());
+		store.delete("mission-001");
+		expect(store.getById("mission-001")).toBeNull();
 	});
 });
 
@@ -472,6 +483,16 @@ describe("completeMission", () => {
 		expect(result?.completedAt).not.toBeNull();
 		expect(result?.state).toBe("completed");
 	});
+
+	test("clears pending input fields", () => {
+		store.create(makeMission());
+		store.freeze("mission-001", "question", "msg-123");
+		store.completeMission("mission-001");
+		const result = store.getById("mission-001");
+		expect(result?.pendingUserInput).toBe(false);
+		expect(result?.pendingInputKind).toBeNull();
+		expect(result?.pendingInputThreadId).toBeNull();
+	});
 });
 
 // === idempotency: create table twice ===
@@ -480,5 +501,68 @@ describe("schema idempotency", () => {
 	test("creating a second store on the same db path does not throw", () => {
 		const store2 = createMissionStore(dbPath);
 		store2.close();
+	});
+
+	test("legacy missions table with cancelled state is migrated to stopped", () => {
+		store.close();
+
+		const legacyDb = new Database(dbPath);
+		legacyDb.exec("DROP TABLE IF EXISTS missions");
+		legacyDb.exec(`
+			CREATE TABLE missions (
+				id TEXT PRIMARY KEY,
+				slug TEXT NOT NULL UNIQUE,
+				objective TEXT NOT NULL,
+				run_id TEXT,
+				state TEXT NOT NULL DEFAULT 'active'
+					CHECK(state IN ('active','frozen','completed','failed','cancelled')),
+				phase TEXT NOT NULL DEFAULT 'understand'
+					CHECK(phase IN ('understand','align','decide','plan','execute','done')),
+				first_freeze_at TEXT,
+				pending_user_input INTEGER NOT NULL DEFAULT 0,
+				pending_input_kind TEXT,
+				pending_input_thread_id TEXT,
+				reopen_count INTEGER NOT NULL DEFAULT 0,
+				artifact_root TEXT,
+				paused_workstream_ids TEXT NOT NULL DEFAULT '[]',
+				analyst_session_id TEXT,
+				execution_director_session_id TEXT,
+				coordinator_session_id TEXT,
+				paused_lead_names TEXT NOT NULL DEFAULT '[]',
+				pause_reason TEXT,
+				started_at TEXT,
+				completed_at TEXT,
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL
+			)
+		`);
+		legacyDb.exec(`
+			INSERT INTO missions (
+				id, slug, objective, state, phase, paused_workstream_ids, paused_lead_names, created_at, updated_at
+			) VALUES (
+				'legacy-mission',
+				'legacy-mission',
+				'Legacy mission objective',
+				'cancelled',
+				'execute',
+				'[]',
+				'[]',
+				'2026-01-01T00:00:00.000Z',
+				'2026-01-01T00:00:00.000Z'
+			)
+		`);
+		legacyDb.close();
+
+		const migratedStore = createMissionStore(dbPath);
+		try {
+			const mission = migratedStore.getById("legacy-mission");
+			expect(mission?.state).toBe("stopped");
+			migratedStore.updateState("legacy-mission", "stopped");
+			expect(migratedStore.getById("legacy-mission")?.state).toBe("stopped");
+		} finally {
+			migratedStore.close();
+		}
+
+		store = createMissionStore(dbPath);
 	});
 });

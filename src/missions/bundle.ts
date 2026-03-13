@@ -13,12 +13,13 @@
  *   review.json     — mission-subject reviews (only if records exist)
  */
 
-import { Database } from "bun:sqlite";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createEventStore } from "../events/store.ts";
 import { createMetricsStore } from "../metrics/store.ts";
+import { createReviewStore } from "../review/store.ts";
 import { openSessionStore } from "../sessions/compat.ts";
+import { buildNarrative, renderNarrative } from "./narrative.ts";
 import { createMissionStore } from "./store.ts";
 
 // === Types ===
@@ -43,22 +44,6 @@ export interface BundleResult {
 	outputDir: string;
 	manifest: BundleManifest;
 	filesWritten: string[];
-}
-
-// === Row type for raw review queries ===
-
-interface ReviewRow {
-	id: string;
-	subject_type: string;
-	subject_id: string;
-	timestamp: string;
-	dimensions: string;
-	overall_score: number;
-	notes: string;
-	reviewer_source: string;
-	stale: number;
-	stale_since: string | null;
-	stale_reason: string | null;
 }
 
 // === Export function ===
@@ -119,24 +104,26 @@ export async function exportBundle(opts: BundleOptions): Promise<BundleResult> {
 	await Bun.write(join(outputDir, "summary.json"), JSON.stringify(summary, null, 2));
 	filesWritten.push("summary.json");
 
-	// events.jsonl
-	const eventsDbPath = join(overstoryDir, "events.db");
-	const eventsDbFile = Bun.file(eventsDbPath);
-	if ((await eventsDbFile.exists()) && mission.runId) {
-		const eventStore = createEventStore(eventsDbPath);
-		try {
-			const events = eventStore.getByRun(mission.runId);
-			await Bun.write(
-				join(outputDir, "events.jsonl"),
-				events.map((e) => JSON.stringify(e)).join("\n"),
-			);
-		} finally {
-			eventStore.close();
+		// events.jsonl + narrative.{json,md}
+		const eventsDbPath = join(overstoryDir, "events.db");
+		const eventsDbFile = Bun.file(eventsDbPath);
+		let events: ReturnType<ReturnType<typeof createEventStore>["getByRun"]> = [];
+		if ((await eventsDbFile.exists()) && mission.runId) {
+			const eventStore = createEventStore(eventsDbPath);
+			try {
+				events = eventStore.getByRun(mission.runId);
+			} finally {
+				eventStore.close();
+			}
 		}
-	} else {
-		await Bun.write(join(outputDir, "events.jsonl"), "");
-	}
-	filesWritten.push("events.jsonl");
+		await Bun.write(join(outputDir, "events.jsonl"), events.map((e) => JSON.stringify(e)).join("\n"));
+		filesWritten.push("events.jsonl");
+
+		const narrative = buildNarrative(mission, events);
+		await Bun.write(join(outputDir, "narrative.json"), JSON.stringify(narrative, null, 2));
+		filesWritten.push("narrative.json");
+		await Bun.write(join(outputDir, "narrative.md"), `${renderNarrative(narrative)}\n`);
+		filesWritten.push("narrative.md");
 
 	// sessions.json
 	const { store: sessionStore } = openSessionStore(overstoryDir);
@@ -165,29 +152,21 @@ export async function exportBundle(opts: BundleOptions): Promise<BundleResult> {
 	}
 	filesWritten.push("metrics.json");
 
-	// review.json — optional; only written when mission-subject reviews exist
-	const reviewsDbPath = join(overstoryDir, "reviews.db");
-	const reviewsDbFile = Bun.file(reviewsDbPath);
-	if (await reviewsDbFile.exists()) {
-		let reviewDb: Database | null = null;
-		try {
-			reviewDb = new Database(reviewsDbPath, { readonly: true });
-			reviewDb.exec("PRAGMA busy_timeout=5000");
-			const rows = reviewDb
-				.prepare<ReviewRow, { $subject_id: string }>(
-					`SELECT * FROM reviews WHERE subject_type = 'mission' AND subject_id = $subject_id`,
-				)
-				.all({ $subject_id: missionId });
-			if (rows.length > 0) {
-				await Bun.write(join(outputDir, "review.json"), JSON.stringify(rows, null, 2));
-				filesWritten.push("review.json");
+		// review.json — optional; export the latest mission review when available
+		const reviewsDbPath = join(overstoryDir, "reviews.db");
+		const reviewsDbFile = Bun.file(reviewsDbPath);
+		if (await reviewsDbFile.exists()) {
+			const reviewStore = createReviewStore(reviewsDbPath);
+			try {
+				const latest = reviewStore.getLatest("mission", missionId);
+				if (latest) {
+					await Bun.write(join(outputDir, "review.json"), JSON.stringify(latest, null, 2));
+					filesWritten.push("review.json");
+				}
+			} finally {
+				reviewStore.close();
 			}
-		} catch {
-			// reviews.db may not have the reviews table yet — skip gracefully
-		} finally {
-			reviewDb?.close();
 		}
-	}
 
 	// manifest.json — written last so files list is complete (includes itself)
 	const manifest: BundleManifest = {

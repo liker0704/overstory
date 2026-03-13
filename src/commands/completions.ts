@@ -328,6 +328,137 @@ export const COMMANDS: readonly CommandDef[] = [
 		],
 	},
 	{
+		name: "review",
+		desc: "Generate and inspect deterministic reviews",
+		flags: [{ name: "--help", desc: "Show help" }],
+		subcommands: [
+			{
+				name: "sessions",
+				desc: "List recent session reviews",
+				flags: [
+					{ name: "--recent", desc: "Limit review count", takesValue: true },
+					{ name: "--json", desc: "JSON output" },
+				],
+			},
+			{
+				name: "session",
+				desc: "Review a single session",
+				flags: [{ name: "--json", desc: "JSON output" }],
+			},
+			{
+				name: "handoffs",
+				desc: "List recent handoff reviews",
+				flags: [
+					{ name: "--recent", desc: "Limit review count", takesValue: true },
+					{ name: "--json", desc: "JSON output" },
+				],
+			},
+			{
+				name: "specs",
+				desc: "List recent spec reviews",
+				flags: [
+					{ name: "--recent", desc: "Limit review count", takesValue: true },
+					{ name: "--json", desc: "JSON output" },
+				],
+			},
+			{
+				name: "missions",
+				desc: "List recent mission reviews",
+				flags: [
+					{ name: "--recent", desc: "Limit review count", takesValue: true },
+					{ name: "--json", desc: "JSON output" },
+				],
+			},
+			{
+				name: "mission",
+				desc: "Review a single mission",
+				flags: [{ name: "--json", desc: "JSON output" }],
+			},
+			{
+				name: "stale",
+				desc: "Check review staleness",
+				flags: [{ name: "--json", desc: "JSON output" }],
+			},
+		],
+	},
+	{
+		name: "mission",
+		desc: "Manage long-running missions",
+		flags: [
+			{ name: "--json", desc: "JSON output" },
+			{ name: "--help", desc: "Show help" },
+		],
+		subcommands: [
+			{
+				name: "start",
+				desc: "Create a new mission",
+				flags: [
+					{ name: "--slug", desc: "Mission slug", takesValue: true },
+					{ name: "--objective", desc: "Mission objective", takesValue: true },
+					{ name: "--json", desc: "JSON output" },
+				],
+			},
+			{
+				name: "status",
+				desc: "Show active mission summary",
+				flags: [{ name: "--json", desc: "JSON output" }],
+			},
+			{
+				name: "output",
+				desc: "Render mission narrative and runtime state",
+				flags: [{ name: "--json", desc: "JSON output" }],
+			},
+			{
+				name: "answer",
+				desc: "Reply to the pending mission question",
+				flags: [
+					{ name: "--body", desc: "Answer body", takesValue: true },
+					{ name: "--file", desc: "Answer file", takesValue: true },
+					{ name: "--json", desc: "JSON output" },
+				],
+			},
+			{
+				name: "artifacts",
+				desc: "Show mission artifact paths",
+				flags: [{ name: "--json", desc: "JSON output" }],
+			},
+			{
+				name: "handoff",
+				desc: "Hand off workstreams to the execution director",
+				flags: [{ name: "--json", desc: "JSON output" }],
+			},
+			{
+				name: "complete",
+				desc: "Complete the active mission",
+				flags: [{ name: "--json", desc: "JSON output" }],
+			},
+			{
+				name: "stop",
+				desc: "Stop the active mission",
+				flags: [{ name: "--json", desc: "JSON output" }],
+			},
+			{
+				name: "list",
+				desc: "List missions",
+				flags: [{ name: "--json", desc: "JSON output" }],
+			},
+			{
+				name: "show",
+				desc: "Show a mission by id or slug",
+				flags: [{ name: "--json", desc: "JSON output" }],
+			},
+			{
+				name: "bundle",
+				desc: "Export a mission result bundle",
+				flags: [
+					{ name: "--mission-id", desc: "Mission identifier", takesValue: true },
+					{ name: "--force", desc: "Force regeneration" },
+					{ name: "--json", desc: "JSON output" },
+				],
+			},
+		],
+	},
+	{
 		name: "spec",
 		desc: "Manage task specs",
 		flags: [{ name: "--help", desc: "Show help" }],
@@ -498,6 +629,12 @@ export const COMMANDS: readonly CommandDef[] = [
 							"health_check",
 							"dispatch",
 							"assign",
+							"mission_finding",
+							"analyst_resolution",
+							"execution_guidance",
+							"analyst_recommendation",
+							"execution_handoff",
+							"mission_resolution",
 						],
 					},
 					{
@@ -660,7 +797,7 @@ export function generateBash(): string {
 		"  local cur prev words cword",
 		"  _init_completion || return",
 		"",
-		"  local commands='agents init sling prime stop status dashboard inspect merge nudge clean doctor log logs watch trace errors feed replay costs metrics spec coordinator supervisor hooks monitor mail group worktree run ecosystem upgrade completions'",
+		"  local commands='agents init sling prime stop status dashboard inspect merge nudge clean doctor log logs watch trace errors feed replay costs metrics review mission spec coordinator supervisor hooks monitor mail group worktree run ecosystem upgrade completions'",
 		"",
 		"  # Top-level completion",
 		"  if [[ $cword -eq 1 ]]; then",

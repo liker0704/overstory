@@ -70,6 +70,7 @@ const EVENT_LABELS: Record<EventType, EventLabel> = {
 	turn_end: { compact: "TURN-", full: "TURN END  ", color: color.yellow },
 	progress: { compact: "PROG ", full: "PROGRESS  ", color: color.cyan },
 	result: { compact: "RSULT", full: "RESULT    ", color: color.green },
+	mission: { compact: "MISSN", full: "MISSION   ", color: color.magenta },
 };
 
 /** Returns the EventLabel for a given event type. */

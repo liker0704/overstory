@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS missions (
   objective TEXT NOT NULL,
   run_id TEXT,
   state TEXT NOT NULL DEFAULT 'active'
-    CHECK(state IN ('active','frozen','completed','failed','cancelled')),
+    CHECK(state IN ('active','frozen','completed','failed','stopped')),
   phase TEXT NOT NULL DEFAULT 'understand'
     CHECK(phase IN ('understand','align','decide','plan','execute','done')),
   first_freeze_at TEXT,
@@ -73,6 +73,87 @@ const CREATE_INDEXES = `
 CREATE INDEX IF NOT EXISTS idx_missions_state ON missions(state);
 CREATE INDEX IF NOT EXISTS idx_missions_slug ON missions(slug);
 CREATE INDEX IF NOT EXISTS idx_missions_run ON missions(run_id)`;
+
+/**
+ * Migrate legacy missions.state CHECK constraints to replace 'cancelled' with 'stopped'.
+ *
+ * SQLite does not support altering CHECK constraints in place, so we rebuild
+ * the table when the legacy constraint is detected. Existing cancelled rows
+ * are remapped to stopped during the copy.
+ */
+function migrateMissionStateStopped(db: Database): void {
+	const result = db
+		.prepare<{ sql: string }, []>(
+			"SELECT sql FROM sqlite_master WHERE type='table' AND name='missions'",
+		)
+		.get();
+	if (!result || result.sql.includes("'stopped'")) {
+		return;
+	}
+	db.exec(`
+		BEGIN;
+		CREATE TABLE missions_new (
+			id TEXT PRIMARY KEY,
+			slug TEXT NOT NULL UNIQUE,
+			objective TEXT NOT NULL,
+			run_id TEXT,
+			state TEXT NOT NULL DEFAULT 'active'
+				CHECK(state IN ('active','frozen','completed','failed','stopped')),
+			phase TEXT NOT NULL DEFAULT 'understand'
+				CHECK(phase IN ('understand','align','decide','plan','execute','done')),
+			first_freeze_at TEXT,
+			pending_user_input INTEGER NOT NULL DEFAULT 0,
+			pending_input_kind TEXT CHECK(pending_input_kind IS NULL OR pending_input_kind IN ('question','approval','decision','clarification')),
+			pending_input_thread_id TEXT,
+			reopen_count INTEGER NOT NULL DEFAULT 0,
+			artifact_root TEXT,
+			paused_workstream_ids TEXT NOT NULL DEFAULT '[]',
+			analyst_session_id TEXT,
+			execution_director_session_id TEXT,
+			coordinator_session_id TEXT,
+			paused_lead_names TEXT NOT NULL DEFAULT '[]',
+			pause_reason TEXT,
+			started_at TEXT,
+			completed_at TEXT,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);
+		INSERT INTO missions_new (
+			id, slug, objective, run_id, state, phase, first_freeze_at,
+			pending_user_input, pending_input_kind, pending_input_thread_id,
+			reopen_count, artifact_root, paused_workstream_ids, analyst_session_id,
+			execution_director_session_id, coordinator_session_id, paused_lead_names,
+			pause_reason, started_at, completed_at, created_at, updated_at
+		)
+		SELECT
+			id,
+			slug,
+			objective,
+			run_id,
+			CASE WHEN state = 'cancelled' THEN 'stopped' ELSE state END,
+			phase,
+			first_freeze_at,
+			pending_user_input,
+			pending_input_kind,
+			pending_input_thread_id,
+			reopen_count,
+			artifact_root,
+			paused_workstream_ids,
+			analyst_session_id,
+			execution_director_session_id,
+			coordinator_session_id,
+			paused_lead_names,
+			pause_reason,
+			started_at,
+			completed_at,
+			created_at,
+			updated_at
+		FROM missions;
+		DROP TABLE missions;
+		ALTER TABLE missions_new RENAME TO missions;
+		COMMIT;
+	`);
+}
 
 /** Convert a database row (snake_case) to a Mission object (camelCase). */
 function rowToMission(row: MissionRow): Mission {
@@ -117,6 +198,7 @@ export function createMissionStore(dbPath: string): MissionStore {
 	db.exec("PRAGMA busy_timeout = 5000");
 
 	db.exec(CREATE_TABLE);
+	migrateMissionStateStopped(db);
 	db.exec(CREATE_INDEXES);
 
 	const insertStmt = db.prepare<
@@ -154,6 +236,10 @@ export function createMissionStore(dbPath: string): MissionStore {
 
 	const updateStateStmt = db.prepare<void, { $id: string; $state: string; $updated_at: string }>(`
 		UPDATE missions SET state = $state, updated_at = $updated_at WHERE id = $id
+	`);
+
+	const deleteStmt = db.prepare<void, { $id: string }>(`
+		DELETE FROM missions WHERE id = $id
 	`);
 
 	const updatePhaseStmt = db.prepare<void, { $id: string; $phase: string; $updated_at: string }>(`
@@ -262,7 +348,12 @@ export function createMissionStore(dbPath: string): MissionStore {
 		{ $id: string; $completed_at: string; $updated_at: string }
 	>(`
 		UPDATE missions
-		SET state = 'completed', completed_at = $completed_at, updated_at = $updated_at
+		SET state = 'completed',
+		    pending_user_input = 0,
+		    pending_input_kind = NULL,
+		    pending_input_thread_id = NULL,
+		    completed_at = $completed_at,
+		    updated_at = $updated_at
 		WHERE id = $id
 	`);
 
@@ -301,7 +392,7 @@ export function createMissionStore(dbPath: string): MissionStore {
 			return row ? rowToMission(row) : null;
 		},
 
-		list(opts?: { state?: MissionState; limit?: number }): Mission[] {
+			list(opts?: { state?: MissionState; limit?: number }): Mission[] {
 			const hasState = opts?.state !== undefined;
 			const hasLimit = opts?.limit !== undefined;
 
@@ -334,12 +425,16 @@ export function createMissionStore(dbPath: string): MissionStore {
 					`SELECT * FROM missions ORDER BY created_at DESC`,
 				)
 				.all({});
-			return rows.map(rowToMission);
-		},
+				return rows.map(rowToMission);
+			},
 
-		updateState(id: string, state: MissionState): void {
-			updateStateStmt.run({ $id: id, $state: state, $updated_at: new Date().toISOString() });
-		},
+			delete(id: string): void {
+				deleteStmt.run({ $id: id });
+			},
+
+			updateState(id: string, state: MissionState): void {
+				updateStateStmt.run({ $id: id, $state: state, $updated_at: new Date().toISOString() });
+			},
 
 		updatePhase(id: string, phase: MissionPhase): void {
 			updatePhaseStmt.run({ $id: id, $phase: phase, $updated_at: new Date().toISOString() });

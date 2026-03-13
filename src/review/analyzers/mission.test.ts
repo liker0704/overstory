@@ -45,6 +45,9 @@ function makeInput(overrides?: Partial<MissionReviewInput>): MissionReviewInput 
 		completedSessionCount: 8,
 		totalSessionCount: 10,
 		hasBundleExport: true,
+		artifactFileCount: 6,
+		metricsCount: 3,
+		narrativeEntryCount: 12,
 		durationMs: 3600000,
 		...overrides,
 	};
@@ -167,6 +170,7 @@ describe("analyzeMission", () => {
 		const result = analyzeMission(
 			makeInput({
 				mission: makeMission({ state: "active", artifactRoot: null }),
+				artifactFileCount: 0,
 			}),
 		);
 		const actionability = result.dimensions.find((d) => d.dimension === "actionability");
@@ -174,9 +178,22 @@ describe("analyzeMission", () => {
 	});
 
 	test("coordination-fit penalizes excessive agents", () => {
-		const result = analyzeMission(makeInput({ agentCount: 25 }));
+		const result = analyzeMission(makeInput({ agentCount: 25, metricsCount: 0 }));
 		const coord = result.dimensions.find((d) => d.dimension === "coordination-fit");
-		// notExcessiveAgents is false, so at most 2/3 points
-		expect(coord?.score).toBeLessThanOrEqual(67);
+		expect(coord?.score).toBeLessThanOrEqual(50);
+	});
+
+	test("missing artifacts, narrative, and metrics add notes", () => {
+		const result = analyzeMission(
+			makeInput({
+				artifactFileCount: 1,
+				metricsCount: 0,
+				narrativeEntryCount: 0,
+			}),
+		);
+
+		expect(result.notes.some((note) => note.includes("artifacts"))).toBe(true);
+		expect(result.notes.some((note) => note.includes("narrative"))).toBe(true);
+		expect(result.notes.some((note) => note.includes("metrics"))).toBe(true);
 	});
 });

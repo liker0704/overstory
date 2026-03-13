@@ -426,10 +426,22 @@ export interface AnalystRecommendationPayload {
 }
 
 /** Coordinator hands off execution to execution director. */
+export interface ExecutionHandoffItemPayload {
+	workstreamId: string;
+	taskId: string;
+	objective: string;
+	fileScope: string[];
+	briefPath: string | null;
+	dependsOn: string[];
+	status: "planned" | "active" | "paused" | "completed";
+}
+
 export interface ExecutionHandoffPayload {
 	missionId: string;
+	taskIds: string[];
 	workstreamIds: string[];
 	briefPaths: string[];
+	handoffs?: ExecutionHandoffItemPayload[];
 }
 
 /** Coordinator resolves a mission-level decision. */
@@ -922,13 +934,13 @@ export interface InsightAnalysis {
 
 // === Mission (Long-Running Objective Tracking) ===
 
-export type MissionState = "active" | "frozen" | "completed" | "failed" | "cancelled";
+export type MissionState = "active" | "frozen" | "completed" | "failed" | "stopped";
 export const MISSION_STATES: readonly MissionState[] = [
 	"active",
 	"frozen",
 	"completed",
 	"failed",
-	"cancelled",
+	"stopped",
 ] as const;
 
 export type MissionPhase = "understand" | "align" | "decide" | "plan" | "execute" | "done";
@@ -997,6 +1009,7 @@ export interface MissionStore {
 	getBySlug(slug: string): Mission | null;
 	getActive(): Mission | null;
 	list(opts?: { state?: MissionState; limit?: number }): Mission[];
+	delete(id: string): void;
 	updateState(id: string, state: MissionState): void;
 	updatePhase(id: string, phase: MissionPhase): void;
 	freeze(id: string, kind: PendingInputKind, threadId: string | null): void;

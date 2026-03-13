@@ -15,6 +15,8 @@ import { jsonOutput } from "../json.ts";
 import { color } from "../logging/color.ts";
 import { renderHeader, separator } from "../logging/theme.ts";
 import { createMailStore } from "../mail/store.ts";
+import { generateMissionReview } from "../missions/review.ts";
+import { createMissionStore } from "../missions/store.ts";
 import { analyzeHandoff } from "../review/analyzers/handoff.ts";
 import { analyzeSession } from "../review/analyzers/session.ts";
 import { analyzeSpec } from "../review/analyzers/spec.ts";
@@ -413,6 +415,132 @@ async function executeReviewSpecs(opts: ReviewSpecsOpts): Promise<void> {
 	}
 }
 
+// === Subcommand: missions ===
+
+interface ReviewMissionsOpts {
+	recent?: string;
+	json?: boolean;
+}
+
+async function executeReviewMissions(opts: ReviewMissionsOpts): Promise<void> {
+	const json = opts.json ?? false;
+	const limit = opts.recent ? Number.parseInt(opts.recent, 10) : 10;
+
+	const config = await loadConfig(process.cwd());
+	const overstoryDir = join(config.project.root, ".overstory");
+	const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
+
+	try {
+		const missions = missionStore
+			.list({ limit: limit * 3 })
+			.filter((mission) => mission.state !== "active" && mission.state !== "frozen")
+			.slice(0, limit);
+
+		if (missions.length === 0) {
+			if (json) {
+				jsonOutput("review", { missions: [] });
+			} else {
+				process.stdout.write("No completed or stopped missions found.\n");
+			}
+			return;
+		}
+
+		const reviews = missions.map((mission) => generateMissionReview({ overstoryDir, mission }));
+
+		if (json) {
+			jsonOutput("review", {
+				missions: reviews.map((review) => ({
+					mission: review.mission,
+					record: review.record,
+				})),
+			});
+			return;
+		}
+
+		const w = process.stdout.write.bind(process.stdout);
+		w(`${renderHeader(`Review: Missions (${reviews.length})`)}\n`);
+		w(
+			`${padRight("Mission", 24)}${padRight("State", 12)}` +
+				`${padLeft("Score", 7)}${padLeft("Clarity", 9)}${padLeft("Action", 9)}` +
+				`${padLeft("Compl", 7)}${padLeft("S/N", 6)}${padLeft("Correct", 9)}${padLeft("Coord", 7)}\n`,
+		);
+		w(`${color.dim(separator())}\n`);
+
+		for (const { mission, record } of reviews) {
+			const dim = (key: string) => record.dimensions.find((d) => d.dimension === key)?.score ?? 0;
+			w(
+				`${padRight(mission.slug, 24)}` +
+					`${padRight(mission.state, 12)}` +
+					`${padLeft(colorScore(record.overallScore), 7)}` +
+					`${padLeft(colorScore(dim("clarity")), 9)}` +
+					`${padLeft(colorScore(dim("actionability")), 9)}` +
+					`${padLeft(colorScore(dim("completeness")), 7)}` +
+					`${padLeft(colorScore(dim("signal-to-noise")), 6)}` +
+					`${padLeft(colorScore(dim("correctness-confidence")), 9)}` +
+					`${padLeft(colorScore(dim("coordination-fit")), 7)}\n`,
+			);
+		}
+		w(`${color.dim(separator())}\n`);
+	} finally {
+		missionStore.close();
+	}
+}
+
+// === Subcommand: mission (single) ===
+
+interface ReviewMissionOpts {
+	json?: boolean;
+}
+
+async function executeReviewMission(idOrSlug: string, opts: ReviewMissionOpts): Promise<void> {
+	const json = opts.json ?? false;
+
+	const config = await loadConfig(process.cwd());
+	const overstoryDir = join(config.project.root, ".overstory");
+	const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
+
+	try {
+		let mission = missionStore.getById(idOrSlug);
+		if (!mission) {
+			mission = missionStore.getBySlug(idOrSlug);
+		}
+
+		if (!mission) {
+			if (json) {
+				jsonOutput("review", { error: `Mission not found: ${idOrSlug}` });
+			} else {
+				process.stdout.write(`Mission not found: ${idOrSlug}\n`);
+			}
+			return;
+		}
+
+		const review = generateMissionReview({ overstoryDir, mission });
+		if (json) {
+			jsonOutput("review", { mission: review.mission, record: review.record, input: review.input });
+			return;
+		}
+
+		const w = process.stdout.write.bind(process.stdout);
+		w(`${renderHeader(`Review: ${mission.slug}`)}\n`);
+		w(`Overall score: ${colorScore(review.record.overallScore)}/100\n`);
+		w(`State: ${mission.state} / ${mission.phase}\n`);
+		w(`${color.dim(separator())}\n`);
+
+		for (const dim of review.record.dimensions) {
+			w(`${padRight(dim.dimension, 26)}${colorScore(dim.score)}/100  ${color.dim(dim.details)}\n`);
+		}
+
+		if (review.record.notes.length > 0) {
+			w(`\n${color.yellow("Notes:")}\n`);
+			for (const note of review.record.notes) {
+				w(`  • ${note}\n`);
+			}
+		}
+	} finally {
+		missionStore.close();
+	}
+}
+
 // === Subcommand: stale ===
 
 interface ReviewStaleOpts {
@@ -497,8 +625,25 @@ export function createReviewCommand(): Command {
 		.command("specs")
 		.description("Review all spec files in .overstory/specs/")
 		.option("--json", "Output as JSON")
-		.action(async (opts: ReviewSpecsOpts) => {
-			await executeReviewSpecs(opts);
+			.action(async (opts: ReviewSpecsOpts) => {
+				await executeReviewSpecs(opts);
+			});
+
+	review
+		.command("missions")
+		.description("Review recent completed or stopped missions")
+		.option("--recent <n>", "Number of missions to review (default: 10)")
+		.option("--json", "Output as JSON")
+		.action(async (opts: ReviewMissionsOpts) => {
+			await executeReviewMissions(opts);
+		});
+
+	review
+		.command("mission <mission-id-or-slug>")
+		.description("Review a single mission by mission ID or slug")
+		.option("--json", "Output as JSON")
+		.action(async (missionIdOrSlug: string, opts: ReviewMissionOpts) => {
+			await executeReviewMission(missionIdOrSlug, opts);
 		});
 
 	review

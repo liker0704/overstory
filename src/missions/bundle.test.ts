@@ -9,6 +9,7 @@ import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEventStore } from "../events/store.ts";
+import { createReviewStore } from "../review/store.ts";
 import { createRunStore, createSessionStore } from "../sessions/store.ts";
 import { cleanupTempDir } from "../test-helpers.ts";
 import type { BundleManifest } from "./bundle.ts";
@@ -135,6 +136,8 @@ describe("exportBundle", () => {
 		expect(result.outputDir).toBe(join(overstoryDir, "missions", missionId, "results"));
 		expect(result.filesWritten).toContain("summary.json");
 		expect(result.filesWritten).toContain("events.jsonl");
+		expect(result.filesWritten).toContain("narrative.json");
+		expect(result.filesWritten).toContain("narrative.md");
 		expect(result.filesWritten).toContain("sessions.json");
 		expect(result.filesWritten).toContain("metrics.json");
 		expect(result.filesWritten).toContain("manifest.json");
@@ -211,6 +214,41 @@ describe("exportBundle", () => {
 		expect(result.filesWritten).not.toContain("review.json");
 		const reviewPath = join(result.outputDir, "review.json");
 		expect(await Bun.file(reviewPath).exists()).toBe(false);
+	});
+
+	test("exports latest mission review when reviews exist", async () => {
+		const reviewStore = createReviewStore(join(overstoryDir, "reviews.db"));
+		try {
+			reviewStore.insert({
+				subjectType: "mission",
+				subjectId: missionId,
+				dimensions: [],
+				overallScore: 45,
+				notes: ["older"],
+				reviewerSource: "deterministic",
+			});
+			await Bun.sleep(5);
+			reviewStore.insert({
+				subjectType: "mission",
+				subjectId: missionId,
+				dimensions: [],
+				overallScore: 91,
+				notes: ["latest"],
+				reviewerSource: "deterministic",
+			});
+		} finally {
+			reviewStore.close();
+		}
+
+		const result = await exportBundle({ overstoryDir, dbPath, missionId });
+		expect(result.filesWritten).toContain("review.json");
+
+		const review = (await Bun.file(join(result.outputDir, "review.json")).json()) as {
+			overallScore: number;
+			notes: string[];
+		};
+		expect(review.overallScore).toBe(91);
+		expect(review.notes).toContain("latest");
 	});
 
 	test("freshness: bundle with generatedAt newer than mission.updatedAt → skips rewrite", async () => {

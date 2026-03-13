@@ -2,34 +2,39 @@
  * CLI command: ov mission <subcommand>
  *
  * Long-running objective tracking for overstory mission mode.
- *
- * Subcommands:
- *   start     Create a new mission (run + pointer files + artifact root)
- *   status    Show active mission summary
- *   output    Mission-centric output
- *   answer    Respond to pending input (unfreeze mission)
- *   artifacts Print artifact root and known paths
- *   stop      Terminalize mission and clear pointer files
- *   list      List all missions
- *   show      Show details for a specific mission
  */
 
-import { mkdir } from "node:fs/promises";
+import { mkdir, rm, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { Command } from "commander";
 import { loadConfig } from "../config.ts";
 import { jsonError, jsonOutput } from "../json.ts";
 import {
 	accent,
-	color,
 	printError,
 	printHint,
 	printSuccess,
 	printWarning,
 } from "../logging/color.ts";
 import { renderHeader, renderSubHeader, separator } from "../logging/theme.ts";
-import { startMissionAnalyst, stopMissionRole } from "../missions/roles.ts";
+import { createMailClient } from "../mail/client.ts";
+import { createMailStore } from "../mail/store.ts";
+import {
+	buildMissionRoleBeacon,
+	ensureMissionArtifacts,
+	getMissionArtifactPaths,
+	materializeMissionRolePrompt,
+} from "../missions/context.ts";
+import { loadMissionEvents, recordMissionEvent } from "../missions/events.ts";
+import { buildNarrative, renderNarrative } from "../missions/narrative.ts";
+import { generateMissionReview } from "../missions/review.ts";
+import {
+	startExecutionDirector,
+	startMissionAnalyst,
+	stopMissionRole,
+} from "../missions/roles.ts";
 import { createMissionStore } from "../missions/store.ts";
+import { loadWorkstreamsFile, packageHandoffs } from "../missions/workstreams.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import { createRunStore } from "../sessions/store.ts";
 import type { InsertMission, Mission, MissionSummary } from "../types.ts";
@@ -45,12 +50,58 @@ function currentRunPath(overstoryDir: string): string {
 }
 
 /** Read current mission ID from pointer file, or null. */
-async function readCurrentMissionId(overstoryDir: string): Promise<string | null> {
+async function readPointerMissionId(overstoryDir: string): Promise<string | null> {
 	const file = Bun.file(currentMissionPath(overstoryDir));
 	if (!(await file.exists())) return null;
 	const text = await file.text();
 	const trimmed = text.trim();
 	return trimmed.length > 0 ? trimmed : null;
+}
+
+async function writeMissionPointers(
+	overstoryDir: string,
+	missionId: string,
+	runId: string | null,
+): Promise<void> {
+	await Bun.write(currentMissionPath(overstoryDir), `${missionId}\n`);
+	if (runId) {
+		await Bun.write(currentRunPath(overstoryDir), `${runId}\n`);
+	}
+}
+
+async function clearMissionPointers(overstoryDir: string): Promise<void> {
+	for (const path of [currentMissionPath(overstoryDir), currentRunPath(overstoryDir)]) {
+		try {
+			await unlink(path);
+		} catch {
+			// Pointer may already be absent.
+		}
+	}
+}
+
+async function resolveCurrentMissionId(overstoryDir: string): Promise<string | null> {
+	const pointedId = await readPointerMissionId(overstoryDir);
+	if (pointedId) {
+		return pointedId;
+	}
+
+	const dbPath = join(overstoryDir, "sessions.db");
+	const dbFile = Bun.file(dbPath);
+	if (!(await dbFile.exists())) {
+		return null;
+	}
+
+	const missionStore = createMissionStore(dbPath);
+	try {
+		const active = missionStore.getActive();
+		if (!active) {
+			return null;
+		}
+		await writeMissionPointers(overstoryDir, active.id, active.runId);
+		return active.id;
+	} finally {
+		missionStore.close();
+	}
 }
 
 /** Convert Mission to MissionSummary. */
@@ -65,6 +116,215 @@ function toSummary(mission: Mission): MissionSummary {
 		createdAt: mission.createdAt,
 		updatedAt: mission.updatedAt,
 	};
+}
+
+function openMailClient(overstoryDir: string) {
+	return createMailClient(createMailStore(join(overstoryDir, "mail.db")));
+}
+
+async function readAnswerBody(opts: { body?: string; file?: string }): Promise<string | null> {
+	if (opts.body !== undefined) {
+		const body = opts.body.trim();
+		return body.length > 0 ? body : null;
+	}
+	if (opts.file !== undefined) {
+		const file = Bun.file(opts.file);
+		if (!(await file.exists())) {
+			throw new Error(`Answer file not found: ${opts.file}`);
+		}
+		const body = (await file.text()).trim();
+		return body.length > 0 ? body : null;
+	}
+	return null;
+}
+
+function roleRuntimeState(
+	allSessions: Array<{ id: string; agentName: string; state: string }>,
+	sessionId: string | null,
+): string {
+	if (!sessionId) return "not started";
+	const session = allSessions.find((candidate) => candidate.id === sessionId);
+	if (!session) return "unknown";
+	if (session.state === "completed" || session.state === "zombie") {
+		return "stopped";
+	}
+	return "running";
+}
+
+function resolveMissionRoleStates(
+	overstoryDir: string,
+	mission: Mission,
+): {
+	coordinator: string;
+	analyst: string;
+	executionDirector: string;
+} {
+	try {
+		const { store } = openSessionStore(overstoryDir);
+		try {
+			const sessions = store.getAll();
+			const coordinatorSession =
+				sessions.find((session) => session.agentName === "coordinator") ?? null;
+			return {
+				coordinator:
+					coordinatorSession && coordinatorSession.state !== "completed"
+						? "running"
+						: "not started",
+				analyst: roleRuntimeState(sessions, mission.analystSessionId),
+				executionDirector: roleRuntimeState(sessions, mission.executionDirectorSessionId),
+			};
+		} finally {
+			store.close();
+		}
+	} catch {
+		return {
+			coordinator: "unknown",
+			analyst: "unknown",
+			executionDirector: "unknown",
+		};
+	}
+}
+
+function renderMissionNarrative(mission: Mission, overstoryDir: string): string {
+	return renderNarrative(buildNarrative(mission, loadMissionEvents(overstoryDir, mission)));
+}
+
+async function sendMissionDispatchMail(opts: {
+	overstoryDir: string;
+	to: string;
+	subject: string;
+	body: string;
+}): Promise<string> {
+	const client = openMailClient(opts.overstoryDir);
+	try {
+		return client.send({
+			from: "operator",
+			to: opts.to,
+			subject: opts.subject,
+			body: opts.body,
+			type: "dispatch",
+		});
+	} finally {
+		client.close();
+	}
+}
+
+async function terminalizeMission(opts: {
+	overstoryDir: string;
+	projectRoot: string;
+	mission: Mission;
+	targetState: "completed" | "stopped";
+	json: boolean;
+}): Promise<{ bundlePath: string | null; reviewId: string | null }> {
+	const { overstoryDir, projectRoot, mission, targetState, json } = opts;
+	const dbPath = join(overstoryDir, "sessions.db");
+	const missionStore = createMissionStore(dbPath);
+
+	try {
+		for (const roleName of ["mission-analyst", "execution-director"]) {
+			try {
+				await stopMissionRole(roleName, {
+					projectRoot,
+					overstoryDir,
+					completeRun: false,
+					runStatus: targetState === "completed" ? "completed" : "stopped",
+				});
+				recordMissionEvent({
+					overstoryDir,
+					mission,
+					agentName: "operator",
+					data: { kind: "role_stopped", detail: `${roleName} stopped` },
+				});
+			} catch {
+				// Role may not be running.
+			}
+		}
+
+		const beforeState = mission.state;
+		const beforePhase = mission.phase;
+		if (targetState === "completed") {
+			if (mission.phase !== "done") {
+				missionStore.updatePhase(mission.id, "done");
+				recordMissionEvent({
+					overstoryDir,
+					mission,
+					agentName: "operator",
+					data: { kind: "phase_change", from: beforePhase, to: "done" },
+				});
+			}
+			missionStore.completeMission(mission.id);
+		} else {
+			missionStore.updateState(mission.id, "stopped");
+		}
+
+		recordMissionEvent({
+			overstoryDir,
+			mission,
+			agentName: "operator",
+			data: { kind: "state_change", from: beforeState, to: targetState },
+		});
+
+		if (mission.runId) {
+			const runStore = createRunStore(dbPath);
+			try {
+				runStore.completeRun(mission.runId, targetState === "completed" ? "completed" : "stopped");
+			} finally {
+				runStore.close();
+			}
+		}
+
+		await clearMissionPointers(overstoryDir);
+
+		let bundlePath: string | null = null;
+		let refreshedMission = missionStore.getById(mission.id) ?? mission;
+		try {
+			const { exportBundle } = await import("../missions/bundle.ts");
+			const initialBundle = await exportBundle({
+				overstoryDir,
+				dbPath,
+				missionId: mission.id,
+				force: true,
+			});
+			bundlePath = initialBundle.outputDir;
+		} catch (err) {
+			if (!json) {
+				printWarning("Bundle export failed", String(err));
+			}
+		}
+
+		const review = generateMissionReview({ overstoryDir, mission: refreshedMission });
+		recordMissionEvent({
+			overstoryDir,
+			mission: refreshedMission,
+			agentName: "operator",
+			data: {
+				kind: "review_generated",
+				detail: `Mission review recorded (${review.record.overallScore}/100)`,
+			},
+		});
+
+		try {
+			const { exportBundle } = await import("../missions/bundle.ts");
+			const bundleResult = await exportBundle({
+				overstoryDir,
+				dbPath,
+				missionId: mission.id,
+				force: true,
+			});
+			bundlePath = bundleResult.outputDir;
+			if (!json) {
+				printSuccess("Bundle exported", bundleResult.outputDir);
+			}
+		} catch (err) {
+			if (!json) {
+				printWarning("Bundle refresh after review failed", String(err));
+			}
+		}
+
+		return { bundlePath, reviewId: review.record.id };
+	} finally {
+		missionStore.close();
+	}
 }
 
 // === ov mission start ===
@@ -93,8 +353,13 @@ async function missionStart(
 
 	const dbPath = join(overstoryDir, "sessions.db");
 	const missionStore = createMissionStore(dbPath);
+	const runId = `run-${new Date().toISOString().replace(/[:.]/g, "-")}-mission`;
+	const missionId = `mission-${Date.now()}-${opts.slug}`;
+	const artifactRoot = join(overstoryDir, "missions", missionId);
+	let missionCreated = false;
+	let analystStarted = false;
+
 	try {
-		// Enforce one active mission invariant
 		const existing = missionStore.getActive();
 		if (existing) {
 			if (opts.json) {
@@ -107,30 +372,20 @@ async function missionStart(
 			return;
 		}
 
-		// Create mission-owned run
-		const runId = `run-${new Date().toISOString().replace(/[:.]/g, "-")}-mission`;
 		const runStore = createRunStore(dbPath);
 		try {
 			runStore.createRun({
 				id: runId,
 				startedAt: new Date().toISOString(),
 				coordinatorSessionId: null,
-				coordinatorName: null,
+				coordinatorName: "mission",
 				status: "active",
 			});
 		} finally {
 			runStore.close();
 		}
 
-		// Create artifact root directory
-		const missionId = `mission-${Date.now()}-${opts.slug}`;
-		const artifactRoot = join(overstoryDir, "missions", missionId);
-		try {
-			await mkdir(artifactRoot, { recursive: true });
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			throw new Error(`Failed to create mission artifact directory ${artifactRoot}: ${msg}`);
-		}
+		await mkdir(artifactRoot, { recursive: true });
 
 		const insertMission: InsertMission = {
 			id: missionId,
@@ -138,30 +393,111 @@ async function missionStart(
 			objective: opts.objective,
 			runId,
 			artifactRoot,
+			startedAt: new Date().toISOString(),
 		};
-		const mission = missionStore.create(insertMission);
+		const createdMission = missionStore.create(insertMission);
+		missionCreated = true;
+		missionStore.start(missionId);
+		const mission = missionStore.getById(missionId) ?? createdMission;
 
-		// Start mission-analyst role linked to the mission's run
+		await ensureMissionArtifacts(mission);
+		const prompt = await materializeMissionRolePrompt({
+			overstoryDir,
+			agentName: "mission-analyst",
+			capability: "mission-analyst",
+			roleLabel: "Mission Analyst",
+			mission,
+		});
+
+		await writeMissionPointers(overstoryDir, mission.id, runId);
+
 		await startMissionAnalyst({
-			missionId,
+			missionId: mission.id,
 			projectRoot,
 			overstoryDir,
 			existingRunId: runId,
+			appendSystemPromptFile: prompt.promptPath,
+			beacon: buildMissionRoleBeacon({
+				agentName: "mission-analyst",
+				missionId: mission.id,
+				contextPath: prompt.contextPath,
+			}),
+		});
+		analystStarted = true;
+
+		const dispatchId = await sendMissionDispatchMail({
+			overstoryDir,
+			to: "mission-analyst",
+			subject: `Mission started: ${mission.slug}`,
+			body: [
+				`Mission ID: ${mission.id}`,
+				`Objective: ${mission.objective}`,
+				`Artifact root: ${mission.artifactRoot ?? "none"}`,
+				`Context file: ${prompt.contextPath}`,
+			].join("\n"),
 		});
 
-		// Write pointer files
-		await Bun.write(currentMissionPath(overstoryDir), missionId);
-		await Bun.write(currentRunPath(overstoryDir), runId);
+		recordMissionEvent({
+			overstoryDir,
+			mission,
+			agentName: "operator",
+			data: {
+				kind: "mission_started",
+				detail: `Mission started and dispatched to mission-analyst (${dispatchId})`,
+			},
+		});
+		recordMissionEvent({
+			overstoryDir,
+			mission,
+			agentName: "operator",
+			data: { kind: "role_started", detail: "mission-analyst started" },
+		});
 
 		if (opts.json) {
-			jsonOutput("mission start", { mission: toSummary(mission), runId });
+			jsonOutput("mission start", { mission: toSummary(mission), runId, dispatchId });
 		} else {
 			printSuccess("Mission started", mission.slug);
 			process.stdout.write(`  ID:          ${accent(mission.id)}\n`);
 			process.stdout.write(`  Objective:   ${mission.objective}\n`);
 			process.stdout.write(`  Run:         ${runId}\n`);
 			process.stdout.write(`  Artifacts:   ${artifactRoot}\n`);
+			process.stdout.write(`  Analyst mail:${dispatchId}\n`);
 		}
+	} catch (err) {
+		if (analystStarted) {
+			try {
+				await stopMissionRole("mission-analyst", {
+					projectRoot,
+					overstoryDir,
+					completeRun: false,
+				});
+			} catch {
+				// Best-effort cleanup.
+			}
+		}
+		if (missionCreated) {
+			missionStore.delete(missionId);
+		}
+		try {
+			const runStore = createRunStore(dbPath);
+			try {
+				runStore.completeRun(runId, "stopped");
+			} finally {
+				runStore.close();
+			}
+		} catch {
+			// Best-effort cleanup.
+		}
+		await clearMissionPointers(overstoryDir);
+		await rm(artifactRoot, { recursive: true, force: true });
+
+		const message = err instanceof Error ? err.message : String(err);
+		if (opts.json) {
+			jsonError("mission start", message);
+		} else {
+			printError("Mission start failed", message);
+		}
+		process.exitCode = 1;
 	} finally {
 		missionStore.close();
 	}
@@ -170,7 +506,7 @@ async function missionStart(
 // === ov mission status ===
 
 async function missionStatus(overstoryDir: string, json: boolean): Promise<void> {
-	const missionId = await readCurrentMissionId(overstoryDir);
+	const missionId = await resolveCurrentMissionId(overstoryDir);
 	if (!missionId) {
 		if (json) {
 			jsonOutput("mission status", { mission: null, message: "No active mission" });
@@ -194,8 +530,11 @@ async function missionStatus(overstoryDir: string, json: boolean): Promise<void>
 			return;
 		}
 
+		await writeMissionPointers(overstoryDir, mission.id, mission.runId);
+		const roles = resolveMissionRoleStates(overstoryDir, mission);
+
 		if (json) {
-			jsonOutput("mission status", { mission: toSummary(mission) });
+			jsonOutput("mission status", { mission: toSummary(mission), roles });
 			return;
 		}
 
@@ -209,8 +548,13 @@ async function missionStatus(overstoryDir: string, json: boolean): Promise<void>
 			process.stdout.write(
 				`  Pending:      ${mission.pendingInputKind ?? "input"} (thread: ${mission.pendingInputThreadId ?? "none"})\n`,
 			);
+		} else {
+			process.stdout.write("  Pending:      none\n");
 		}
 		process.stdout.write(`  Reopen count: ${mission.reopenCount}\n`);
+		process.stdout.write(`  Coordinator:  ${roles.coordinator}\n`);
+		process.stdout.write(`  Analyst:      ${roles.analyst}\n`);
+		process.stdout.write(`  Exec Dir:     ${roles.executionDirector}\n`);
 		if (mission.artifactRoot) {
 			process.stdout.write(`  Artifacts:    ${mission.artifactRoot}\n`);
 		}
@@ -227,7 +571,7 @@ async function missionStatus(overstoryDir: string, json: boolean): Promise<void>
 // === ov mission output ===
 
 async function missionOutput(overstoryDir: string, json: boolean): Promise<void> {
-	const missionId = await readCurrentMissionId(overstoryDir);
+	const missionId = await resolveCurrentMissionId(overstoryDir);
 	if (!missionId) {
 		if (json) {
 			jsonOutput("mission output", { mission: null, message: "No active mission" });
@@ -251,71 +595,40 @@ async function missionOutput(overstoryDir: string, json: boolean): Promise<void>
 			return;
 		}
 
-		// Resolve role session states
-		let analystRunning = false;
-		let executionDirectorRunning = false;
-		try {
-			const { store: sessionStore } = openSessionStore(overstoryDir);
-			try {
-				const allSessions = sessionStore.getAll();
-				if (mission.analystSessionId) {
-					const s = allSessions.find((x) => x.id === mission.analystSessionId);
-					if (s && s.state !== "completed" && s.state !== "zombie") {
-						analystRunning = true;
-					}
-				}
-				if (mission.executionDirectorSessionId) {
-					const s = allSessions.find((x) => x.id === mission.executionDirectorSessionId);
-					if (s && s.state !== "completed" && s.state !== "zombie") {
-						executionDirectorRunning = true;
-					}
-				}
-			} finally {
-				sessionStore.close();
-			}
-		} catch {
-			// session store unavailable
-		}
+		await writeMissionPointers(overstoryDir, mission.id, mission.runId);
+		const roles = resolveMissionRoleStates(overstoryDir, mission);
+		const narrative = buildNarrative(mission, loadMissionEvents(overstoryDir, mission));
 
 		if (json) {
 			jsonOutput("mission output", {
 				mission: toSummary(mission),
+				narrative,
 				artifactRoot: mission.artifactRoot,
 				pausedWorkstreamIds: mission.pausedWorkstreamIds,
-				roles: {
-					analyst: { sessionId: mission.analystSessionId, running: analystRunning },
-					executionDirector: {
-						sessionId: mission.executionDirectorSessionId,
-						running: executionDirectorRunning,
-					},
-				},
+				roles,
 			});
 			return;
 		}
 
-		const w = process.stdout.write.bind(process.stdout);
-		w(`${renderHeader("Mission Output")}\n`);
-		w(`  ID:           ${accent(mission.id)}\n`);
-		w(`  Slug:         ${mission.slug}\n`);
-		w(`  Objective:    ${mission.objective}\n`);
-		w(`  State:        ${mission.state} / ${mission.phase}\n`);
-		const pending = mission.pendingUserInput ? (mission.pendingInputKind ?? "input") : "none";
-		w(`  Pending:      ${pending}\n`);
-		w(`  Reopens:      ${mission.reopenCount}\n`);
-		w(`  First freeze: ${mission.firstFreezeAt ?? "never"}\n`);
-		w("\n");
-
-		w(`${renderSubHeader("Workstreams")}\n`);
-		const paused =
-			mission.pausedWorkstreamIds.length > 0 ? mission.pausedWorkstreamIds.join(", ") : "none";
-		w(`  Paused: ${paused}\n`);
-		w("\n");
-
-		w(`${renderSubHeader("Roles")}\n`);
-		const analystStatus = analystRunning ? color.green("running") : color.dim("not started");
-		const edStatus = executionDirectorRunning ? color.green("running") : color.dim("not started");
-		w(`  Analyst:            ${analystStatus}\n`);
-		w(`  Execution Director: ${edStatus}\n`);
+		process.stdout.write(`${renderHeader("Mission Output")}\n`);
+		process.stdout.write(`${renderNarrative(narrative)}\n\n`);
+		process.stdout.write(`${renderSubHeader("Roles")}\n`);
+		process.stdout.write(`  Coordinator:         ${roles.coordinator}\n`);
+		process.stdout.write(`  Mission Analyst:     ${roles.analyst}\n`);
+		process.stdout.write(`  Execution Director:  ${roles.executionDirector}\n`);
+		process.stdout.write("\n");
+		process.stdout.write(`${renderSubHeader("Mission")}\n`);
+		process.stdout.write(`  State:               ${mission.state}/${mission.phase}\n`);
+		process.stdout.write(
+			`  Pending:             ${mission.pendingUserInput ? mission.pendingInputKind ?? "input" : "none"}\n`,
+		);
+		process.stdout.write(`  Reopens:             ${mission.reopenCount}\n`);
+		process.stdout.write(
+			`  Paused workstreams:  ${mission.pausedWorkstreamIds.length > 0 ? mission.pausedWorkstreamIds.join(", ") : "none"}\n`,
+		);
+		if (mission.artifactRoot) {
+			process.stdout.write(`  Artifacts:           ${mission.artifactRoot}\n`);
+		}
 	} finally {
 		missionStore.close();
 	}
@@ -325,16 +638,39 @@ async function missionOutput(overstoryDir: string, json: boolean): Promise<void>
 
 interface AnswerOpts {
 	body?: string;
+	file?: string;
 	json?: boolean;
 }
 
 async function missionAnswer(overstoryDir: string, opts: AnswerOpts): Promise<void> {
-	const missionId = await readCurrentMissionId(overstoryDir);
+	const missionId = await resolveCurrentMissionId(overstoryDir);
 	if (!missionId) {
 		if (opts.json) {
 			jsonError("mission answer", "No active mission");
 		} else {
 			printError("No active mission");
+		}
+		process.exitCode = 1;
+		return;
+	}
+
+	let body: string | null;
+	try {
+		body = await readAnswerBody(opts);
+	} catch (err) {
+		if (opts.json) {
+			jsonError("mission answer", String(err));
+		} else {
+			printError("Failed to read answer", String(err));
+		}
+		process.exitCode = 1;
+		return;
+	}
+	if (!body) {
+		if (opts.json) {
+			jsonError("mission answer", "Provide a non-empty --body or --file");
+		} else {
+			printError("Provide a non-empty --body or --file");
 		}
 		process.exitCode = 1;
 		return;
@@ -354,25 +690,48 @@ async function missionAnswer(overstoryDir: string, opts: AnswerOpts): Promise<vo
 			return;
 		}
 
-		if (!mission.pendingUserInput) {
+		if (!mission.pendingUserInput || !mission.pendingInputThreadId) {
 			if (opts.json) {
-				jsonError("mission answer", "Mission is not waiting for user input");
+				jsonError("mission answer", "Mission is not waiting for a question packet");
 			} else {
-				printError("Mission is not waiting for user input");
+				printError("Mission is not waiting for a question packet");
 			}
 			process.exitCode = 1;
 			return;
 		}
 
+		const client = openMailClient(overstoryDir);
+		let replyId: string;
+		try {
+			replyId = client.reply(mission.pendingInputThreadId, body, "operator");
+		} finally {
+			client.close();
+		}
+
 		missionStore.unfreeze(missionId);
+		recordMissionEvent({
+			overstoryDir,
+			mission,
+			agentName: "operator",
+			data: {
+				kind: "user_answer",
+				detail: `Operator replied in thread ${mission.pendingInputThreadId}`,
+				threadId: mission.pendingInputThreadId,
+				replyId,
+			},
+		});
+		recordMissionEvent({
+			overstoryDir,
+			mission,
+			agentName: "operator",
+			data: { kind: "state_change", from: "frozen", to: "active" },
+		});
 
 		if (opts.json) {
-			jsonOutput("mission answer", { missionId, answered: true, body: opts.body ?? null });
+			jsonOutput("mission answer", { missionId, answered: true, replyId, body });
 		} else {
-			printSuccess("Mission unfrozen", mission.slug);
-			if (opts.body) {
-				process.stdout.write(`  Answer: ${opts.body}\n`);
-			}
+			printSuccess("Mission answer delivered", mission.slug);
+			process.stdout.write(`  Reply:   ${replyId}\n`);
 		}
 	} finally {
 		missionStore.close();
@@ -382,7 +741,7 @@ async function missionAnswer(overstoryDir: string, opts: AnswerOpts): Promise<vo
 // === ov mission artifacts ===
 
 async function missionArtifacts(overstoryDir: string, json: boolean): Promise<void> {
-	const missionId = await readCurrentMissionId(overstoryDir);
+	const missionId = await resolveCurrentMissionId(overstoryDir);
 	if (!missionId) {
 		if (json) {
 			jsonOutput("mission artifacts", { mission: null, message: "No active mission" });
@@ -405,40 +764,232 @@ async function missionArtifacts(overstoryDir: string, json: boolean): Promise<vo
 			return;
 		}
 
-		const root = mission.artifactRoot;
-		const knownPaths = {
-			root,
-			missionMd: join(root, "mission.md"),
-			decisionsMs: join(root, "decisions.md"),
-			openQuestions: join(root, "open-questions.md"),
-			researchSummary: join(root, "research", "_summary.md"),
-			workstreams: join(root, "plan", "workstreams.json"),
-		};
-
+		const paths = getMissionArtifactPaths(mission);
 		if (json) {
-			jsonOutput("mission artifacts", { artifactRoot: root, paths: knownPaths });
+			jsonOutput("mission artifacts", { artifactRoot: paths.root, paths });
 			return;
 		}
 
 		process.stdout.write(`${renderHeader("Mission Artifacts")}\n`);
-		process.stdout.write(`  Root:           ${root}\n`);
-		process.stdout.write(`  mission.md:     ${knownPaths.missionMd}\n`);
-		process.stdout.write(`  decisions.md:   ${knownPaths.decisionsMs}\n`);
-		process.stdout.write(`  open-questions: ${knownPaths.openQuestions}\n`);
-		process.stdout.write(`  workstreams:    ${knownPaths.workstreams}\n`);
+		process.stdout.write(`  Root:           ${paths.root}\n`);
+		process.stdout.write(`  mission.md:     ${paths.missionMd}\n`);
+		process.stdout.write(`  decisions.md:   ${paths.decisionsMd}\n`);
+		process.stdout.write(`  open-questions: ${paths.openQuestionsMd}\n`);
+		process.stdout.write(`  current-state:  ${paths.currentStateMd}\n`);
+		process.stdout.write(`  summary:        ${paths.researchSummaryMd}\n`);
+		process.stdout.write(`  workstreams:    ${paths.workstreamsJson}\n`);
+		process.stdout.write(`  results/:       ${paths.resultsDir}\n`);
 	} finally {
 		missionStore.close();
 	}
 }
 
-// === ov mission stop ===
+// === ov mission handoff ===
+
+interface HandoffOpts {
+	json?: boolean;
+}
+
+async function missionHandoff(
+	overstoryDir: string,
+	projectRoot: string,
+	json: boolean,
+): Promise<void> {
+	const missionId = await resolveCurrentMissionId(overstoryDir);
+	if (!missionId) {
+		if (json) {
+			jsonError("mission handoff", "No active mission");
+		} else {
+			printError("No active mission");
+		}
+		process.exitCode = 1;
+		return;
+	}
+
+	const dbPath = join(overstoryDir, "sessions.db");
+	const missionStore = createMissionStore(dbPath);
+	try {
+		const mission = missionStore.getById(missionId);
+		if (!mission || !mission.artifactRoot || !mission.runId) {
+			if (json) {
+				jsonError("mission handoff", "Mission is missing required runtime metadata");
+			} else {
+				printError("Mission is missing required runtime metadata");
+			}
+			process.exitCode = 1;
+			return;
+		}
+		if (mission.pendingUserInput) {
+			if (json) {
+				jsonError("mission handoff", "Mission cannot hand off while pending user input");
+			} else {
+				printError("Mission cannot hand off while pending user input");
+			}
+			process.exitCode = 1;
+			return;
+		}
+		const roles = resolveMissionRoleStates(overstoryDir, mission);
+		if (roles.executionDirector === "running") {
+			if (json) {
+				jsonError("mission handoff", "Execution director is already running for this mission");
+			} else {
+				printError("Execution director is already running for this mission");
+			}
+			process.exitCode = 1;
+			return;
+		}
+
+		const paths = getMissionArtifactPaths(mission);
+		const validation = await loadWorkstreamsFile(paths.workstreamsJson);
+		if (!validation.valid || !validation.workstreams) {
+			const message =
+				validation.errors[0]?.message ??
+				"workstreams.json is missing or invalid; cannot hand off execution";
+			if (json) {
+				jsonError("mission handoff", message);
+			} else {
+				printError("Mission handoff failed", message);
+			}
+			process.exitCode = 1;
+			return;
+		}
+
+		const handoffs = packageHandoffs(validation.workstreams.workstreams);
+		if (handoffs.length === 0) {
+			if (json) {
+				jsonError("mission handoff", "No dispatchable workstreams found");
+			} else {
+				printError("No dispatchable workstreams found");
+			}
+			process.exitCode = 1;
+			return;
+		}
+
+		for (const handoff of handoffs) {
+			if (!handoff.briefPath) {
+				if (json) {
+					jsonError("mission handoff", `Workstream ${handoff.workstreamId} is missing briefPath`);
+				} else {
+					printError("Workstream missing briefPath", handoff.workstreamId);
+				}
+				process.exitCode = 1;
+				return;
+			}
+			const briefFile = Bun.file(join(mission.artifactRoot, handoff.briefPath));
+			if (!(await briefFile.exists())) {
+				if (json) {
+					jsonError(
+						"mission handoff",
+						`Workstream ${handoff.workstreamId} brief is missing: ${handoff.briefPath}`,
+					);
+				} else {
+					printError(
+						"Workstream brief is missing",
+						`${handoff.workstreamId}: ${handoff.briefPath}`,
+					);
+				}
+				process.exitCode = 1;
+				return;
+			}
+		}
+
+		const prompt = await materializeMissionRolePrompt({
+			overstoryDir,
+			agentName: "execution-director",
+			capability: "execution-director",
+			roleLabel: "Execution Director",
+			mission,
+		});
+
+		await startExecutionDirector({
+			missionId: mission.id,
+			projectRoot,
+			overstoryDir,
+			existingRunId: mission.runId,
+			appendSystemPromptFile: prompt.promptPath,
+			beacon: buildMissionRoleBeacon({
+				agentName: "execution-director",
+				missionId: mission.id,
+				contextPath: prompt.contextPath,
+			}),
+		});
+
+		const beforePhase = mission.phase;
+		missionStore.updatePhase(mission.id, "execute");
+		recordMissionEvent({
+			overstoryDir,
+			mission,
+			agentName: "operator",
+			data: { kind: "phase_change", from: beforePhase, to: "execute" },
+		});
+		recordMissionEvent({
+			overstoryDir,
+			mission,
+			agentName: "operator",
+			data: { kind: "role_started", detail: "execution-director started" },
+		});
+
+		const client = openMailClient(overstoryDir);
+		let messageId: string;
+		try {
+			messageId = client.sendProtocol({
+				from: "operator",
+				to: "execution-director",
+				subject: `Execution handoff: ${mission.slug}`,
+				body: handoffs
+					.map(
+						(handoff) =>
+							`- ${handoff.workstreamId} (${handoff.taskId}): ${handoff.objective} [brief: ${handoff.briefPath}]`,
+					)
+					.join("\n"),
+				type: "execution_handoff",
+				payload: {
+					missionId: mission.id,
+					taskIds: handoffs.map((handoff) => handoff.taskId),
+					workstreamIds: handoffs.map((handoff) => handoff.workstreamId),
+					briefPaths: handoffs.map((handoff) => handoff.briefPath!).filter(Boolean),
+					handoffs,
+				},
+			});
+		} finally {
+			client.close();
+		}
+
+		recordMissionEvent({
+			overstoryDir,
+			mission,
+			agentName: "operator",
+			data: {
+				kind: "execution_handoff",
+				detail: `Execution handoff sent to execution-director (${messageId})`,
+				workstreamCount: handoffs.length,
+			},
+		});
+
+		if (json) {
+			jsonOutput("mission handoff", {
+				missionId: mission.id,
+				messageId,
+				workstreamCount: handoffs.length,
+			});
+		} else {
+			printSuccess("Mission handed off to execution director", mission.slug);
+			process.stdout.write(`  Mail:        ${messageId}\n`);
+			process.stdout.write(`  Workstreams: ${handoffs.length}\n`);
+		}
+	} finally {
+		missionStore.close();
+	}
+}
+
+// === ov mission stop / complete ===
 
 async function missionStop(
 	overstoryDir: string,
 	projectRoot: string,
 	json: boolean,
 ): Promise<void> {
-	const missionId = await readCurrentMissionId(overstoryDir);
+	const missionId = await resolveCurrentMissionId(overstoryDir);
 	if (!missionId) {
 		if (json) {
 			jsonError("mission stop", "No active mission to stop");
@@ -449,8 +1000,7 @@ async function missionStop(
 		return;
 	}
 
-	const dbPath = join(overstoryDir, "sessions.db");
-	const missionStore = createMissionStore(dbPath);
+	const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
 	try {
 		const mission = missionStore.getById(missionId);
 		if (!mission) {
@@ -463,53 +1013,84 @@ async function missionStop(
 			return;
 		}
 
-		// Stop mission roles (agents may not be running — ignore errors)
-		for (const roleName of ["mission-analyst", "execution-director"]) {
-			try {
-				await stopMissionRole(roleName, { projectRoot, overstoryDir });
-			} catch {
-				// Agent may not be running — non-fatal
-			}
-		}
-
-		// Terminalize the mission
-		missionStore.updateState(missionId, "cancelled");
-
-		// Terminalize mission-owned run as stopped
-		if (mission.runId) {
-			const runStore = createRunStore(dbPath);
-			try {
-				runStore.completeRun(mission.runId, "stopped");
-			} finally {
-				runStore.close();
-			}
-		}
-
-		// Export result bundle (non-fatal)
-		let bundlePath: string | null = null;
-		try {
-			const { exportBundle } = await import("../missions/bundle.ts");
-			const bundleResult = await exportBundle({ overstoryDir, dbPath, missionId });
-			bundlePath = bundleResult.outputDir;
-			if (!json) printSuccess("Bundle exported", bundleResult.outputDir);
-		} catch (err) {
-			if (!json) printWarning("Bundle export failed", String(err));
-		}
-
-		// Clear pointer files
-		const { unlink } = await import("node:fs/promises");
-		for (const path of [currentMissionPath(overstoryDir), currentRunPath(overstoryDir)]) {
-			try {
-				await unlink(path);
-			} catch {
-				// File may already be gone
-			}
-		}
-
+		const result = await terminalizeMission({
+			overstoryDir,
+			projectRoot,
+			mission,
+			targetState: "stopped",
+			json,
+		});
 		if (json) {
-			jsonOutput("mission stop", { missionId, slug: mission.slug, state: "cancelled", bundlePath });
+			jsonOutput("mission stop", {
+				missionId,
+				slug: mission.slug,
+				state: "stopped",
+				bundlePath: result.bundlePath,
+				reviewId: result.reviewId,
+			});
 		} else {
 			printSuccess("Mission stopped", mission.slug);
+		}
+	} finally {
+		missionStore.close();
+	}
+}
+
+async function missionComplete(
+	overstoryDir: string,
+	projectRoot: string,
+	json: boolean,
+): Promise<void> {
+	const missionId = await resolveCurrentMissionId(overstoryDir);
+	if (!missionId) {
+		if (json) {
+			jsonError("mission complete", "No active mission to complete");
+		} else {
+			printError("No active mission to complete");
+		}
+		process.exitCode = 1;
+		return;
+	}
+
+	const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
+	try {
+		const mission = missionStore.getById(missionId);
+		if (!mission) {
+			if (json) {
+				jsonError("mission complete", `Mission ${missionId} not found`);
+			} else {
+				printError("Mission not found in store", missionId);
+			}
+			process.exitCode = 1;
+			return;
+		}
+		if (mission.pendingUserInput) {
+			if (json) {
+				jsonError("mission complete", "Mission cannot complete while pending user input");
+			} else {
+				printError("Mission cannot complete while pending user input");
+			}
+			process.exitCode = 1;
+			return;
+		}
+
+		const result = await terminalizeMission({
+			overstoryDir,
+			projectRoot,
+			mission,
+			targetState: "completed",
+			json,
+		});
+		if (json) {
+			jsonOutput("mission complete", {
+				missionId,
+				slug: mission.slug,
+				state: "completed",
+				bundlePath: result.bundlePath,
+				reviewId: result.reviewId,
+			});
+		} else {
+			printSuccess("Mission completed", mission.slug);
 		}
 	} finally {
 		missionStore.close();
@@ -580,7 +1161,10 @@ async function missionShow(overstoryDir: string, idOrSlug: string, json: boolean
 		}
 
 		if (json) {
-			jsonOutput("mission show", { mission });
+			jsonOutput("mission show", {
+				mission,
+				narrative: buildNarrative(mission, loadMissionEvents(overstoryDir, mission)),
+			});
 			return;
 		}
 
@@ -610,6 +1194,9 @@ async function missionShow(overstoryDir: string, idOrSlug: string, json: boolean
 		}
 		process.stdout.write(`  Created:      ${mission.createdAt}\n`);
 		process.stdout.write(`  Updated:      ${mission.updatedAt}\n`);
+		process.stdout.write("\n");
+		process.stdout.write(`${renderSubHeader("Narrative")}\n`);
+		process.stdout.write(`${renderMissionNarrative(mission, overstoryDir)}\n`);
 	} finally {
 		missionStore.close();
 	}
@@ -626,10 +1213,9 @@ interface BundleOpts {
 async function missionBundle(overstoryDir: string, opts: BundleOpts): Promise<void> {
 	const dbPath = join(overstoryDir, "sessions.db");
 
-	// Resolve mission ID: explicit flag or active mission
 	let missionId = opts.missionId ?? null;
 	if (!missionId) {
-		missionId = await readCurrentMissionId(overstoryDir);
+		missionId = await resolveCurrentMissionId(overstoryDir);
 	}
 	if (!missionId) {
 		if (opts.json) {
@@ -656,15 +1242,13 @@ async function missionBundle(overstoryDir: string, opts: BundleOpts): Promise<vo
 				manifest: result.manifest,
 				filesWritten: result.filesWritten,
 			});
+		} else if (result.filesWritten.length === 0) {
+			printHint("Bundle is already up to date");
+			process.stdout.write(`  Path: ${result.outputDir}\n`);
 		} else {
-			if (result.filesWritten.length === 0) {
-				printHint("Bundle is already up to date");
-				process.stdout.write(`  Path: ${result.outputDir}\n`);
-			} else {
-				printSuccess("Bundle exported", result.outputDir);
-				for (const f of result.filesWritten) {
-					process.stdout.write(`  ${f}\n`);
-				}
+			printSuccess("Bundle exported", result.outputDir);
+			for (const file of result.filesWritten) {
+				process.stdout.write(`  ${file}\n`);
 			}
 		}
 	} catch (err) {
@@ -688,7 +1272,6 @@ export function createMissionCommand(): Command {
 		"Manage long-running missions (objectives, phases, user input)",
 	);
 
-	// Default action: show status of active mission
 	cmd.option("--json", "Output as JSON").action(async (opts: MissionDefaultOpts) => {
 		const cwd = process.cwd();
 		const config = await loadConfig(cwd);
@@ -696,10 +1279,9 @@ export function createMissionCommand(): Command {
 		await missionStatus(overstoryDir, opts.json ?? false);
 	});
 
-	// ov mission start
 	cmd
 		.command("start")
-		.description("Create a new mission (creates run + pointer files + artifact root)")
+		.description("Create a new mission (run + pointer files + artifact root)")
 		.requiredOption("--slug <slug>", "Short identifier for the mission (e.g. auth-rewrite)")
 		.requiredOption("--objective <objective>", "Mission objective (what to accomplish)")
 		.option("--json", "Output as JSON")
@@ -710,7 +1292,6 @@ export function createMissionCommand(): Command {
 			await missionStart(overstoryDir, config.project.root, opts);
 		});
 
-	// ov mission status
 	cmd
 		.command("status")
 		.description("Show active mission summary")
@@ -722,10 +1303,9 @@ export function createMissionCommand(): Command {
 			await missionStatus(overstoryDir, opts.json ?? false);
 		});
 
-	// ov mission output
 	cmd
 		.command("output")
-		.description("Mission-centric output (state, artifacts, paused workstreams)")
+		.description("Mission-centric output with event narrative")
 		.option("--json", "Output as JSON")
 		.action(async (opts: MissionDefaultOpts) => {
 			const cwd = process.cwd();
@@ -734,20 +1314,19 @@ export function createMissionCommand(): Command {
 			await missionOutput(overstoryDir, opts.json ?? false);
 		});
 
-	// ov mission answer
 	cmd
 		.command("answer")
-		.description("Respond to pending input (unfreeze the active mission)")
+		.description("Respond to the pending mission question packet")
 		.option("--body <text>", "Your answer or response text")
+		.option("--file <path>", "Path to a file containing your answer")
 		.option("--json", "Output as JSON")
-		.action(async (opts: { body?: string; json?: boolean }) => {
+		.action(async (opts: { body?: string; file?: string; json?: boolean }) => {
 			const cwd = process.cwd();
 			const config = await loadConfig(cwd);
 			const overstoryDir = join(config.project.root, ".overstory");
 			await missionAnswer(overstoryDir, opts);
 		});
 
-	// ov mission artifacts
 	cmd
 		.command("artifacts")
 		.description("Print artifact root and known paths for the active mission")
@@ -759,7 +1338,28 @@ export function createMissionCommand(): Command {
 			await missionArtifacts(overstoryDir, opts.json ?? false);
 		});
 
-	// ov mission stop
+	cmd
+		.command("handoff")
+		.description("Start execution director and hand off dispatchable workstreams")
+		.option("--json", "Output as JSON")
+		.action(async (opts: HandoffOpts) => {
+			const cwd = process.cwd();
+			const config = await loadConfig(cwd);
+			const overstoryDir = join(config.project.root, ".overstory");
+			await missionHandoff(overstoryDir, config.project.root, opts.json ?? false);
+		});
+
+	cmd
+		.command("complete")
+		.description("Complete the active mission, export bundle, and clear pointers")
+		.option("--json", "Output as JSON")
+		.action(async (opts: MissionDefaultOpts) => {
+			const cwd = process.cwd();
+			const config = await loadConfig(cwd);
+			const overstoryDir = join(config.project.root, ".overstory");
+			await missionComplete(overstoryDir, config.project.root, opts.json ?? false);
+		});
+
 	cmd
 		.command("stop")
 		.description("Stop and terminalize the active mission (clears pointer files)")
@@ -771,7 +1371,6 @@ export function createMissionCommand(): Command {
 			await missionStop(overstoryDir, config.project.root, opts.json ?? false);
 		});
 
-	// ov mission list
 	cmd
 		.command("list")
 		.description("List all missions")
@@ -783,7 +1382,6 @@ export function createMissionCommand(): Command {
 			await missionList(overstoryDir, opts.json ?? false);
 		});
 
-	// ov mission show <id-or-slug>
 	cmd
 		.command("show")
 		.description("Show details for a specific mission")
@@ -796,10 +1394,9 @@ export function createMissionCommand(): Command {
 			await missionShow(overstoryDir, idOrSlug, opts.json ?? false);
 		});
 
-	// ov mission bundle
 	cmd
 		.command("bundle")
-		.description("Export a result bundle (events, sessions, metrics) for a mission")
+		.description("Export a result bundle (summary, events, narrative, review) for a mission")
 		.option("--mission-id <id>", "Mission ID (defaults to active mission)")
 		.option("--force", "Force regeneration even if bundle is fresh")
 		.option("--json", "Output as JSON")

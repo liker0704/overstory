@@ -29,6 +29,12 @@ export interface StartMissionRoleOpts {
 	overstoryDir: string;
 	/** Mission-owned run ID to link the agent to. */
 	existingRunId: string;
+	/** Optional role-specific prompt file override. */
+	appendSystemPromptFile?: string;
+	/** Optional inline prompt suffix override. */
+	appendSystemPrompt?: string;
+	/** Optional startup beacon. */
+	beacon?: string;
 }
 
 /** Options for stopping a mission role. */
@@ -37,6 +43,10 @@ export interface StopMissionRoleOpts {
 	projectRoot: string;
 	/** Absolute path to the .overstory directory. */
 	overstoryDir: string;
+	/** Whether stopping this role should also complete the shared run. */
+	completeRun?: boolean;
+	/** Shared run terminal status when completeRun is enabled. */
+	runStatus?: "completed" | "stopped";
 }
 
 /** Internal dependency injection — used in tests to avoid real tmux and store I/O. */
@@ -44,7 +54,12 @@ export interface MissionRoleDeps {
 	startAgent?: (opts: StartPersistentAgentOpts) => Promise<StartPersistentAgentResult>;
 	stopAgent?: (
 		agentName: string,
-		opts: { projectRoot: string; overstoryDir: string; runStatus?: "completed" | "stopped" },
+		opts: {
+			projectRoot: string;
+			overstoryDir: string;
+			runStatus?: "completed" | "stopped";
+			completeRun?: boolean;
+		},
 	) => Promise<StopPersistentAgentResult>;
 	createStore?: (dbPath: string) => MissionStore;
 }
@@ -70,10 +85,13 @@ export async function startMissionAnalyst(
 		capability: "mission-analyst",
 		projectRoot: opts.projectRoot,
 		overstoryDir: opts.overstoryDir,
-		tmuxSession: "ov-mission-analyst",
-		createRun: false,
-		existingRunId: opts.existingRunId,
-	});
+			tmuxSession: "ov-mission-analyst",
+			createRun: false,
+			existingRunId: opts.existingRunId,
+			appendSystemPromptFile: opts.appendSystemPromptFile,
+			appendSystemPrompt: opts.appendSystemPrompt,
+			beacon: opts.beacon,
+		});
 
 	const store = storeFactory(join(opts.overstoryDir, "sessions.db"));
 	try {
@@ -108,10 +126,13 @@ export async function startExecutionDirector(
 		capability: "execution-director",
 		projectRoot: opts.projectRoot,
 		overstoryDir: opts.overstoryDir,
-		tmuxSession: "ov-execution-director",
-		createRun: false,
-		existingRunId: opts.existingRunId,
-	});
+			tmuxSession: "ov-execution-director",
+			createRun: false,
+			existingRunId: opts.existingRunId,
+			appendSystemPromptFile: opts.appendSystemPromptFile,
+			appendSystemPrompt: opts.appendSystemPrompt,
+			beacon: opts.beacon,
+		});
 
 	const store = storeFactory(join(opts.overstoryDir, "sessions.db"));
 	try {
@@ -145,6 +166,7 @@ export async function stopMissionRole(
 	return stopAgent(agentName, {
 		projectRoot: opts.projectRoot,
 		overstoryDir: opts.overstoryDir,
-		runStatus: "stopped",
+		runStatus: opts.runStatus ?? "stopped",
+		completeRun: opts.completeRun,
 	});
 }

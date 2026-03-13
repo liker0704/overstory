@@ -43,6 +43,18 @@ describe("createReviewCommand", () => {
 		expect(sub).toBeDefined();
 	});
 
+	test("has 'missions' subcommand", () => {
+		const cmd = createReviewCommand();
+		const sub = cmd.commands.find((c) => c.name() === "missions");
+		expect(sub).toBeDefined();
+	});
+
+	test("has 'mission' subcommand with argument", () => {
+		const cmd = createReviewCommand();
+		const sub = cmd.commands.find((c) => c.name() === "mission");
+		expect(sub).toBeDefined();
+	});
+
 	test("has 'stale' subcommand", () => {
 		const cmd = createReviewCommand();
 		const sub = cmd.commands.find((c) => c.name() === "stale");
@@ -81,8 +93,24 @@ describe("createReviewCommand", () => {
 		expect(jsonOpt).toBeDefined();
 	});
 
-	test("has exactly 5 subcommands", () => {
+	test("missions subcommand has --recent option", () => {
 		const cmd = createReviewCommand();
-		expect(cmd.commands).toHaveLength(5);
+		const sub = cmd.commands.find((c) => c.name() === "missions");
+		const opts = sub?.options ?? [];
+		const recentOpt = opts.find((o) => o.long === "--recent");
+		expect(recentOpt).toBeDefined();
+	});
+
+	test("mission subcommand has --json option", () => {
+		const cmd = createReviewCommand();
+		const sub = cmd.commands.find((c) => c.name() === "mission");
+		const opts = sub?.options ?? [];
+		const jsonOpt = opts.find((o) => o.long === "--json");
+		expect(jsonOpt).toBeDefined();
+	});
+
+	test("has exactly 7 subcommands", () => {
+		const cmd = createReviewCommand();
+		expect(cmd.commands).toHaveLength(7);
 	});
 });

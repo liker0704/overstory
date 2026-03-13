@@ -14,6 +14,9 @@ export interface MissionReviewInput {
 	completedSessionCount: number;
 	totalSessionCount: number;
 	hasBundleExport: boolean;
+	artifactFileCount: number;
+	metricsCount: number;
+	narrativeEntryCount: number;
 	durationMs: number;
 }
 
@@ -26,6 +29,9 @@ export function analyzeMission(input: MissionReviewInput): InsertReviewRecord {
 		completedSessionCount,
 		totalSessionCount,
 		hasBundleExport,
+		artifactFileCount,
+		metricsCount,
+		narrativeEntryCount,
 		durationMs,
 	} = input;
 
@@ -35,24 +41,34 @@ export function analyzeMission(input: MissionReviewInput): InsertReviewRecord {
 	const clarityScore = scorePresence((hasObjective ? 1 : 0) + (hasValidSlug ? 1 : 0), 2);
 	const clarityDetails = `objective length: ${mission.objective.length}, slug valid: ${hasValidSlug}`;
 
-	// actionability: terminal state reached, artifactRoot set
+	// actionability: terminal state reached, artifactRoot set, key artifacts materialized
 	const isTerminal =
 		mission.state === "completed" ||
 		mission.state === "failed" ||
-		mission.state === "cancelled";
+		mission.state === "stopped";
 	const hasArtifactRoot = mission.artifactRoot !== null && mission.artifactRoot.length > 0;
-	const actionabilityScore = scorePresence((isTerminal ? 1 : 0) + (hasArtifactRoot ? 1 : 0), 2);
-	const actionabilityDetails = `state: ${mission.state}, artifactRoot: ${hasArtifactRoot ? "set" : "missing"}`;
+	const hasMaterializedArtifacts = artifactFileCount >= 4;
+	const actionabilityScore = scorePresence(
+		(isTerminal ? 1 : 0) + (hasArtifactRoot ? 1 : 0) + (hasMaterializedArtifacts ? 1 : 0),
+		3,
+	);
+	const actionabilityDetails = `state: ${mission.state}, artifactRoot: ${hasArtifactRoot ? "set" : "missing"}, artifacts: ${artifactFileCount}`;
 
-	// completeness: has events, has sessions, has bundle export, phase is 'done'
+	// completeness: has events, has sessions, has bundle export, phase is 'done', narrative/artifacts exist
 	const hasEvents = eventCount > 0;
 	const hasSessions = totalSessionCount > 0;
 	const isDone = mission.phase === "done";
+	const hasNarrative = narrativeEntryCount > 0;
 	const completenessScore = scorePresence(
-		(hasEvents ? 1 : 0) + (hasSessions ? 1 : 0) + (hasBundleExport ? 1 : 0) + (isDone ? 1 : 0),
-		4,
+		(hasEvents ? 1 : 0) +
+			(hasSessions ? 1 : 0) +
+			(hasBundleExport ? 1 : 0) +
+			(isDone ? 1 : 0) +
+			(hasMaterializedArtifacts ? 1 : 0) +
+			(hasNarrative ? 1 : 0),
+		6,
 	);
-	const completenessDetails = `events: ${eventCount}, sessions: ${totalSessionCount}, bundle: ${hasBundleExport}, phase: ${mission.phase}`;
+	const completenessDetails = `events: ${eventCount}, sessions: ${totalSessionCount}, bundle: ${hasBundleExport}, phase: ${mission.phase}, artifacts: ${artifactFileCount}, narrative: ${narrativeEntryCount}`;
 
 	// signal-to-noise: error ratio with low reopenCount bonus
 	let signalNoiseScore: number;
@@ -84,15 +100,16 @@ export function analyzeMission(input: MissionReviewInput): InsertReviewRecord {
 		correctnessDetails = `${completedSessionCount}/${totalSessionCount} sessions completed`;
 	}
 
-	// coordination-fit: has agents, not excessive agents, has duration
+	// coordination-fit: has agents, not excessive agents, has duration, metrics captured
 	const hasAgents = agentCount > 0;
 	const notExcessiveAgents = agentCount <= 20;
 	const hasDuration = durationMs > 0;
+	const hasMetrics = metricsCount > 0;
 	const coordinationScore = scorePresence(
-		(hasAgents ? 1 : 0) + (notExcessiveAgents ? 1 : 0) + (hasDuration ? 1 : 0),
-		3,
+		(hasAgents ? 1 : 0) + (notExcessiveAgents ? 1 : 0) + (hasDuration ? 1 : 0) + (hasMetrics ? 1 : 0),
+		4,
 	);
-	const coordinationDetails = `agents: ${agentCount}, duration: ${durationMs}ms`;
+	const coordinationDetails = `agents: ${agentCount}, duration: ${durationMs}ms, metrics: ${metricsCount}`;
 
 	const dimensions: DimensionScore[] = [
 		{ dimension: "clarity", score: clarityScore, details: clarityDetails },
@@ -113,6 +130,15 @@ export function analyzeMission(input: MissionReviewInput): InsertReviewRecord {
 	}
 	if (!hasBundleExport) {
 		notes.push("No bundle export found");
+	}
+	if (!hasMaterializedArtifacts) {
+		notes.push(`Mission artifacts look incomplete (${artifactFileCount} key files present)`);
+	}
+	if (!hasNarrative) {
+		notes.push("Mission narrative is empty");
+	}
+	if (!hasMetrics) {
+		notes.push("No mission metrics captured");
 	}
 	if (mission.reopenCount > 3) {
 		notes.push(`Mission reopened ${mission.reopenCount} times`);

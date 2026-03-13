@@ -34,9 +34,13 @@ export const WATCHED_SURFACES: Record<ReviewSubjectType, string[]> = {
 	],
 	spec: ["src/commands/spec.ts", "agents/lead.md", "templates/overlay.md.tmpl"],
 	mission: [
+		"src/commands/mission.ts",
 		"src/missions/store.ts",
+		"src/missions/context.ts",
 		"src/missions/bundle.ts",
+		"src/missions/events.ts",
 		"src/missions/narrative.ts",
+		"src/missions/review.ts",
 		"src/review/analyzers/mission.ts",
 	],
 };

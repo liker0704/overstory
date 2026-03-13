@@ -12,8 +12,8 @@ import {
 } from "./completions.ts";
 
 describe("COMMANDS array", () => {
-	it("should have exactly 33 commands", () => {
-		expect(COMMANDS).toHaveLength(33);
+	it("should have exactly 35 commands", () => {
+		expect(COMMANDS).toHaveLength(35);
 	});
 
 	it("should include all expected command names", () => {
@@ -36,6 +36,8 @@ describe("COMMANDS array", () => {
 		expect(names).toContain("replay");
 		expect(names).toContain("costs");
 		expect(names).toContain("metrics");
+		expect(names).toContain("review");
+		expect(names).toContain("mission");
 		expect(names).toContain("spec");
 		expect(names).toContain("coordinator");
 		expect(names).toContain("supervisor");
@@ -62,7 +64,7 @@ describe("generateBash", () => {
 		expect(script).toContain("_init_completion");
 	});
 
-	it("should include all 33 command names", () => {
+	it("should include all 35 command names", () => {
 		const script = generateBash();
 		for (const cmd of COMMANDS) {
 			expect(script).toContain(cmd.name);
@@ -96,7 +98,7 @@ describe("generateZsh", () => {
 		expect(script).toContain("_arguments");
 	});
 
-	it("should include all 33 command names", () => {
+	it("should include all 35 command names", () => {
 		const script = generateZsh();
 		for (const cmd of COMMANDS) {
 			expect(script).toContain(cmd.name);
@@ -126,7 +128,7 @@ describe("generateFish", () => {
 		expect(script).toContain("__fish_use_subcommand");
 	});
 
-	it("should include all 33 command names", () => {
+	it("should include all 35 command names", () => {
 		const script = generateFish();
 		for (const cmd of COMMANDS) {
 			expect(script).toContain(cmd.name);
@@ -147,6 +149,7 @@ describe("generateFish", () => {
 		expect(script).toContain("result");
 		expect(script).toContain("error");
 		expect(script).toContain("worker_done");
+		expect(script).toContain("execution_handoff");
 	});
 });
 
@@ -273,6 +276,8 @@ describe("Flag completions", () => {
 		expect(typeFlag?.values).toContain("result");
 		expect(typeFlag?.values).toContain("error");
 		expect(typeFlag?.values).toContain("worker_done");
+		expect(typeFlag?.values).toContain("mission_finding");
+		expect(typeFlag?.values).toContain("execution_handoff");
 	});
 
 	it("should have fixed values for --priority flag in mail send", () => {
@@ -329,5 +334,28 @@ describe("Subcommands", () => {
 		expect(subNames).toContain("list");
 		expect(subNames).toContain("show");
 		expect(subNames).toContain("complete");
+	});
+
+	it("should have correct subcommands for review command", () => {
+		const review = COMMANDS.find((c) => c.name === "review");
+		expect(review?.subcommands).toBeDefined();
+
+		const subNames = review?.subcommands?.map((s) => s.name);
+		expect(subNames).toContain("sessions");
+		expect(subNames).toContain("mission");
+		expect(subNames).toContain("missions");
+		expect(subNames).toContain("stale");
+	});
+
+	it("should have correct subcommands for mission command", () => {
+		const mission = COMMANDS.find((c) => c.name === "mission");
+		expect(mission?.subcommands).toBeDefined();
+
+		const subNames = mission?.subcommands?.map((s) => s.name);
+		expect(subNames).toContain("start");
+		expect(subNames).toContain("answer");
+		expect(subNames).toContain("handoff");
+		expect(subNames).toContain("complete");
+		expect(subNames).toContain("bundle");
 	});
 });

@@ -82,6 +82,13 @@ const PROTOCOL_TYPES = new Set<string>([
 	"health_check",
 	"dispatch",
 	"assign",
+	"rate_limited",
+	"mission_finding",
+	"analyst_resolution",
+	"execution_guidance",
+	"analyst_recommendation",
+	"execution_handoff",
+	"mission_resolution",
 ]);
 
 /**

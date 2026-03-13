@@ -13,6 +13,7 @@ import { createEventStore } from "../events/store.ts";
 import { stripAnsi } from "../logging/color.ts";
 import { createMailClient } from "../mail/client.ts";
 import { createMailStore } from "../mail/store.ts";
+import { createMissionStore } from "../missions/store.ts";
 import { cleanupTempDir } from "../test-helpers.ts";
 import type { StoredEvent } from "../types.ts";
 import { AUTO_NUDGE_TYPES, isDispatchNudge, mailCommand, shouldAutoNudge } from "./mail.ts";
@@ -521,6 +522,68 @@ describe("mailCommand", () => {
 				expect(mailEvent?.runId).toBeNull();
 			} finally {
 				store.close();
+			}
+		});
+
+		test("mission root question to operator freezes the active mission and records mission events", async () => {
+			const missionStore = createMissionStore(join(tempDir, ".overstory", "sessions.db"));
+			try {
+				missionStore.create({
+					id: "mission-mail-001",
+					slug: "mail-freeze",
+					objective: "Freeze mission when a root mission role asks the operator a question",
+					runId: "run-mail-001",
+					artifactRoot: join(tempDir, ".overstory", "missions", "mission-mail-001"),
+				});
+			} finally {
+				missionStore.close();
+			}
+
+			await Bun.write(join(tempDir, ".overstory", "current-mission.txt"), "mission-mail-001\n");
+
+			await mailCommand([
+				"send",
+				"--to",
+				"operator",
+				"--subject",
+				"Need clarification",
+				"--body",
+				"Should we proceed with plan A or plan B?",
+				"--from",
+				"mission-analyst",
+				"--type",
+				"question",
+			]);
+
+			const mailStore = createMailStore(join(tempDir, ".overstory", "mail.db"));
+			const client = createMailClient(mailStore);
+			const sent = client.list({ to: "operator" }).find((message) => message.subject === "Need clarification");
+			client.close();
+			expect(sent?.id).toBeTruthy();
+
+			const readMissionStore = createMissionStore(join(tempDir, ".overstory", "sessions.db"));
+			try {
+				const mission = readMissionStore.getById("mission-mail-001");
+				expect(mission?.state).toBe("frozen");
+				expect(mission?.pendingUserInput).toBe(true);
+				expect(mission?.pendingInputKind).toBe("question");
+				expect(mission?.pendingInputThreadId).toBe(sent?.id ?? null);
+			} finally {
+				readMissionStore.close();
+			}
+
+			const eventStore = createEventStore(join(tempDir, ".overstory", "events.db"));
+			try {
+				const events = eventStore.getTimeline({ since: "2000-01-01T00:00:00Z" });
+				const missionEvents = events.filter((event) => event.eventType === "mission");
+				expect(missionEvents.some((event) => event.data?.includes("\"kind\":\"pending_input\""))).toBe(
+					true,
+				);
+				expect(missionEvents.some((event) => event.data?.includes("\"kind\":\"state_change\""))).toBe(
+					true,
+				);
+			} finally {
+				eventStore.close();
 			}
 		});
 	});

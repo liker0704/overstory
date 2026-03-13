@@ -111,6 +111,8 @@ const COMMANDS = [
 	"health",
 	"metrics",
 	"next-improvement",
+	"review",
+	"mission",
 	"update",
 	"upgrade",
 	"completions",

@@ -274,7 +274,7 @@ function missionStateColor(state: string): (s: string) => string {
 			return color.cyan;
 		case "failed":
 			return color.red;
-		case "cancelled":
+		case "stopped":
 			return color.dim;
 		default:
 			return (s: string) => s;
