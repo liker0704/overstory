@@ -74,22 +74,102 @@ CREATE INDEX IF NOT EXISTS idx_missions_state ON missions(state);
 CREATE INDEX IF NOT EXISTS idx_missions_slug ON missions(slug);
 CREATE INDEX IF NOT EXISTS idx_missions_run ON missions(run_id)`;
 
+const REQUIRED_MISSION_COLUMNS = [
+	"id",
+	"slug",
+	"objective",
+	"run_id",
+	"state",
+	"phase",
+	"first_freeze_at",
+	"pending_user_input",
+	"pending_input_kind",
+	"pending_input_thread_id",
+	"reopen_count",
+	"artifact_root",
+	"paused_workstream_ids",
+	"analyst_session_id",
+	"execution_director_session_id",
+	"coordinator_session_id",
+	"paused_lead_names",
+	"pause_reason",
+	"started_at",
+	"completed_at",
+	"created_at",
+	"updated_at",
+] as const;
+
+function getMissionColumns(db: Database): Set<string> {
+	const rows = db.prepare("PRAGMA table_info(missions)").all() as Array<{ name: string }>;
+	return new Set(rows.map((row) => row.name));
+}
+
+function missionColumnExpr(
+	existingColumns: Set<string>,
+	column: (typeof REQUIRED_MISSION_COLUMNS)[number],
+	fallbackSql: string,
+): string {
+	return existingColumns.has(column) ? column : fallbackSql;
+}
+
 /**
- * Migrate legacy missions.state CHECK constraints to replace 'cancelled' with 'stopped'.
- *
- * SQLite does not support altering CHECK constraints in place, so we rebuild
- * the table when the legacy constraint is detected. Existing cancelled rows
- * are remapped to stopped during the copy.
+ * Rebuild legacy mission schemas so runtime queries can rely on the current
+ * column set and enum semantics.
  */
-function migrateMissionStateStopped(db: Database): void {
+function migrateMissionSchema(db: Database): void {
 	const result = db
 		.prepare<{ sql: string }, []>(
 			"SELECT sql FROM sqlite_master WHERE type='table' AND name='missions'",
 		)
 		.get();
-	if (!result || result.sql.includes("'stopped'")) {
+	if (!result) {
 		return;
 	}
+
+	const existingColumns = getMissionColumns(db);
+	const missingColumns = REQUIRED_MISSION_COLUMNS.filter((column) => !existingColumns.has(column));
+	const hasCurrentStateConstraint = result.sql.includes("'stopped'");
+	const hasCurrentPhaseConstraint =
+		result.sql.includes("'understand'") &&
+		result.sql.includes("'align'") &&
+		result.sql.includes("'decide'") &&
+		result.sql.includes("'plan'") &&
+		result.sql.includes("'execute'") &&
+		result.sql.includes("'done'");
+
+	if (missingColumns.length === 0 && hasCurrentStateConstraint && hasCurrentPhaseConstraint) {
+		return;
+	}
+
+	const stateExpr = existingColumns.has("state")
+		? `CASE
+				WHEN state = 'cancelled' THEN 'stopped'
+				WHEN state IN ('active','frozen','completed','failed','stopped') THEN state
+				ELSE 'active'
+			END`
+		: `'active'`;
+	const phaseExpr = existingColumns.has("phase")
+		? `CASE
+				WHEN phase = 'planning' THEN 'plan'
+				WHEN phase IN ('scouting','building','reviewing','merging') THEN 'execute'
+				WHEN phase IN ('understand','align','decide','plan','execute','done') THEN phase
+				ELSE 'understand'
+			END`
+		: `'understand'`;
+	const pendingInputKindExpr = existingColumns.has("pending_input_kind")
+		? `CASE
+				WHEN pending_input_kind IN ('question','approval','decision','clarification')
+					THEN pending_input_kind
+				ELSE NULL
+			END`
+		: "NULL";
+	const createdAtExpr = missionColumnExpr(
+		existingColumns,
+		"created_at",
+		"strftime('%Y-%m-%dT%H:%M:%fZ','now')",
+	);
+	const updatedAtExpr = missionColumnExpr(existingColumns, "updated_at", createdAtExpr);
+
 	db.exec(`
 		BEGIN;
 		CREATE TABLE missions_new (
@@ -126,28 +206,28 @@ function migrateMissionStateStopped(db: Database): void {
 			pause_reason, started_at, completed_at, created_at, updated_at
 		)
 		SELECT
-			id,
-			slug,
-			objective,
-			run_id,
-			CASE WHEN state = 'cancelled' THEN 'stopped' ELSE state END,
-			phase,
-			first_freeze_at,
-			pending_user_input,
-			pending_input_kind,
-			pending_input_thread_id,
-			reopen_count,
-			artifact_root,
-			paused_workstream_ids,
-			analyst_session_id,
-			execution_director_session_id,
-			coordinator_session_id,
-			paused_lead_names,
-			pause_reason,
-			started_at,
-			completed_at,
-			created_at,
-			updated_at
+			${missionColumnExpr(existingColumns, "id", "NULL")},
+			${missionColumnExpr(existingColumns, "slug", "NULL")},
+			${missionColumnExpr(existingColumns, "objective", "''")},
+			${missionColumnExpr(existingColumns, "run_id", "NULL")},
+			${stateExpr},
+			${phaseExpr},
+			${missionColumnExpr(existingColumns, "first_freeze_at", "NULL")},
+			COALESCE(${missionColumnExpr(existingColumns, "pending_user_input", "0")}, 0),
+			${pendingInputKindExpr},
+			${missionColumnExpr(existingColumns, "pending_input_thread_id", "NULL")},
+			COALESCE(${missionColumnExpr(existingColumns, "reopen_count", "0")}, 0),
+			${missionColumnExpr(existingColumns, "artifact_root", "NULL")},
+			COALESCE(${missionColumnExpr(existingColumns, "paused_workstream_ids", "'[]'")}, '[]'),
+			${missionColumnExpr(existingColumns, "analyst_session_id", "NULL")},
+			${missionColumnExpr(existingColumns, "execution_director_session_id", "NULL")},
+			${missionColumnExpr(existingColumns, "coordinator_session_id", "NULL")},
+			COALESCE(${missionColumnExpr(existingColumns, "paused_lead_names", "'[]'")}, '[]'),
+			${missionColumnExpr(existingColumns, "pause_reason", "NULL")},
+			${missionColumnExpr(existingColumns, "started_at", createdAtExpr)},
+			${missionColumnExpr(existingColumns, "completed_at", "NULL")},
+			${createdAtExpr},
+			${updatedAtExpr}
 		FROM missions;
 		DROP TABLE missions;
 		ALTER TABLE missions_new RENAME TO missions;
@@ -198,7 +278,7 @@ export function createMissionStore(dbPath: string): MissionStore {
 	db.exec("PRAGMA busy_timeout = 5000");
 
 	db.exec(CREATE_TABLE);
-	migrateMissionStateStopped(db);
+	migrateMissionSchema(db);
 	db.exec(CREATE_INDEXES);
 
 	const insertStmt = db.prepare<

@@ -1,11 +1,19 @@
 # `ov mission` Implementation Guide
 
 This document turns the agreed `ov mission` RFC into a concrete implementation
-plan for Overstory.
+plan and implementation reference for Overstory.
 
 Primary design source:
 
 - [`docs/ov-mission.md`](./ov-mission.md)
+- [`docs/ov-mission-usage.md`](./ov-mission-usage.md)
+
+Current status:
+
+- `ov mission v1` shipped in Epic #13 and is no longer experimental.
+- This document remains the implementation reference and acceptance contract.
+- The PR-order sections below are still useful, but some are now historical
+  delivery context rather than future work.
 
 This guide is intentionally implementation-oriented:
 
@@ -273,9 +281,15 @@ Add the user-facing mission command family before full execution logic exists.
 - `ov mission output`
 - `ov mission answer`
 - `ov mission artifacts`
+- `ov mission handoff`
+- `ov mission pause`
+- `ov mission resume`
+- `ov mission refresh-briefs`
+- `ov mission complete`
 - `ov mission stop`
 - `ov mission list`
 - `ov mission show`
+- `ov mission bundle`
 
 ### Step-by-step
 
@@ -901,8 +915,8 @@ Wrong order smells:
 
 ## 20. Definition Of Done For The First Real Mission Mode
 
-`ov mission v1` should be considered real only when all of the following are
-true:
+Epic #13 closes this checklist.
+The criteria remain listed here as the regression contract for `v1`:
 
 - a mission can be started, inspected, answered, and stopped through `ov mission`
 - a mission-owned run is created immediately and terminalized correctly
@@ -916,4 +930,5 @@ true:
 - mission review contour can score completed/stopped missions
 - current fast-path `ov coordinator` behavior still works
 
-Until all of that is true, treat `ov mission` as experimental.
+`ov mission v1` now satisfies this definition of done and should be treated as
+the real mission mode for complex tasks.

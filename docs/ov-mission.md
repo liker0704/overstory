@@ -1,17 +1,25 @@
-# `ov mission` Draft
+# `ov mission`
 
-This document captures the current design agreements for the proposed
-`ov mission` mode in Overstory. It is intentionally iterative and should be
-updated as the RFC discussion progresses.
+This document captures the design agreements and rationale behind `ov mission`
+mode in Overstory. It started as the RFC for the feature and now serves as the
+design reference for the shipped `v1`.
 
-Implementation planning companion:
+Current references:
 
-- [`docs/ov-mission-implementation.md`](./ov-mission-implementation.md)
+- [Operator guide](./ov-mission-usage.md)
+- [Implementation guide](./ov-mission-implementation.md)
+
+Current status:
+
+- `ov mission v1` is implemented and considered real after Epic #13.
+- This document remains the design / RFC reference, not the day-to-day
+  operator manual.
 
 Agreement status:
 
- - Sections 1-18 reflect currently agreed direction.
-- Later sections may still evolve as the RFC discussion continues.
+- Sections 1-18 capture the intended `v1` product model.
+- Later sections retain design rationale, constraints, and prompt/reference
+  material.
 
 ---
 
@@ -1495,25 +1503,34 @@ ov mission answer --body "..."
 ov mission show mission-scheduled-publishing
 ```
 
-### 9.3 Recommended `v1` Command Set
+### 9.3 Current `v1` Command Set
 
-Recommended command family:
+Current command family:
 
 ```bash
-ov mission start "<objective>" [--name <slug>] [--attach] [--no-attach]
+ov mission start --slug <slug> --objective "<objective>"
 ov mission status
-ov mission output [--lines <n>]
+ov mission output
 ov mission answer --body "..."
 ov mission answer --file <path>
 ov mission artifacts
+ov mission handoff
+ov mission pause <workstream-id> [--reason "<text>"]
+ov mission resume <workstream-id>
+ov mission refresh-briefs [--workstream <id>]
+ov mission complete
 ov mission stop
 ov mission list
-ov mission show <mission-id>
+ov mission show <mission-id-or-slug>
+ov mission bundle [--mission-id <id>] [--force]
 ```
 
-An explicit `ov mission attach` command may be added later, but is not
-required in `v1` because existing coordinator attach/output behavior can be
-reused.
+Post-mission review commands:
+
+```bash
+ov review missions [--recent <n>]
+ov review mission <mission-id-or-slug>
+```
 
 ### 9.4 `ov mission start`
 
@@ -1523,6 +1540,7 @@ It should:
 
 - ensure the coordinator runtime is available
 - refuse to start if an active mission already exists
+- require both `--slug` and `--objective`
 - create a mission record and mission artifact root
 - persist the initial objective
 - switch mission lifecycle into `initial-clarification`
@@ -1534,7 +1552,7 @@ only after mission freeze, planning, and execution handoff.
 Example:
 
 ```bash
-ov mission start "Add scheduled publishing for posts"
+ov mission start --slug scheduled-publishing --objective "Add scheduled publishing for posts"
 ```
 
 Example output:
@@ -1742,7 +1760,7 @@ These are internal lifecycle transitions, not the primary user interface.
 ### 9.12 Full Example CLI Lifecycle
 
 ```bash
-ov mission start "Implement magic-link auth for admin users"
+ov mission start --slug magic-link-auth --objective "Implement magic-link auth for admin users"
 ```
 
 Output:
@@ -4140,7 +4158,7 @@ Source-of-truth rule:
 Suppose the user starts:
 
 ```bash
-ov mission start "Add scheduled publishing for posts"
+ov mission start --slug scheduled-publishing --objective "Add scheduled publishing for posts"
 ```
 
 At mission creation time:
@@ -4564,7 +4582,7 @@ Leads already feed the mission layer through mail and execution coordination.
 For:
 
 ```bash
-ov mission start "Add scheduled publishing for posts"
+ov mission start --slug scheduled-publishing --objective "Add scheduled publishing for posts"
 ```
 
 `ov mission output` could eventually show:

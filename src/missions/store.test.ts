@@ -565,4 +565,89 @@ describe("schema idempotency", () => {
 
 		store = createMissionStore(dbPath);
 	});
+
+	test("legacy missions table missing newer runtime columns is rebuilt in place", () => {
+		store.close();
+
+		const legacyDb = new Database(dbPath);
+		legacyDb.exec("DROP TABLE IF EXISTS missions");
+		legacyDb.exec(`
+			CREATE TABLE missions (
+				id TEXT PRIMARY KEY,
+				slug TEXT NOT NULL UNIQUE,
+				objective TEXT NOT NULL,
+				run_id TEXT,
+				state TEXT NOT NULL DEFAULT 'active'
+					CHECK(state IN ('active','frozen','completed','failed','cancelled')),
+				phase TEXT NOT NULL DEFAULT 'planning'
+					CHECK(phase IN ('planning','scouting','building','reviewing','merging','done')),
+				first_freeze_at TEXT,
+				pending_user_input INTEGER NOT NULL DEFAULT 0,
+				pending_input_kind TEXT CHECK(pending_input_kind IS NULL OR pending_input_kind IN ('question','approval','decision','clarification')),
+				pending_input_thread_id TEXT,
+				reopen_count INTEGER NOT NULL DEFAULT 0,
+				artifact_root TEXT,
+				paused_workstream_ids TEXT NOT NULL DEFAULT '[]',
+				analyst_session_id TEXT,
+				execution_director_session_id TEXT,
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL
+			)
+		`);
+		legacyDb.exec(`
+			INSERT INTO missions (
+				id, slug, objective, run_id, state, phase, first_freeze_at,
+				pending_user_input, pending_input_kind, pending_input_thread_id,
+				reopen_count, artifact_root, paused_workstream_ids, analyst_session_id,
+				execution_director_session_id, created_at, updated_at
+			) VALUES (
+				'legacy-runtime-mission',
+				'legacy-runtime-mission',
+				'Legacy runtime mission',
+				'run-legacy',
+				'cancelled',
+				'planning',
+				'2026-01-01T00:00:00.000Z',
+				1,
+				'clarification',
+				'thread-legacy',
+				2,
+				'/tmp/legacy-artifacts',
+				'["ws-auth"]',
+				'sess-analyst',
+				'sess-director',
+				'2026-01-01T00:00:00.000Z',
+				'2026-01-02T00:00:00.000Z'
+			)
+		`);
+		legacyDb.close();
+
+		const migratedStore = createMissionStore(dbPath);
+		try {
+			const mission = migratedStore.getById("legacy-runtime-mission");
+			expect(mission).not.toBeNull();
+			expect(mission?.state).toBe("stopped");
+			expect(mission?.phase).toBe("plan");
+			expect(mission?.coordinatorSessionId).toBeNull();
+			expect(mission?.pausedLeadNames).toEqual([]);
+			expect(mission?.pauseReason).toBeNull();
+			expect(mission?.startedAt).toBe("2026-01-01T00:00:00.000Z");
+			expect(mission?.completedAt).toBeNull();
+
+			migratedStore.bindCoordinatorSession("legacy-runtime-mission", "sess-coordinator");
+			migratedStore.updatePausedLeads("legacy-runtime-mission", ["lead-auth"]);
+			migratedStore.updatePauseReason("legacy-runtime-mission", "Waiting on regenerated spec");
+			migratedStore.start("legacy-runtime-mission");
+
+			const updated = migratedStore.getById("legacy-runtime-mission");
+			expect(updated?.coordinatorSessionId).toBe("sess-coordinator");
+			expect(updated?.pausedLeadNames).toEqual(["lead-auth"]);
+			expect(updated?.pauseReason).toBe("Waiting on regenerated spec");
+			expect(updated?.startedAt).toBe("2026-01-01T00:00:00.000Z");
+		} finally {
+			migratedStore.close();
+		}
+
+		store = createMissionStore(dbPath);
+	});
 });

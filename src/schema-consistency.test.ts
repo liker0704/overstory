@@ -19,6 +19,7 @@ import { createEventStore } from "./events/store.ts";
 import { createMailStore } from "./mail/store.ts";
 import { createMergeQueue } from "./merge/queue.ts";
 import { createMetricsStore } from "./metrics/store.ts";
+import { createMissionStore } from "./missions/store.ts";
 import { createSessionStore } from "./sessions/store.ts";
 
 import { cleanupTempDir } from "./test-helpers.ts";
@@ -240,6 +241,45 @@ describe("SQL schema consistency", () => {
 				"resolved_tier",
 				"status",
 				"task_id",
+			].sort();
+
+			expect(actual).toEqual(expected);
+		});
+	});
+
+	describe("MissionStore", () => {
+		test("missions table columns match MissionRow interface", () => {
+			const dbPath = join(tmpDir, "sessions.db");
+			const store = createMissionStore(dbPath);
+
+			const db = new Database(dbPath, { readonly: true });
+			const actual = getTableColumns(db, "missions");
+			db.close();
+			store.close();
+
+			const expected = [
+				"analyst_session_id",
+				"artifact_root",
+				"completed_at",
+				"coordinator_session_id",
+				"created_at",
+				"execution_director_session_id",
+				"first_freeze_at",
+				"id",
+				"objective",
+				"pause_reason",
+				"paused_lead_names",
+				"paused_workstream_ids",
+				"pending_input_kind",
+				"pending_input_thread_id",
+				"pending_user_input",
+				"phase",
+				"reopen_count",
+				"run_id",
+				"slug",
+				"started_at",
+				"state",
+				"updated_at",
 			].sort();
 
 			expect(actual).toEqual(expected);
