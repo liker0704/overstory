@@ -1615,6 +1615,197 @@ describe("daemon mulch failure recording", () => {
 		expect(reloaded[0]?.lastActivity).not.toBe(oldActivity);
 	});
 
+	test("dead session_end zombie with no recent rate-limit history is reconciled to completed", async () => {
+		const oldActivity = new Date(Date.now() - 600_000).toISOString();
+		const session = makeSession({
+			agentName: "dead-ended-agent",
+			tmuxSession: "overstory-dead-ended-agent",
+			state: "zombie",
+			lastActivity: oldActivity,
+		});
+		writeSessionsToStore(tempRoot, [session]);
+
+		const eventStore = createEventStore(join(tempRoot, ".overstory", "events.db"));
+		try {
+			eventStore.insert({
+				runId: null,
+				agentName: "dead-ended-agent",
+				sessionId: "runtime-session-3",
+				eventType: "session_end",
+				toolName: null,
+				toolArgs: null,
+				toolDurationMs: null,
+				level: "info",
+				data: JSON.stringify({ transcriptPath: "/tmp/dead-ended.jsonl" }),
+			});
+		} finally {
+			eventStore.close();
+		}
+
+		await runDaemonTick({
+			root: tempRoot,
+			...THRESHOLDS,
+			_tmux: tmuxWithLiveness({
+				"overstory-dead-ended-agent": false,
+			}),
+			_triage: triageAlways("extend"),
+		});
+
+		const reloaded = readSessionsFromStore(tempRoot);
+		expect(reloaded[0]?.state).toBe("completed");
+		expect(reloaded[0]?.lastActivity).not.toBe(oldActivity);
+
+		const reloadedEvents = createEventStore(join(tempRoot, ".overstory", "events.db"));
+		try {
+			const latest = reloadedEvents.getByAgent("dead-ended-agent");
+			const finalEvent = latest[latest.length - 1];
+			expect(finalEvent?.eventType).toBe("custom");
+			expect(finalEvent?.data).toContain("zombie_session_end_dead_reconciled");
+		} finally {
+			reloadedEvents.close();
+		}
+	});
+
+	test("dead session_end zombie with rate-limit history and completion signal is reconciled to completed", async () => {
+		const oldActivity = new Date(Date.now() - 600_000).toISOString();
+		const session = makeSession({
+			agentName: "dead-rate-limited-agent",
+			tmuxSession: "overstory-dead-rate-limited-agent",
+			state: "zombie",
+			lastActivity: oldActivity,
+		});
+		writeSessionsToStore(tempRoot, [session]);
+
+		const eventStore = createEventStore(join(tempRoot, ".overstory", "events.db"));
+		try {
+			eventStore.insert({
+				runId: null,
+				agentName: "dead-rate-limited-agent",
+				sessionId: "runtime-session-4",
+				eventType: "mail_sent",
+				toolName: null,
+				toolArgs: null,
+				toolDurationMs: null,
+				level: "info",
+				data: JSON.stringify({ type: "worker_done", subject: "Worker done: test-task" }),
+			});
+			eventStore.insert({
+				runId: null,
+				agentName: "dead-rate-limited-agent",
+				sessionId: "runtime-session-4",
+				eventType: "session_end",
+				toolName: null,
+				toolArgs: null,
+				toolDurationMs: null,
+				level: "info",
+				data: JSON.stringify({ transcriptPath: "/tmp/dead-rate-limited.jsonl" }),
+			});
+			eventStore.insert({
+				runId: null,
+				agentName: "dead-rate-limited-agent",
+				sessionId: null,
+				eventType: "custom",
+				toolName: null,
+				toolArgs: null,
+				toolDurationMs: null,
+				level: "info",
+				data: JSON.stringify({ type: "rate_limit_cleared" }),
+			});
+		} finally {
+			eventStore.close();
+		}
+
+		await runDaemonTick({
+			root: tempRoot,
+			...THRESHOLDS,
+			_tmux: tmuxWithLiveness({
+				"overstory-dead-rate-limited-agent": false,
+			}),
+			_triage: triageAlways("extend"),
+		});
+
+		const reloaded = readSessionsFromStore(tempRoot);
+		expect(reloaded[0]?.state).toBe("completed");
+		expect(reloaded[0]?.lastActivity).not.toBe(oldActivity);
+
+		const reloadedEvents = createEventStore(join(tempRoot, ".overstory", "events.db"));
+		try {
+			const latest = reloadedEvents.getByAgent("dead-rate-limited-agent");
+			const finalEvent = latest[latest.length - 1];
+			expect(finalEvent?.eventType).toBe("custom");
+			expect(finalEvent?.data).toContain("rate_limit_session_end_dead_reconciled");
+		} finally {
+			reloadedEvents.close();
+		}
+	});
+
+	test("dead session_end zombie with rate-limit history and no completion signal stays zombie", async () => {
+		const oldActivity = new Date(Date.now() - 600_000).toISOString();
+		const session = makeSession({
+			agentName: "dead-unfinished-rate-limit-agent",
+			tmuxSession: "overstory-dead-unfinished-rate-limit-agent",
+			state: "zombie",
+			lastActivity: oldActivity,
+		});
+		writeSessionsToStore(tempRoot, [session]);
+
+		const eventStore = createEventStore(join(tempRoot, ".overstory", "events.db"));
+		try {
+			eventStore.insert({
+				runId: null,
+				agentName: "dead-unfinished-rate-limit-agent",
+				sessionId: "runtime-session-5",
+				eventType: "session_end",
+				toolName: null,
+				toolArgs: null,
+				toolDurationMs: null,
+				level: "info",
+				data: JSON.stringify({ transcriptPath: "/tmp/dead-unfinished-rate-limit.jsonl" }),
+			});
+			eventStore.insert({
+				runId: null,
+				agentName: "dead-unfinished-rate-limit-agent",
+				sessionId: null,
+				eventType: "custom",
+				toolName: null,
+				toolArgs: null,
+				toolDurationMs: null,
+				level: "info",
+				data: JSON.stringify({ type: "rate_limit_cleared" }),
+			});
+		} finally {
+			eventStore.close();
+		}
+
+		await runDaemonTick({
+			root: tempRoot,
+			...THRESHOLDS,
+			_tmux: tmuxWithLiveness({
+				"overstory-dead-unfinished-rate-limit-agent": false,
+			}),
+			_triage: triageAlways("extend"),
+			_recordFailure: failureTracker().recordFailure,
+		});
+
+		const reloaded = readSessionsFromStore(tempRoot);
+		expect(reloaded[0]?.state).toBe("zombie");
+
+		const reloadedEvents = createEventStore(join(tempRoot, ".overstory", "events.db"));
+		try {
+			const latest = reloadedEvents.getByAgent("dead-unfinished-rate-limit-agent");
+			expect(
+				latest.some(
+					(event) =>
+						event.eventType === "custom" &&
+						typeof event.data === "string" &&
+						event.data.includes("rate_limit_session_end_dead_reconciled"),
+				),
+			).toBe(false);
+		} finally {
+			reloadedEvents.close();
+		}
+	});
+
 	test("Tier 0: recordFailure called at escalation level 3+ (progressive termination)", async () => {
 		const staleActivity = new Date(Date.now() - 60_000).toISOString();
 		const stalledSince = new Date(Date.now() - 200_000).toISOString();

@@ -205,6 +205,61 @@ function hasRecentRateLimitHistory(eventStore: EventStore | null, agentName: str
 	return false;
 }
 
+function hasRecentCompletionSignal(eventStore: EventStore | null, agentName: string): boolean {
+	if (!eventStore) return false;
+	try {
+		const events = eventStore.getByAgent(agentName);
+		for (let i = events.length - 1; i >= 0 && i >= events.length - 20; i--) {
+			const event = events[i];
+			if (!event || event.eventType !== "mail_sent" || !event.data) {
+				continue;
+			}
+			try {
+				const data = JSON.parse(event.data) as { type?: string };
+				if (data.type === "worker_done" || data.type === "merge_ready") {
+					return true;
+				}
+			} catch {
+				// Ignore malformed mail_sent payloads
+			}
+		}
+	} catch {
+		// Best-effort reconciliation only
+	}
+	return false;
+}
+
+function reconcileSessionToCompleted(params: {
+	session: AgentSession;
+	store: ReturnType<typeof openSessionStore>["store"];
+	runId: string | null;
+	eventStore: EventStore | null;
+	eventType: string;
+	reason?: string;
+}): void {
+	const { session, store, runId, eventStore, eventType, reason } = params;
+	store.updateState(session.agentName, "completed");
+	store.updateLastActivity(session.agentName);
+	store.updateEscalation(session.agentName, 0, null);
+	store.updateRateLimitedSince(session.agentName, null);
+	session.state = "completed";
+	session.lastActivity = new Date().toISOString();
+	session.escalationLevel = 0;
+	session.stalledSince = null;
+	session.rateLimitedSince = null;
+	recordEvent(eventStore, {
+		runId,
+		agentName: session.agentName,
+		eventType: "custom",
+		level: "info",
+		data: {
+			type: eventType,
+			runtime: session.runtime,
+			reason: reason ?? null,
+		},
+	});
+}
+
 function buildRateLimitResumeNudge(session: AgentSession): string {
 	return [
 		"Rate limit has reset.",
@@ -682,6 +737,8 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 			}
 
 			const tmuxAlive = await tmux.isSessionAlive(session.tmuxSession);
+			const latestEventType = latestNonCustomEventType(eventStore, session.agentName);
+			const recentRateLimitHistory = hasRecentRateLimitHistory(eventStore, session.agentName);
 
 			// Capture pane content once — reused for rate limit detection and idle mail nudge
 			let lastPaneContent: string | null = null;
@@ -881,9 +938,9 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 								}
 							} else if (
 								session.state === "zombie" &&
-								latestNonCustomEventType(eventStore, session.agentName) === "session_end"
+								latestEventType === "session_end"
 							) {
-								if (hasRecentRateLimitHistory(eventStore, session.agentName)) {
+								if (recentRateLimitHistory) {
 									await sendRateLimitResumeNudge({
 										session,
 										sendInput,
@@ -893,19 +950,13 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 										eventType: "rate_limit_resume_reconciled",
 									});
 								} else {
-									store.updateState(session.agentName, "completed");
-									store.updateLastActivity(session.agentName);
-									session.state = "completed";
-									session.lastActivity = new Date().toISOString();
-									recordEvent(eventStore, {
+									reconcileSessionToCompleted({
+										session,
+										store,
 										runId,
-										agentName: session.agentName,
-										eventType: "custom",
-										level: "info",
-										data: {
-											type: "zombie_session_end_reconciled",
-											runtime: session.runtime,
-										},
+										eventStore,
+										eventType: "zombie_session_end_reconciled",
+										reason: "tmux alive, ready prompt, no recent rate-limit history",
 									});
 								}
 								continue;
@@ -914,6 +965,30 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 					}
 				} catch {
 					// Non-fatal: reconciliation failure shouldn't break watchdog
+				}
+			}
+
+			if (
+				session.tmuxSession !== "" &&
+				!tmuxAlive &&
+				session.state !== "completed" &&
+				latestEventType === "session_end"
+			) {
+				const completionSignal = hasRecentCompletionSignal(eventStore, session.agentName);
+				if (!recentRateLimitHistory || completionSignal) {
+					reconcileSessionToCompleted({
+						session,
+						store,
+						runId,
+						eventStore,
+						eventType: recentRateLimitHistory
+							? "rate_limit_session_end_dead_reconciled"
+							: "zombie_session_end_dead_reconciled",
+						reason: recentRateLimitHistory
+							? "tmux died after session_end; recent completion signal confirms work finished"
+							: "tmux died after session_end with no recent rate-limit history",
+					});
+					continue;
 				}
 			}
 
