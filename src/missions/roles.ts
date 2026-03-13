@@ -1,9 +1,10 @@
 /**
  * Mission role lifecycle management.
  *
- * Wraps the persistent-root abstraction for mission-analyst and
- * execution-director agents. Both roles run at the project root (no worktree),
- * are linked to the mission's run, and follow the same tmux-based lifecycle.
+ * Wraps the persistent-root abstraction for mission-coordinator,
+ * mission-analyst, and execution-director agents. All roles run at the
+ * project root (no worktree), are linked to the mission's run, and follow
+ * the same tmux-based lifecycle.
  */
 
 import { join } from "node:path";
@@ -85,21 +86,66 @@ export async function startMissionAnalyst(
 		capability: "mission-analyst",
 		projectRoot: opts.projectRoot,
 		overstoryDir: opts.overstoryDir,
-			tmuxSession: "ov-mission-analyst",
-			createRun: false,
-			existingRunId: opts.existingRunId,
-			appendSystemPromptFile: opts.appendSystemPromptFile,
-			appendSystemPrompt: opts.appendSystemPrompt,
-			beacon: opts.beacon,
-		});
+		tmuxSession: "ov-mission-analyst",
+		createRun: false,
+		existingRunId: opts.existingRunId,
+		appendSystemPromptFile: opts.appendSystemPromptFile,
+		appendSystemPrompt: opts.appendSystemPrompt,
+		beacon: opts.beacon,
+	});
 
 	const store = storeFactory(join(opts.overstoryDir, "sessions.db"));
 	try {
 		const mission = store.getById(opts.missionId);
 		if (!mission) {
-			throw new AgentError(`Mission not found: ${opts.missionId}`, { agentName: "mission-analyst" });
+			throw new AgentError(`Mission not found: ${opts.missionId}`, {
+				agentName: "mission-analyst",
+			});
 		}
 		store.bindSessions(opts.missionId, { analystSessionId: result.session.id });
+	} finally {
+		store.close();
+	}
+
+	return result;
+}
+
+/**
+ * Start the mission coordinator persistent root agent.
+ *
+ * Calls startPersistentAgent with capability='coordinator-mission', links the
+ * resulting session to the mission via MissionStore.bindCoordinatorSession,
+ * and returns the start result. The agent name is 'coordinator' (reusing the
+ * existing coordinator slot), but the capability selects the mission-specific
+ * prompt definition.
+ */
+export async function startMissionCoordinator(
+	opts: StartMissionRoleOpts,
+	_deps?: MissionRoleDeps,
+): Promise<StartPersistentAgentResult> {
+	const startAgent = _deps?.startAgent ?? startPersistentAgent;
+	const storeFactory = _deps?.createStore ?? createMissionStore;
+
+	const result = await startAgent({
+		agentName: "coordinator",
+		capability: "coordinator-mission",
+		projectRoot: opts.projectRoot,
+		overstoryDir: opts.overstoryDir,
+		tmuxSession: "ov-mission-coordinator",
+		createRun: false,
+		existingRunId: opts.existingRunId,
+		appendSystemPromptFile: opts.appendSystemPromptFile,
+		appendSystemPrompt: opts.appendSystemPrompt,
+		beacon: opts.beacon,
+	});
+
+	const store = storeFactory(join(opts.overstoryDir, "sessions.db"));
+	try {
+		const mission = store.getById(opts.missionId);
+		if (!mission) {
+			throw new AgentError(`Mission not found: ${opts.missionId}`, { agentName: "coordinator" });
+		}
+		store.bindCoordinatorSession(opts.missionId, result.session.id);
 	} finally {
 		store.close();
 	}
@@ -126,13 +172,13 @@ export async function startExecutionDirector(
 		capability: "execution-director",
 		projectRoot: opts.projectRoot,
 		overstoryDir: opts.overstoryDir,
-			tmuxSession: "ov-execution-director",
-			createRun: false,
-			existingRunId: opts.existingRunId,
-			appendSystemPromptFile: opts.appendSystemPromptFile,
-			appendSystemPrompt: opts.appendSystemPrompt,
-			beacon: opts.beacon,
-		});
+		tmuxSession: "ov-execution-director",
+		createRun: false,
+		existingRunId: opts.existingRunId,
+		appendSystemPromptFile: opts.appendSystemPromptFile,
+		appendSystemPrompt: opts.appendSystemPrompt,
+		beacon: opts.beacon,
+	});
 
 	const store = storeFactory(join(opts.overstoryDir, "sessions.db"));
 	try {
@@ -153,7 +199,7 @@ export async function startExecutionDirector(
 }
 
 /**
- * Stop a mission role agent (mission-analyst or execution-director).
+ * Stop a mission role agent (coordinator, mission-analyst, or execution-director).
  *
  * Calls stopPersistentAgent with the given agent name and returns the result.
  */

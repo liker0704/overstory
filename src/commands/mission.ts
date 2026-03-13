@@ -9,13 +9,7 @@ import { dirname, join } from "node:path";
 import { Command } from "commander";
 import { loadConfig } from "../config.ts";
 import { jsonError, jsonOutput } from "../json.ts";
-import {
-	accent,
-	printError,
-	printHint,
-	printSuccess,
-	printWarning,
-} from "../logging/color.ts";
+import { accent, printError, printHint, printSuccess, printWarning } from "../logging/color.ts";
 import { renderHeader, renderSubHeader, separator } from "../logging/theme.ts";
 import { createMailClient } from "../mail/client.ts";
 import { createMailStore } from "../mail/store.ts";
@@ -29,14 +23,19 @@ import { loadMissionEvents, recordMissionEvent } from "../missions/events.ts";
 import { buildNarrative, renderNarrative } from "../missions/narrative.ts";
 import { pauseWorkstream, resumeWorkstream } from "../missions/pause.ts";
 import { generateMissionReview } from "../missions/review.ts";
-import { startExecutionDirector, startMissionAnalyst, stopMissionRole } from "../missions/roles.ts";
-import { createMissionStore } from "../missions/store.ts";
+import {
+	startExecutionDirector,
+	startMissionAnalyst,
+	startMissionCoordinator,
+	stopMissionRole,
+} from "../missions/roles.ts";
 import {
 	clearMissionRuntimePointers,
-	resolveActiveMissionContext,
 	resolveMissionRoleStates as deriveMissionRoleStates,
+	resolveActiveMissionContext,
 	writeMissionRuntimePointers,
 } from "../missions/runtime-context.ts";
+import { createMissionStore } from "../missions/store.ts";
 import {
 	getMissionWorkstream,
 	refreshMissionBriefs,
@@ -56,6 +55,7 @@ import { nudgeAgent } from "./nudge.ts";
 import { stopCommand } from "./stop.ts";
 
 export interface MissionCommandDeps {
+	startMissionCoordinator?: typeof startMissionCoordinator;
 	startMissionAnalyst?: typeof startMissionAnalyst;
 	startExecutionDirector?: typeof startExecutionDirector;
 	stopMissionRole?: typeof stopMissionRole;
@@ -222,25 +222,27 @@ async function ensureMissionRoleResponsive(opts: {
 	const { projectRoot, overstoryDir, mission, roleName, threadId, replyId, deps = {} } = opts;
 	const nudgeMessage = `Operator replied in thread ${threadId} (${replyId}). Check mail and continue the mission.`;
 
-	if (roleName === "coordinator-mission" || roleName === "coordinator") {
-		await nudgeMissionRoleBestEffort(projectRoot, "coordinator", nudgeMessage, deps);
-		return;
-	}
+	// Normalize coordinator-mission sender name to the canonical agent name
+	const effectiveRoleName = roleName === "coordinator-mission" ? "coordinator" : roleName;
 
-	if (roleName !== "mission-analyst" && roleName !== "execution-director") {
+	if (
+		effectiveRoleName !== "coordinator" &&
+		effectiveRoleName !== "mission-analyst" &&
+		effectiveRoleName !== "execution-director"
+	) {
 		return;
 	}
 
 	const { store } = openSessionStore(overstoryDir);
 	let sessionState: string | null = null;
 	try {
-		sessionState = store.getByName(roleName)?.state ?? null;
+		sessionState = store.getByName(effectiveRoleName)?.state ?? null;
 	} finally {
 		store.close();
 	}
 
 	if (sessionState && sessionState !== "completed" && sessionState !== "zombie") {
-		await nudgeMissionRoleBestEffort(projectRoot, roleName, nudgeMessage, deps);
+		await nudgeMissionRoleBestEffort(projectRoot, effectiveRoleName, nudgeMessage, deps);
 		return;
 	}
 
@@ -248,27 +250,43 @@ async function ensureMissionRoleResponsive(opts: {
 		return;
 	}
 
-	const roleLabel = roleName === "mission-analyst" ? "Mission Analyst" : "Execution Director";
+	const roleLabels: Record<string, string> = {
+		coordinator: "Mission Coordinator",
+		"mission-analyst": "Mission Analyst",
+		"execution-director": "Execution Director",
+	};
+	const capabilities: Record<string, string> = {
+		coordinator: "coordinator-mission",
+		"mission-analyst": "mission-analyst",
+		"execution-director": "execution-director",
+	};
+	const roleLabel = roleLabels[effectiveRoleName] ?? effectiveRoleName;
+	const capability = capabilities[effectiveRoleName] ?? effectiveRoleName;
+
 	const prompt = await materializeMissionRolePrompt({
 		overstoryDir,
-		agentName: roleName,
-		capability: roleName,
+		agentName: effectiveRoleName,
+		capability,
 		roleLabel,
 		mission,
 	});
 	const beacon = [
 		buildMissionRoleBeacon({
-			agentName: roleName,
+			agentName: effectiveRoleName,
 			missionId: mission.id,
 			contextPath: prompt.contextPath,
 		}),
 		`Operator replied in thread ${threadId}. Check mail and continue the mission.`,
 	].join(" ");
 
-	const startRole =
-		roleName === "mission-analyst"
-			? (deps.startMissionAnalyst ?? startMissionAnalyst)
-			: (deps.startExecutionDirector ?? startExecutionDirector);
+	let startRole: typeof startMissionCoordinator;
+	if (effectiveRoleName === "coordinator") {
+		startRole = deps.startMissionCoordinator ?? startMissionCoordinator;
+	} else if (effectiveRoleName === "mission-analyst") {
+		startRole = deps.startMissionAnalyst ?? startMissionAnalyst;
+	} else {
+		startRole = deps.startExecutionDirector ?? startExecutionDirector;
+	}
 	const result = await startRole({
 		missionId: mission.id,
 		projectRoot,
@@ -280,7 +298,9 @@ async function ensureMissionRoleResponsive(opts: {
 
 	const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
 	try {
-		if (roleName === "mission-analyst") {
+		if (effectiveRoleName === "coordinator") {
+			missionStore.bindCoordinatorSession(mission.id, result.session.id);
+		} else if (effectiveRoleName === "mission-analyst") {
 			missionStore.bindSessions(mission.id, { analystSessionId: result.session.id });
 		} else {
 			missionStore.bindSessions(mission.id, { executionDirectorSessionId: result.session.id });
@@ -293,7 +313,7 @@ async function ensureMissionRoleResponsive(opts: {
 		overstoryDir,
 		mission,
 		agentName: "operator",
-		data: { kind: "role_started", detail: `${roleName} restarted after operator reply` },
+		data: { kind: "role_started", detail: `${effectiveRoleName} restarted after operator reply` },
 	});
 }
 
@@ -363,7 +383,7 @@ async function terminalizeMission(opts: {
 	const stopAgent = deps?.stopAgentCommand ?? stopCommand;
 
 	try {
-		for (const roleName of ["mission-analyst", "execution-director"]) {
+		for (const roleName of ["coordinator", "mission-analyst", "execution-director"]) {
 			try {
 				await stopRole(roleName, {
 					projectRoot,
@@ -386,7 +406,7 @@ async function terminalizeMission(opts: {
 			overstoryDir,
 			projectRoot,
 			runId: mission.runId,
-			excludedAgentNames: new Set(["mission-analyst", "execution-director"]),
+			excludedAgentNames: new Set(["coordinator", "mission-analyst", "execution-director"]),
 			stopAgentCommand: stopAgent,
 		});
 		for (const agentName of descendantStops) {
@@ -397,7 +417,11 @@ async function terminalizeMission(opts: {
 				data: { kind: "role_stopped", detail: `${agentName} stopped` },
 			});
 		}
-		const drainedAgentNames = new Set<string>(["mission-analyst", "execution-director"]);
+		const drainedAgentNames = new Set<string>([
+			"coordinator",
+			"mission-analyst",
+			"execution-director",
+		]);
 		if (mission.runId) {
 			const { store } = openSessionStore(overstoryDir);
 			try {
@@ -448,7 +472,7 @@ async function terminalizeMission(opts: {
 		await clearMissionRuntimePointers(overstoryDir);
 
 		let bundlePath: string | null = null;
-		let refreshedMission = missionStore.getById(mission.id) ?? mission;
+		const refreshedMission = missionStore.getById(mission.id) ?? mission;
 		try {
 			const { exportBundle } = await import("../missions/bundle.ts");
 			const initialBundle = await exportBundle({
@@ -530,7 +554,9 @@ export async function missionStart(
 	const missionId = `mission-${Date.now()}-${opts.slug}`;
 	const artifactRoot = join(overstoryDir, "missions", missionId);
 	let missionCreated = false;
+	let coordinatorStarted = false;
 	let analystStarted = false;
+	const startCoord = deps.startMissionCoordinator ?? startMissionCoordinator;
 	const startAnalyst = deps.startMissionAnalyst ?? startMissionAnalyst;
 	const stopRole = deps.stopMissionRole ?? stopMissionRole;
 
@@ -553,7 +579,7 @@ export async function missionStart(
 				id: runId,
 				startedAt: new Date().toISOString(),
 				coordinatorSessionId: null,
-				coordinatorName: "mission",
+				coordinatorName: "coordinator",
 				status: "active",
 			});
 		} finally {
@@ -576,15 +602,43 @@ export async function missionStart(
 		const mission = missionStore.getById(missionId) ?? createdMission;
 
 		await ensureMissionArtifacts(mission);
-		const prompt = await materializeMissionRolePrompt({
+		await writeMissionRuntimePointers(overstoryDir, mission.id, runId);
+
+		// --- Start mission coordinator (user-facing role) ---
+		const coordPrompt = await materializeMissionRolePrompt({
+			overstoryDir,
+			agentName: "coordinator",
+			capability: "coordinator-mission",
+			roleLabel: "Mission Coordinator",
+			mission,
+		});
+		drainAgentInbox(overstoryDir, "coordinator");
+
+		const coordResult = await startCoord({
+			missionId: mission.id,
+			projectRoot,
+			overstoryDir,
+			existingRunId: runId,
+			appendSystemPromptFile: coordPrompt.promptPath,
+			beacon: buildMissionRoleBeacon({
+				agentName: "coordinator",
+				missionId: mission.id,
+				contextPath: coordPrompt.contextPath,
+			}),
+		});
+		coordinatorStarted = true;
+
+		// Bind coordinator session to the mission record
+		missionStore.bindCoordinatorSession(mission.id, coordResult.session.id);
+
+		// --- Start mission analyst (internal research role) ---
+		const analystPrompt = await materializeMissionRolePrompt({
 			overstoryDir,
 			agentName: "mission-analyst",
 			capability: "mission-analyst",
 			roleLabel: "Mission Analyst",
 			mission,
 		});
-
-		await writeMissionRuntimePointers(overstoryDir, mission.id, runId);
 		drainAgentInbox(overstoryDir, "mission-analyst");
 
 		const analystResult = await startAnalyst({
@@ -592,17 +646,41 @@ export async function missionStart(
 			projectRoot,
 			overstoryDir,
 			existingRunId: runId,
-			appendSystemPromptFile: prompt.promptPath,
+			appendSystemPromptFile: analystPrompt.promptPath,
 			beacon: buildMissionRoleBeacon({
 				agentName: "mission-analyst",
 				missionId: mission.id,
-				contextPath: prompt.contextPath,
+				contextPath: analystPrompt.contextPath,
 			}),
 		});
 		analystStarted = true;
 		missionStore.bindSessions(mission.id, { analystSessionId: analystResult.session.id });
 
+		// --- Dispatch objective to coordinator (not analyst) ---
 		const dispatchId = await sendMissionDispatchMail({
+			overstoryDir,
+			to: "coordinator",
+			subject: `Mission started: ${mission.slug}`,
+			body: [
+				`Mission ID: ${mission.id}`,
+				`Objective: ${mission.objective}`,
+				`Artifact root: ${mission.artifactRoot ?? "none"}`,
+				`Context file: ${coordPrompt.contextPath}`,
+				"",
+				"You are the user-facing mission coordinator.",
+				"Mission Analyst is running and available for research queries via mail.",
+				"Begin initial clarification with the operator.",
+			].join("\n"),
+		});
+		await nudgeMissionRoleBestEffort(
+			projectRoot,
+			"coordinator",
+			`Mission started: ${mission.slug}. Check mail and begin mission coordination.`,
+			deps,
+		);
+
+		// Notify analyst of mission start (internal, not user-facing)
+		await sendMissionControlMail({
 			overstoryDir,
 			to: "mission-analyst",
 			subject: `Mission started: ${mission.slug}`,
@@ -610,13 +688,18 @@ export async function missionStart(
 				`Mission ID: ${mission.id}`,
 				`Objective: ${mission.objective}`,
 				`Artifact root: ${mission.artifactRoot ?? "none"}`,
-				`Context file: ${prompt.contextPath}`,
+				`Context file: ${analystPrompt.contextPath}`,
+				"",
+				"You are the internal research and knowledge role for this mission.",
+				"The coordinator owns the user-facing interaction loop.",
+				"Begin current-state analysis. Report findings to coordinator via mail.",
 			].join("\n"),
+			type: "dispatch",
 		});
 		await nudgeMissionRoleBestEffort(
 			projectRoot,
 			"mission-analyst",
-			`Mission started: ${mission.slug}. Check mail and begin mission work.`,
+			`Mission started: ${mission.slug}. Check mail and begin current-state analysis.`,
 			deps,
 		);
 
@@ -626,8 +709,14 @@ export async function missionStart(
 			agentName: "operator",
 			data: {
 				kind: "mission_started",
-				detail: `Mission started and dispatched to mission-analyst (${dispatchId})`,
+				detail: `Mission started and dispatched to coordinator (${dispatchId})`,
 			},
+		});
+		recordMissionEvent({
+			overstoryDir,
+			mission,
+			agentName: "operator",
+			data: { kind: "role_started", detail: "coordinator (mission) started" },
 		});
 		recordMissionEvent({
 			overstoryDir,
@@ -644,12 +733,16 @@ export async function missionStart(
 			process.stdout.write(`  Objective:   ${mission.objective}\n`);
 			process.stdout.write(`  Run:         ${runId}\n`);
 			process.stdout.write(`  Artifacts:   ${artifactRoot}\n`);
-			process.stdout.write(`  Analyst mail:${dispatchId}\n`);
+			process.stdout.write(`  Coordinator: ${coordResult.session.id}\n`);
+			process.stdout.write(`  Analyst:     ${analystResult.session.id}\n`);
+			process.stdout.write(`  Dispatch:    ${dispatchId}\n`);
 		}
 	} catch (err) {
-		if (analystStarted) {
+		for (const roleName of ["coordinator", "mission-analyst"]) {
+			if (roleName === "coordinator" && !coordinatorStarted) continue;
+			if (roleName === "mission-analyst" && !analystStarted) continue;
 			try {
-				await stopRole("mission-analyst", {
+				await stopRole(roleName, {
 					projectRoot,
 					overstoryDir,
 					completeRun: false,
@@ -808,7 +901,7 @@ export async function missionOutput(overstoryDir: string, json: boolean): Promis
 		process.stdout.write(`${renderSubHeader("Mission")}\n`);
 		process.stdout.write(`  State:               ${mission.state}/${mission.phase}\n`);
 		process.stdout.write(
-			`  Pending:             ${mission.pendingUserInput ? mission.pendingInputKind ?? "input" : "none"}\n`,
+			`  Pending:             ${mission.pendingUserInput ? (mission.pendingInputKind ?? "input") : "none"}\n`,
 		);
 		process.stdout.write(`  Reopens:             ${mission.reopenCount}\n`);
 		process.stdout.write(
@@ -1020,7 +1113,8 @@ export async function missionHandoff(
 	const dbPath = join(overstoryDir, "sessions.db");
 	const missionStore = createMissionStore(dbPath);
 	const startDirector = deps.startExecutionDirector ?? startExecutionDirector;
-	const ensureCanonicalTasks = deps.ensureCanonicalWorkstreamTasks ?? ensureCanonicalWorkstreamTasks;
+	const ensureCanonicalTasks =
+		deps.ensureCanonicalWorkstreamTasks ?? ensureCanonicalWorkstreamTasks;
 	try {
 		const mission = missionStore.getById(missionId);
 		if (!mission || !mission.artifactRoot || !mission.runId) {
@@ -1196,12 +1290,11 @@ export async function missionHandoff(
 				to: "execution-director",
 				subject: `Execution handoff: ${mission.slug}`,
 				body: handoffs
-					.map(
-						(handoff, index) =>
-							[
-								`- ${handoff.workstreamId} (${handoff.taskId}): ${handoff.objective} [brief: ${handoff.briefPath}]`,
-								`  Dispatch: ${dispatchCommands[index]?.command ?? "n/a"}`,
-							].join("\n"),
+					.map((handoff, index) =>
+						[
+							`- ${handoff.workstreamId} (${handoff.taskId}): ${handoff.objective} [brief: ${handoff.briefPath}]`,
+							`  Dispatch: ${dispatchCommands[index]?.command ?? "n/a"}`,
+						].join("\n"),
 					)
 					.join("\n"),
 				type: "execution_handoff",
@@ -1378,7 +1471,9 @@ export async function missionPause(
 			printSuccess("Mission workstream paused", workstreamId);
 			process.stdout.write(`  Objective:   ${workstreamObjective}\n`);
 			process.stdout.write(`  Already set: ${result.alreadyPaused ? "yes" : "no"}\n`);
-			process.stdout.write(`  Paused:      ${refreshedMission.pausedWorkstreamIds.length} workstreams\n`);
+			process.stdout.write(
+				`  Paused:      ${refreshedMission.pausedWorkstreamIds.length} workstreams\n`,
+			);
 			if (refreshedMission.pauseReason) {
 				process.stdout.write(`  Reason:      ${refreshedMission.pauseReason}\n`);
 			}
@@ -1575,7 +1670,12 @@ export async function missionRefreshBriefsCommand(
 			const pauseReason = `Brief refreshed for ${result.workstream.id}; regenerate the spec before resuming execution`;
 			const shouldPause = result.regenerationRequired;
 			if (shouldPause) {
-				const pauseResult = pauseWorkstream(missionStore, mission.id, result.workstream.id, pauseReason);
+				const pauseResult = pauseWorkstream(
+					missionStore,
+					mission.id,
+					result.workstream.id,
+					pauseReason,
+				);
 				pausedWorkstreamIds.add(result.workstream.id);
 				if (!pauseResult.alreadyPaused) {
 					recordMissionEvent({
@@ -1617,12 +1717,11 @@ export async function missionRefreshBriefsCommand(
 		const pausedList = [...pausedWorkstreamIds];
 		const refreshSummary = results.length
 			? results
-					.map(
-						(result) =>
-							[
-								`${result.workstream.id} (${result.taskId}) brief=${result.projectRelativeBriefPath} metaMissing=${result.metaMissing} markedStale=${result.specMarkedStale} alreadyStale=${result.specWasStale} regenerationRequired=${result.regenerationRequired}`,
-								`Regenerate with: ov spec write ${result.taskId} --body '<updated spec>' --agent $OVERSTORY_AGENT_NAME --workstream-id ${result.workstream.id} --brief-path ${shellQuote(result.projectRelativeBriefPath)}`,
-							].join("\n"),
+					.map((result) =>
+						[
+							`${result.workstream.id} (${result.taskId}) brief=${result.projectRelativeBriefPath} metaMissing=${result.metaMissing} markedStale=${result.specMarkedStale} alreadyStale=${result.specWasStale} regenerationRequired=${result.regenerationRequired}`,
+							`Regenerate with: ov spec write ${result.taskId} --body '<updated spec>' --agent $OVERSTORY_AGENT_NAME --workstream-id ${result.workstream.id} --brief-path ${shellQuote(result.projectRelativeBriefPath)}`,
+						].join("\n"),
 					)
 					.join("\n")
 			: "No refreshable workstreams were found.";
@@ -1637,7 +1736,7 @@ export async function missionRefreshBriefsCommand(
 							: "Mission control: refreshed briefs",
 						actionLine:
 							"Action required: coordinate the owning leads to regenerate any affected specs before resuming these workstreams.",
-				  }
+					}
 				: null,
 			roles.analyst === "running"
 				? {
@@ -1648,7 +1747,7 @@ export async function missionRefreshBriefsCommand(
 							: "Mission control: refreshed briefs",
 						actionLine:
 							"Action required: update mission understanding and coordinate any cross-stream impact from the refreshed briefs.",
-				  }
+					}
 				: null,
 		]) {
 			if (!recipientConfig) {
@@ -1724,7 +1823,9 @@ export async function missionRefreshBriefsCommand(
 		} else {
 			printSuccess("Mission briefs refreshed", refreshedMission.slug);
 			process.stdout.write(`  Scope:   ${opts.workstream ?? "all workstreams"}\n`);
-			process.stdout.write(`  Paused:  ${pausedList.length > 0 ? pausedList.join(", ") : "none"}\n`);
+			process.stdout.write(
+				`  Paused:  ${pausedList.length > 0 ? pausedList.join(", ") : "none"}\n`,
+			);
 			if (results.length === 0) {
 				process.stdout.write("  Result:  no refreshable briefs found\n");
 			} else {

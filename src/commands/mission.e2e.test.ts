@@ -110,11 +110,12 @@ function makeRoleDeps(
 	}
 
 	async function startRole(
-		agentName: "mission-analyst" | "execution-director",
+		agentName: "coordinator" | "mission-analyst" | "execution-director",
 		opts: { missionId: string; existingRunId: string },
 	) {
 		started.push(agentName);
-		const session = upsertSession(agentName, agentName, opts.missionId, opts.existingRunId);
+		const capability = agentName === "coordinator" ? "coordinator-mission" : agentName;
+		const session = upsertSession(agentName, capability, opts.missionId, opts.existingRunId);
 		const sessionStore = createSessionStore(dbPath);
 		try {
 			sessionStore.upsert(session);
@@ -149,6 +150,7 @@ function makeRoleDeps(
 				})),
 			};
 		},
+		startMissionCoordinator: async (opts) => startRole("coordinator", opts),
 		startMissionAnalyst: async (opts) => startRole("mission-analyst", opts),
 		startExecutionDirector: async (opts) => startRole("execution-director", opts),
 		stopMissionRole: async (agentName) => {
@@ -210,7 +212,8 @@ describe("mission command e2e", () => {
 		const mission = missionStore.getActive();
 		expect(mission).not.toBeNull();
 		expect(mission?.slug).toBe("auth-refresh");
-		expect(deps.started).toEqual(["mission-analyst"]);
+		expect(deps.started).toEqual(["coordinator", "mission-analyst"]);
+		expect(deps.nudged.some((entry) => entry.agentName === "coordinator")).toBe(true);
 		expect(deps.nudged.some((entry) => entry.agentName === "mission-analyst")).toBe(true);
 		expect(await Bun.file(join(overstoryDir, "current-mission.txt")).exists()).toBe(true);
 		expect(await Bun.file(join(overstoryDir, "current-run.txt")).exists()).toBe(true);
@@ -266,7 +269,7 @@ describe("mission command e2e", () => {
 		expect(deps.nudged.some((entry) => entry.agentName === "mission-analyst")).toBe(true);
 
 		await missionHandoff(overstoryDir, tempDir, true, deps);
-		expect(deps.started).toEqual(["mission-analyst", "execution-director"]);
+		expect(deps.started).toEqual(["coordinator", "mission-analyst", "execution-director"]);
 		expect(deps.nudged.some((entry) => entry.agentName === "execution-director")).toBe(true);
 
 		const handoffMessage = mailStore
@@ -315,7 +318,7 @@ describe("mission command e2e", () => {
 		const completedMission = missionStore.getById(mission!.id);
 		expect(completedMission?.state).toBe("completed");
 		expect(completedMission?.phase).toBe("done");
-		expect(deps.stopped).toEqual(["mission-analyst", "execution-director"]);
+		expect(deps.stopped).toEqual(["coordinator", "mission-analyst", "execution-director"]);
 		expect(await Bun.file(join(overstoryDir, "current-mission.txt")).exists()).toBe(false);
 		expect(await Bun.file(join(overstoryDir, "current-run.txt")).exists()).toBe(false);
 
@@ -367,7 +370,7 @@ describe("mission command e2e", () => {
 
 		await missionAnswer(overstoryDir, { body: "Restart and continue", json: true }, deps);
 
-		expect(deps.started).toEqual(["mission-analyst", "mission-analyst"]);
+		expect(deps.started).toEqual(["coordinator", "mission-analyst", "mission-analyst"]);
 		expect(missionStore.getById(mission!.id)?.pendingUserInput).toBe(false);
 		expect(missionStore.getById(mission!.id)?.analystSessionId).toBe("sess-mission-analyst");
 
@@ -496,7 +499,7 @@ describe("mission command e2e", () => {
 		expect((await Bun.file(join(overstoryDir, "current-run.txt")).text()).trim()).toBe(
 			mission!.runId ?? "",
 		);
-		expect(deps.started).toEqual(["mission-analyst", "execution-director"]);
+		expect(deps.started).toEqual(["coordinator", "mission-analyst", "execution-director"]);
 
 		missionStore.close();
 	});
@@ -658,7 +661,7 @@ describe("mission command e2e", () => {
 		} finally {
 			verifySessionStore.close();
 		}
-		expect(deps.stopped).toEqual(["mission-analyst", "execution-director", "docs-smoke-lead"]);
+		expect(deps.stopped).toEqual(["coordinator", "mission-analyst", "execution-director", "docs-smoke-lead"]);
 
 		missionStore.close();
 	});
