@@ -441,6 +441,11 @@ export interface ExecutionHandoffPayload {
 	taskIds: string[];
 	workstreamIds: string[];
 	briefPaths: string[];
+	dispatchCommands?: Array<{
+		workstreamId: string;
+		args: string[];
+		command: string;
+	}>;
 	handoffs?: ExecutionHandoffItemPayload[];
 }
 

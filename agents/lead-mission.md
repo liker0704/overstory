@@ -240,6 +240,15 @@ Write specs from scout findings and dispatch builders.
    ov mail send --to <builder-name> --subject "Build: <task>" \
      --body "Spec: .overstory/specs/<task-id>.md. Begin immediately." --type dispatch
    ```
+9. **If the Execution Director tells you your brief or spec is stale, stop dispatching/resuming builders until you rewrite the affected spec** using:
+   ```bash
+   ov spec write <task-id> \
+     --body "<updated spec content>" \
+     --agent $OVERSTORY_AGENT_NAME \
+     --workstream-id <workstream-id> \
+     --brief-path <path-to-workstream-brief>
+   ```
+   Only after the rewritten spec is current should you ask the ED to resume the workstream.
 
 ### Phase 3 — Review & Verify
 

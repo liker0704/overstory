@@ -40,10 +40,20 @@ import {
 	refreshMissionBriefs,
 	validateWorkstreamResume,
 } from "../missions/workstream-control.ts";
-import { loadWorkstreamsFile, packageHandoffs } from "../missions/workstreams.ts";
+import {
+	loadWorkstreamsFile,
+	packageHandoffs,
+	slingArgsFromHandoff,
+} from "../missions/workstreams.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import { createRunStore } from "../sessions/store.ts";
 import type { InsertMission, Mission, MissionSummary } from "../types.ts";
+
+export interface MissionCommandDeps {
+	startMissionAnalyst?: typeof startMissionAnalyst;
+	startExecutionDirector?: typeof startExecutionDirector;
+	stopMissionRole?: typeof stopMissionRole;
+}
 
 /** Path to current-mission.txt pointer file. */
 function currentMissionPath(overstoryDir: string): string {
@@ -225,6 +235,7 @@ async function sendMissionControlMail(opts: {
 	to: string;
 	subject: string;
 	body: string;
+	type?: "status" | "dispatch";
 }): Promise<string> {
 	const client = openMailClient(opts.overstoryDir);
 	try {
@@ -233,11 +244,19 @@ async function sendMissionControlMail(opts: {
 			to: opts.to,
 			subject: opts.subject,
 			body: opts.body,
-			type: "status",
+			type: opts.type ?? "status",
 		});
 	} finally {
 		client.close();
 	}
+}
+
+function shellQuote(arg: string): string {
+	return /^[A-Za-z0-9_./:=+-]+$/.test(arg) ? arg : `'${arg.replaceAll("'", `'\\''`)}'`;
+}
+
+function renderShellCommand(args: string[]): string {
+	return args.map(shellQuote).join(" ");
 }
 
 async function terminalizeMission(opts: {
@@ -246,15 +265,17 @@ async function terminalizeMission(opts: {
 	mission: Mission;
 	targetState: "completed" | "stopped";
 	json: boolean;
+	deps?: MissionCommandDeps;
 }): Promise<{ bundlePath: string | null; reviewId: string | null }> {
-	const { overstoryDir, projectRoot, mission, targetState, json } = opts;
+	const { overstoryDir, projectRoot, mission, targetState, json, deps } = opts;
 	const dbPath = join(overstoryDir, "sessions.db");
 	const missionStore = createMissionStore(dbPath);
+	const stopRole = deps?.stopMissionRole ?? stopMissionRole;
 
 	try {
 		for (const roleName of ["mission-analyst", "execution-director"]) {
 			try {
-				await stopMissionRole(roleName, {
+				await stopRole(roleName, {
 					projectRoot,
 					overstoryDir,
 					completeRun: false,
@@ -366,10 +387,11 @@ interface StartOpts {
 	json?: boolean;
 }
 
-async function missionStart(
+export async function missionStart(
 	overstoryDir: string,
 	projectRoot: string,
 	opts: StartOpts,
+	deps: MissionCommandDeps = {},
 ): Promise<void> {
 	if (!opts.objective) {
 		printError("--objective is required");
@@ -389,6 +411,8 @@ async function missionStart(
 	const artifactRoot = join(overstoryDir, "missions", missionId);
 	let missionCreated = false;
 	let analystStarted = false;
+	const startAnalyst = deps.startMissionAnalyst ?? startMissionAnalyst;
+	const stopRole = deps.stopMissionRole ?? stopMissionRole;
 
 	try {
 		const existing = missionStore.getActive();
@@ -442,7 +466,7 @@ async function missionStart(
 
 		await writeMissionPointers(overstoryDir, mission.id, runId);
 
-		await startMissionAnalyst({
+		const analystResult = await startAnalyst({
 			missionId: mission.id,
 			projectRoot,
 			overstoryDir,
@@ -455,6 +479,7 @@ async function missionStart(
 			}),
 		});
 		analystStarted = true;
+		missionStore.bindSessions(mission.id, { analystSessionId: analystResult.session.id });
 
 		const dispatchId = await sendMissionDispatchMail({
 			overstoryDir,
@@ -497,7 +522,7 @@ async function missionStart(
 	} catch (err) {
 		if (analystStarted) {
 			try {
-				await stopMissionRole("mission-analyst", {
+				await stopRole("mission-analyst", {
 					projectRoot,
 					overstoryDir,
 					completeRun: false,
@@ -536,7 +561,7 @@ async function missionStart(
 
 // === ov mission status ===
 
-async function missionStatus(overstoryDir: string, json: boolean): Promise<void> {
+export async function missionStatus(overstoryDir: string, json: boolean): Promise<void> {
 	const missionId = await resolveCurrentMissionId(overstoryDir);
 	if (!missionId) {
 		if (json) {
@@ -606,7 +631,7 @@ async function missionStatus(overstoryDir: string, json: boolean): Promise<void>
 
 // === ov mission output ===
 
-async function missionOutput(overstoryDir: string, json: boolean): Promise<void> {
+export async function missionOutput(overstoryDir: string, json: boolean): Promise<void> {
 	const missionId = await resolveCurrentMissionId(overstoryDir);
 	if (!missionId) {
 		if (json) {
@@ -681,7 +706,7 @@ interface AnswerOpts {
 	json?: boolean;
 }
 
-async function missionAnswer(overstoryDir: string, opts: AnswerOpts): Promise<void> {
+export async function missionAnswer(overstoryDir: string, opts: AnswerOpts): Promise<void> {
 	const missionId = await resolveCurrentMissionId(overstoryDir);
 	if (!missionId) {
 		if (opts.json) {
@@ -779,7 +804,7 @@ async function missionAnswer(overstoryDir: string, opts: AnswerOpts): Promise<vo
 
 // === ov mission artifacts ===
 
-async function missionArtifacts(overstoryDir: string, json: boolean): Promise<void> {
+export async function missionArtifacts(overstoryDir: string, json: boolean): Promise<void> {
 	const missionId = await resolveCurrentMissionId(overstoryDir);
 	if (!missionId) {
 		if (json) {
@@ -829,10 +854,11 @@ interface HandoffOpts {
 	json?: boolean;
 }
 
-async function missionHandoff(
+export async function missionHandoff(
 	overstoryDir: string,
 	projectRoot: string,
 	json: boolean,
+	deps: MissionCommandDeps = {},
 ): Promise<void> {
 	const missionId = await resolveCurrentMissionId(overstoryDir);
 	if (!missionId) {
@@ -847,6 +873,7 @@ async function missionHandoff(
 
 	const dbPath = join(overstoryDir, "sessions.db");
 	const missionStore = createMissionStore(dbPath);
+	const startDirector = deps.startExecutionDirector ?? startExecutionDirector;
 	try {
 		const mission = missionStore.getById(missionId);
 		if (!mission || !mission.artifactRoot || !mission.runId) {
@@ -867,6 +894,7 @@ async function missionHandoff(
 			process.exitCode = 1;
 			return;
 		}
+		const artifactRoot = mission.artifactRoot;
 		const roles = resolveMissionRoleStates(overstoryDir, mission);
 		if (roles.executionDirector === "running") {
 			if (json) {
@@ -898,6 +926,18 @@ async function missionHandoff(
 			(handoff) => !pausedWorkstreamIds.has(handoff.workstreamId),
 		);
 		const skippedPausedCount = packageHandoffs(validation.workstreams.workstreams).length - handoffs.length;
+		const dispatchCommands = handoffs.map((handoff) => {
+			const args = slingArgsFromHandoff(handoff, {
+				parentAgent: "execution-director",
+				depth: 1,
+				specBasePath: artifactRoot,
+			});
+			return {
+				workstreamId: handoff.workstreamId,
+				args,
+				command: renderShellCommand(args),
+			};
+		});
 		if (handoffs.length === 0) {
 			const message =
 				skippedPausedCount > 0
@@ -948,7 +988,7 @@ async function missionHandoff(
 			mission,
 		});
 
-		await startExecutionDirector({
+		const executionDirectorResult = await startDirector({
 			missionId: mission.id,
 			projectRoot,
 			overstoryDir,
@@ -959,6 +999,9 @@ async function missionHandoff(
 				missionId: mission.id,
 				contextPath: prompt.contextPath,
 			}),
+		});
+		missionStore.bindSessions(mission.id, {
+			executionDirectorSessionId: executionDirectorResult.session.id,
 		});
 
 		const beforePhase = mission.phase;
@@ -985,8 +1028,11 @@ async function missionHandoff(
 				subject: `Execution handoff: ${mission.slug}`,
 				body: handoffs
 					.map(
-						(handoff) =>
-							`- ${handoff.workstreamId} (${handoff.taskId}): ${handoff.objective} [brief: ${handoff.briefPath}]`,
+						(handoff, index) =>
+							[
+								`- ${handoff.workstreamId} (${handoff.taskId}): ${handoff.objective} [brief: ${handoff.briefPath}]`,
+								`  Dispatch: ${dispatchCommands[index]?.command ?? "n/a"}`,
+							].join("\n"),
 					)
 					.join("\n"),
 				type: "execution_handoff",
@@ -995,6 +1041,7 @@ async function missionHandoff(
 					taskIds: handoffs.map((handoff) => handoff.taskId),
 					workstreamIds: handoffs.map((handoff) => handoff.workstreamId),
 					briefPaths: handoffs.map((handoff) => handoff.briefPath!).filter(Boolean),
+					dispatchCommands,
 					handoffs,
 				},
 			});
@@ -1020,6 +1067,7 @@ async function missionHandoff(
 				messageId,
 				workstreamCount: handoffs.length,
 				skippedPausedCount,
+				dispatchCommands,
 			});
 		} else {
 			printSuccess("Mission handed off to execution director", mission.slug);
@@ -1027,6 +1075,9 @@ async function missionHandoff(
 			process.stdout.write(`  Workstreams: ${handoffs.length}\n`);
 			if (skippedPausedCount > 0) {
 				process.stdout.write(`  Paused skip: ${skippedPausedCount}\n`);
+			}
+			for (const dispatch of dispatchCommands) {
+				process.stdout.write(`  Dispatch:    ${dispatch.workstreamId} -> ${dispatch.command}\n`);
 			}
 		}
 	} finally {
@@ -1046,7 +1097,7 @@ interface RefreshBriefOpts {
 	json?: boolean;
 }
 
-async function missionPause(
+export async function missionPause(
 	overstoryDir: string,
 	workstreamId: string,
 	opts: PauseOpts,
@@ -1157,7 +1208,7 @@ async function missionPause(
 	}
 }
 
-async function missionResume(
+export async function missionResume(
 	overstoryDir: string,
 	projectRoot: string,
 	workstreamId: string,
@@ -1283,7 +1334,7 @@ async function missionResume(
 	}
 }
 
-async function missionRefreshBriefsCommand(
+export async function missionRefreshBriefsCommand(
 	overstoryDir: string,
 	projectRoot: string,
 	opts: RefreshBriefOpts,
@@ -1374,28 +1425,51 @@ async function missionRefreshBriefsCommand(
 			? results
 					.map(
 						(result) =>
-							`${result.workstream.id} (${result.taskId}) brief=${result.projectRelativeBriefPath} markedStale=${result.specMarkedStale} alreadyStale=${result.specWasStale}`,
+							[
+								`${result.workstream.id} (${result.taskId}) brief=${result.projectRelativeBriefPath} markedStale=${result.specMarkedStale} alreadyStale=${result.specWasStale}`,
+								`Regenerate with: ov spec write ${result.taskId} --body '<updated spec>' --agent $OVERSTORY_AGENT_NAME --workstream-id ${result.workstream.id} --brief-path ${shellQuote(result.projectRelativeBriefPath)}`,
+							].join("\n"),
 					)
 					.join("\n")
 			: "No refreshable workstreams were found.";
 
-		for (const recipient of [
-			roles.executionDirector === "running" ? "execution-director" : null,
-			roles.analyst === "running" ? "mission-analyst" : null,
+		for (const recipientConfig of [
+			roles.executionDirector === "running"
+				? {
+						recipient: "execution-director",
+						type: "dispatch" as const,
+						subject: pausedList.length
+							? `Mission control: regenerate stale specs (${pausedList.length} paused)`
+							: "Mission control: refreshed briefs",
+						actionLine:
+							"Action required: coordinate the owning leads to regenerate any affected specs before resuming these workstreams.",
+				  }
+				: null,
+			roles.analyst === "running"
+				? {
+						recipient: "mission-analyst",
+						type: "status" as const,
+						subject: pausedList.length
+							? `Mission control: brief refresh summary (${pausedList.length} paused)`
+							: "Mission control: refreshed briefs",
+						actionLine:
+							"Action required: update mission understanding and coordinate any cross-stream impact from the refreshed briefs.",
+				  }
+				: null,
 		]) {
-			if (!recipient) {
+			if (!recipientConfig) {
 				continue;
 			}
 			const controlMessageId = await sendMissionControlMail({
 				overstoryDir,
-				to: recipient,
-				subject: pausedList.length
-					? `Mission control: refreshed briefs (${pausedList.length} paused)`
-					: "Mission control: refreshed briefs",
+				to: recipientConfig.recipient,
+				subject: recipientConfig.subject,
+				type: recipientConfig.type,
 				body: [
 					`Mission ID: ${refreshedMission.id}`,
 					`Scope: ${opts.workstream ?? "all workstreams"}`,
 					`Paused workstreams: ${pausedList.length > 0 ? pausedList.join(", ") : "none"}`,
+					recipientConfig.actionLine,
 					"",
 					refreshSummary,
 				].join("\n"),
@@ -1407,11 +1481,23 @@ async function missionRefreshBriefsCommand(
 				agentName: "operator",
 				data: {
 					kind: "control_mail",
-					detail: `Brief refresh control sent to ${recipient} (${controlMessageId})`,
-					to: recipient,
+					detail: `Brief refresh control sent to ${recipientConfig.recipient} (${controlMessageId})`,
+					to: recipientConfig.recipient,
 					workstreamCount: results.length,
 				},
 			});
+			if (pausedList.length > 0 && recipientConfig.recipient === "execution-director") {
+				recordMissionEvent({
+					overstoryDir,
+					mission: refreshedMission,
+					agentName: "operator",
+					data: {
+						kind: "spec_regeneration_requested",
+						detail: `Execution director instructed to regenerate ${pausedList.length} stale spec(s)`,
+						workstreamIds: pausedList,
+					},
+				});
+			}
 		}
 
 		if (opts.json) {
@@ -1459,10 +1545,11 @@ async function missionRefreshBriefsCommand(
 
 // === ov mission stop / complete ===
 
-async function missionStop(
+export async function missionStop(
 	overstoryDir: string,
 	projectRoot: string,
 	json: boolean,
+	deps: MissionCommandDeps = {},
 ): Promise<void> {
 	const missionId = await resolveCurrentMissionId(overstoryDir);
 	if (!missionId) {
@@ -1494,6 +1581,7 @@ async function missionStop(
 			mission,
 			targetState: "stopped",
 			json,
+			deps,
 		});
 		if (json) {
 			jsonOutput("mission stop", {
@@ -1511,10 +1599,11 @@ async function missionStop(
 	}
 }
 
-async function missionComplete(
+export async function missionComplete(
 	overstoryDir: string,
 	projectRoot: string,
 	json: boolean,
+	deps: MissionCommandDeps = {},
 ): Promise<void> {
 	const missionId = await resolveCurrentMissionId(overstoryDir);
 	if (!missionId) {
@@ -1555,6 +1644,7 @@ async function missionComplete(
 			mission,
 			targetState: "completed",
 			json,
+			deps,
 		});
 		if (json) {
 			jsonOutput("mission complete", {
@@ -1574,7 +1664,7 @@ async function missionComplete(
 
 // === ov mission list ===
 
-async function missionList(overstoryDir: string, json: boolean): Promise<void> {
+export async function missionList(overstoryDir: string, json: boolean): Promise<void> {
 	const dbPath = join(overstoryDir, "sessions.db");
 	const dbFile = Bun.file(dbPath);
 	if (!(await dbFile.exists())) {
@@ -1617,7 +1707,11 @@ async function missionList(overstoryDir: string, json: boolean): Promise<void> {
 
 // === ov mission show ===
 
-async function missionShow(overstoryDir: string, idOrSlug: string, json: boolean): Promise<void> {
+export async function missionShow(
+	overstoryDir: string,
+	idOrSlug: string,
+	json: boolean,
+): Promise<void> {
 	const dbPath = join(overstoryDir, "sessions.db");
 	const missionStore = createMissionStore(dbPath);
 	try {
@@ -1688,7 +1782,7 @@ interface BundleOpts {
 	json?: boolean;
 }
 
-async function missionBundle(overstoryDir: string, opts: BundleOpts): Promise<void> {
+export async function missionBundle(overstoryDir: string, opts: BundleOpts): Promise<void> {
 	const dbPath = join(overstoryDir, "sessions.db");
 
 	let missionId = opts.missionId ?? null;

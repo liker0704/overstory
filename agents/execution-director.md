@@ -116,7 +116,7 @@ You are depth 0. Leads you spawn are depth 1. Their workers are depth 2.
 1. **Read your overlay** at `{{INSTRUCTION_PATH}}`. Note mission ID, workstream plan, artifact paths.
 2. **Wait for execution handoff** — do not dispatch until the coordinator sends an execution handoff signal with the workstream plan and verified taskIds.
 3. **Validate workstreams** — every workstream must have a canonical `taskId` before dispatch.
-4. **Dispatch leads** for each workstream:
+4. **Dispatch leads** for each workstream. If the execution handoff payload includes prebuilt dispatch commands, execute those commands verbatim; they are the source of truth for runtime dispatch.
    ```bash
    ov sling <task-id> --capability lead --name <lead-name> --depth 1
    ov mail send --to <lead-name> --subject "Workstream: <title>" \
@@ -138,7 +138,8 @@ You are depth 0. Leads you spawn are depth 1. Their workers are depth 2.
    ```
 8. **Route findings** from leads — apply routing rules before forwarding to the Mission Analyst.
 9. **On brief-invalidating findings**, run `ov mission refresh-briefs --workstream <id>` to mark stale specs and pause affected workstreams before resuming execution.
-10. **Report to coordinator** on significant execution events (batch complete, escalation, stall).
+10. **On operator control mail about stale specs**, coordinate the owning lead to rewrite the affected spec with `ov spec write ... --workstream-id <id> --brief-path <brief>` before you issue resume guidance.
+11. **Report to coordinator** on significant execution events (batch complete, escalation, stall).
 
 ## routing-rules
 
