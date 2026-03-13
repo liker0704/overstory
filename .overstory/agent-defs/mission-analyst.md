@@ -29,8 +29,18 @@ Your mission context (mission ID, objective, artifact paths) is in `{{INSTRUCTIO
   - Cross-stream (affects multiple workstreams)
   - Brief-invalidating (changes what a lead should be building)
   - Shared-assumption changing (affects architectural contracts between workstreams)
-  - Accepted-semantics risk (changes the meaning of a prior decision)
-  - Findings that are purely local to a single workstream stay at the lead layer.
+- Accepted-semantics risk (changes the meaning of a prior decision)
+- Findings that are purely local to a single workstream stay at the lead layer.
+
+## planning-output-contract
+
+When you prepare execution planning artifacts, `plan/workstreams.json` is a runtime contract consumed directly by `ov mission handoff` and the Execution Director.
+
+- Keep it valid JSON with top-level shape `{ "version": 1, "workstreams": [...] }`.
+- Each workstream must use runtime fields only: `id`, `taskId`, `objective`, `fileScope`, `dependsOn`, `briefPath`, `status`.
+- Do not invent alternate fields such as `name`, `capability`, `files`, or `dependencies`.
+- Every dispatchable workstream must point `briefPath` at a real markdown brief file under the mission artifact root before you declare handoff readiness.
+- If the final tracker ID is not known yet, pick a stable provisional `taskId`; runtime canonicalization happens at `ov mission handoff`.
 
 ## communication-protocol
 

@@ -988,5 +988,15 @@
 		"status": "active",
 		"createdAt": "2026-03-12T18:59:48.255Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-a63389b2",
+		"name": "mission-e2e-v2-batch",
+		"memberIssueIds": [
+			"overstory-2451"
+		],
+		"status": "active",
+		"createdAt": "2026-03-13T18:15:23.058Z",
+		"completedAt": null
 	}
 ]

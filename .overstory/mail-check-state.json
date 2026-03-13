@@ -8,7 +8,7 @@
 	"review-store-builder": 1773215545939,
 	"review-analyzers-builder": 1773215841028,
 	"review-cli-builder": 1773215857860,
-	"coordinator": 1773354385478,
+	"coordinator": 1773387810374,
 	"eval-runner-builder": 1773318208289,
 	"mission-phase0-lead": 1773319920308,
 	"phase0-types-builder": 1773319194679,
@@ -38,5 +38,13 @@
 	"fix-prompts-store-lead": 1773351737706,
 	"fix-errors-builder": 1773351794375,
 	"fix-errors-tests-lead": 1773352762554,
-	"fix-roles-test-builder": 1773354104466
+	"fix-roles-test-builder": 1773354104466,
+	"mission-analyst": 1773426178914,
+	"execution-director": 1773426214502,
+	"e2e-verify-lead": 1773414340183,
+	"lead-child-e2e": 1773414344523,
+	"builder-child-e2e": 1773414337660,
+	"reviewer-child-e2e": 1773414346532,
+	"docs-smoke-lead": 1773425898411,
+	"docs-smoke-builder": 1773425969455
 }
