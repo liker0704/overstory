@@ -39,8 +39,8 @@
 	"fix-errors-builder": 1773351794375,
 	"fix-errors-tests-lead": 1773352762554,
 	"fix-roles-test-builder": 1773354104466,
-	"mission-analyst": 1773426837625,
-	"execution-director": 1773427094199,
+	"mission-analyst": 1773427327670,
+	"execution-director": 1773427682469,
 	"e2e-verify-lead": 1773414340183,
 	"lead-child-e2e": 1773414344523,
 	"builder-child-e2e": 1773414337660,
@@ -49,5 +49,7 @@
 	"docs-smoke-builder": 1773425969455,
 	"docs-smoke-lead-v5": 1773426673629,
 	"docs-smoke-lead-v6": 1773427080088,
-	"docs-smoke-builder-v6": 1773427079770
+	"docs-smoke-builder-v6": 1773427133485,
+	"docs-smoke-lead-v7": 1773427658124,
+	"docs-smoke-builder-v7a": 1773427585232
 }

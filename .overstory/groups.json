@@ -1018,5 +1018,15 @@
 		"status": "active",
 		"createdAt": "2026-03-13T18:34:52.185Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-13b1461f",
+		"name": "mission-v7-batch",
+		"memberIssueIds": [
+			"overstory-ea72"
+		],
+		"status": "active",
+		"createdAt": "2026-03-13T18:44:45.111Z",
+		"completedAt": null
 	}
 ]
