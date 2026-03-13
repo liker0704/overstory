@@ -245,11 +245,23 @@ describe("filterAgentsByRun", () => {
 
 describe("renderMissionStrip", () => {
 	test("shows pending input and paused workstream count", () => {
-		const out = stripAnsi(renderMissionStrip(makeMission(), 120, 3));
+		const out = stripAnsi(
+			renderMissionStrip(
+				makeMission(),
+				{
+					coordinator: "running",
+					analyst: "running",
+					executionDirector: "stopped",
+				},
+				120,
+				3,
+			),
+		);
 
 		expect(out).toContain("Mission: mission-auth");
 		expect(out).toContain("⏳ question");
 		expect(out).toContain("paused:2");
+		expect(out).toContain("roles c:running a:running e:stopped");
 	});
 });
 

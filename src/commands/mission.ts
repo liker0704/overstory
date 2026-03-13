@@ -4,7 +4,7 @@
  * Long-running objective tracking for overstory mission mode.
  */
 
-import { mkdir, rm, unlink } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { Command } from "commander";
 import { loadConfig } from "../config.ts";
@@ -29,95 +29,39 @@ import { loadMissionEvents, recordMissionEvent } from "../missions/events.ts";
 import { buildNarrative, renderNarrative } from "../missions/narrative.ts";
 import { pauseWorkstream, resumeWorkstream } from "../missions/pause.ts";
 import { generateMissionReview } from "../missions/review.ts";
-import {
-	startExecutionDirector,
-	startMissionAnalyst,
-	stopMissionRole,
-} from "../missions/roles.ts";
+import { startExecutionDirector, startMissionAnalyst, stopMissionRole } from "../missions/roles.ts";
 import { createMissionStore } from "../missions/store.ts";
+import {
+	clearMissionRuntimePointers,
+	resolveActiveMissionContext,
+	resolveMissionRoleStates as deriveMissionRoleStates,
+	writeMissionRuntimePointers,
+} from "../missions/runtime-context.ts";
 import {
 	getMissionWorkstream,
 	refreshMissionBriefs,
 	validateWorkstreamResume,
 } from "../missions/workstream-control.ts";
 import {
+	ensureCanonicalWorkstreamTasks,
 	loadWorkstreamsFile,
 	packageHandoffs,
 	slingArgsFromHandoff,
 } from "../missions/workstreams.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import { createRunStore } from "../sessions/store.ts";
+import { createTrackerClient, resolveBackend } from "../tracker/factory.ts";
 import type { InsertMission, Mission, MissionSummary } from "../types.ts";
 
 export interface MissionCommandDeps {
 	startMissionAnalyst?: typeof startMissionAnalyst;
 	startExecutionDirector?: typeof startExecutionDirector;
 	stopMissionRole?: typeof stopMissionRole;
-}
-
-/** Path to current-mission.txt pointer file. */
-function currentMissionPath(overstoryDir: string): string {
-	return join(overstoryDir, "current-mission.txt");
-}
-
-/** Path to current-run.txt pointer file. */
-function currentRunPath(overstoryDir: string): string {
-	return join(overstoryDir, "current-run.txt");
-}
-
-/** Read current mission ID from pointer file, or null. */
-async function readPointerMissionId(overstoryDir: string): Promise<string | null> {
-	const file = Bun.file(currentMissionPath(overstoryDir));
-	if (!(await file.exists())) return null;
-	const text = await file.text();
-	const trimmed = text.trim();
-	return trimmed.length > 0 ? trimmed : null;
-}
-
-async function writeMissionPointers(
-	overstoryDir: string,
-	missionId: string,
-	runId: string | null,
-): Promise<void> {
-	await Bun.write(currentMissionPath(overstoryDir), `${missionId}\n`);
-	if (runId) {
-		await Bun.write(currentRunPath(overstoryDir), `${runId}\n`);
-	}
-}
-
-async function clearMissionPointers(overstoryDir: string): Promise<void> {
-	for (const path of [currentMissionPath(overstoryDir), currentRunPath(overstoryDir)]) {
-		try {
-			await unlink(path);
-		} catch {
-			// Pointer may already be absent.
-		}
-	}
+	ensureCanonicalWorkstreamTasks?: typeof ensureCanonicalWorkstreamTasks;
 }
 
 export async function resolveCurrentMissionId(overstoryDir: string): Promise<string | null> {
-	const pointedId = await readPointerMissionId(overstoryDir);
-	if (pointedId) {
-		return pointedId;
-	}
-
-	const dbPath = join(overstoryDir, "sessions.db");
-	const dbFile = Bun.file(dbPath);
-	if (!(await dbFile.exists())) {
-		return null;
-	}
-
-	const missionStore = createMissionStore(dbPath);
-	try {
-		const active = missionStore.getActive();
-		if (!active) {
-			return null;
-		}
-		await writeMissionPointers(overstoryDir, active.id, active.runId);
-		return active.id;
-	} finally {
-		missionStore.close();
-	}
+	return (await resolveActiveMissionContext(overstoryDir))?.missionId ?? null;
 }
 
 /** Convert Mission to MissionSummary. */
@@ -159,19 +103,6 @@ async function readAnswerBody(opts: { body?: string; file?: string }): Promise<s
 	return null;
 }
 
-function roleRuntimeState(
-	allSessions: Array<{ id: string; agentName: string; state: string }>,
-	sessionId: string | null,
-): string {
-	if (!sessionId) return "not started";
-	const session = allSessions.find((candidate) => candidate.id === sessionId);
-	if (!session) return "unknown";
-	if (session.state === "completed" || session.state === "zombie") {
-		return "stopped";
-	}
-	return "running";
-}
-
 function resolveMissionRoleStates(
 	overstoryDir: string,
 	mission: Mission,
@@ -183,17 +114,7 @@ function resolveMissionRoleStates(
 	try {
 		const { store } = openSessionStore(overstoryDir);
 		try {
-			const sessions = store.getAll();
-			const coordinatorSession =
-				sessions.find((session) => session.agentName === "coordinator") ?? null;
-			return {
-				coordinator:
-					coordinatorSession && coordinatorSession.state !== "completed"
-						? "running"
-						: "not started",
-				analyst: roleRuntimeState(sessions, mission.analystSessionId),
-				executionDirector: roleRuntimeState(sessions, mission.executionDirectorSessionId),
-			};
+			return deriveMissionRoleStates(mission, store.getAll());
 		} finally {
 			store.close();
 		}
@@ -325,7 +246,7 @@ async function terminalizeMission(opts: {
 			}
 		}
 
-		await clearMissionPointers(overstoryDir);
+		await clearMissionRuntimePointers(overstoryDir);
 
 		let bundlePath: string | null = null;
 		let refreshedMission = missionStore.getById(mission.id) ?? mission;
@@ -464,7 +385,7 @@ export async function missionStart(
 			mission,
 		});
 
-		await writeMissionPointers(overstoryDir, mission.id, runId);
+		await writeMissionRuntimePointers(overstoryDir, mission.id, runId);
 
 		const analystResult = await startAnalyst({
 			missionId: mission.id,
@@ -544,7 +465,7 @@ export async function missionStart(
 		} catch {
 			// Best-effort cleanup.
 		}
-		await clearMissionPointers(overstoryDir);
+		await clearMissionRuntimePointers(overstoryDir);
 		await rm(artifactRoot, { recursive: true, force: true });
 
 		const message = err instanceof Error ? err.message : String(err);
@@ -586,7 +507,7 @@ export async function missionStatus(overstoryDir: string, json: boolean): Promis
 			return;
 		}
 
-		await writeMissionPointers(overstoryDir, mission.id, mission.runId);
+		await writeMissionRuntimePointers(overstoryDir, mission.id, mission.runId);
 		const roles = resolveMissionRoleStates(overstoryDir, mission);
 
 		if (json) {
@@ -656,7 +577,7 @@ export async function missionOutput(overstoryDir: string, json: boolean): Promis
 			return;
 		}
 
-		await writeMissionPointers(overstoryDir, mission.id, mission.runId);
+		await writeMissionRuntimePointers(overstoryDir, mission.id, mission.runId);
 		const roles = resolveMissionRoleStates(overstoryDir, mission);
 		const narrative = buildNarrative(mission, loadMissionEvents(overstoryDir, mission));
 
@@ -874,6 +795,7 @@ export async function missionHandoff(
 	const dbPath = join(overstoryDir, "sessions.db");
 	const missionStore = createMissionStore(dbPath);
 	const startDirector = deps.startExecutionDirector ?? startExecutionDirector;
+	const ensureCanonicalTasks = deps.ensureCanonicalWorkstreamTasks ?? ensureCanonicalWorkstreamTasks;
 	try {
 		const mission = missionStore.getById(missionId);
 		if (!mission || !mission.artifactRoot || !mission.runId) {
@@ -921,11 +843,32 @@ export async function missionHandoff(
 			return;
 		}
 
+		let dispatchableWorkstreams = validation.workstreams.workstreams;
+		const config = await loadConfig(projectRoot);
+		if (config.taskTracker.enabled) {
+			try {
+				const resolvedBackend = await resolveBackend(config.taskTracker.backend, projectRoot);
+				const tracker = createTrackerClient(resolvedBackend, projectRoot);
+				const canonical = await ensureCanonicalTasks(paths.workstreamsJson, tracker);
+				dispatchableWorkstreams = canonical.workstreams;
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				if (json) {
+					jsonError("mission handoff", message);
+				} else {
+					printError("Mission handoff failed", message);
+				}
+				process.exitCode = 1;
+				return;
+			}
+		}
+
 		const pausedWorkstreamIds = new Set(mission.pausedWorkstreamIds);
-		const handoffs = packageHandoffs(validation.workstreams.workstreams).filter(
+		const allHandoffs = packageHandoffs(dispatchableWorkstreams);
+		const handoffs = allHandoffs.filter(
 			(handoff) => !pausedWorkstreamIds.has(handoff.workstreamId),
 		);
-		const skippedPausedCount = packageHandoffs(validation.workstreams.workstreams).length - handoffs.length;
+		const skippedPausedCount = allHandoffs.length - handoffs.length;
 		const dispatchCommands = handoffs.map((handoff) => {
 			const args = slingArgsFromHandoff(handoff, {
 				parentAgent: "execution-director",
@@ -1382,7 +1325,7 @@ export async function missionRefreshBriefsCommand(
 		const pausedWorkstreamIds = new Set<string>();
 		for (const result of results) {
 			const pauseReason = `Brief refreshed for ${result.workstream.id}; regenerate the spec before resuming execution`;
-			const shouldPause = result.specMarkedStale || result.specWasStale;
+			const shouldPause = result.regenerationRequired;
 			if (shouldPause) {
 				const pauseResult = pauseWorkstream(missionStore, mission.id, result.workstream.id, pauseReason);
 				pausedWorkstreamIds.add(result.workstream.id);
@@ -1411,8 +1354,11 @@ export async function missionRefreshBriefsCommand(
 					workstreamId: result.workstream.id,
 					taskId: result.taskId,
 					briefPath: result.projectRelativeBriefPath,
+					metaMissing: result.metaMissing,
+					revisionChanged: result.revisionChanged,
 					specWasStale: result.specWasStale,
 					specMarkedStale: result.specMarkedStale,
+					regenerationRequired: result.regenerationRequired,
 				},
 			});
 		}
@@ -1426,7 +1372,7 @@ export async function missionRefreshBriefsCommand(
 					.map(
 						(result) =>
 							[
-								`${result.workstream.id} (${result.taskId}) brief=${result.projectRelativeBriefPath} markedStale=${result.specMarkedStale} alreadyStale=${result.specWasStale}`,
+								`${result.workstream.id} (${result.taskId}) brief=${result.projectRelativeBriefPath} metaMissing=${result.metaMissing} markedStale=${result.specMarkedStale} alreadyStale=${result.specWasStale} regenerationRequired=${result.regenerationRequired}`,
 								`Regenerate with: ov spec write ${result.taskId} --body '<updated spec>' --agent $OVERSTORY_AGENT_NAME --workstream-id ${result.workstream.id} --brief-path ${shellQuote(result.projectRelativeBriefPath)}`,
 							].join("\n"),
 					)
@@ -1512,8 +1458,11 @@ export async function missionRefreshBriefsCommand(
 					briefPath: result.projectRelativeBriefPath,
 					previousBriefRevision: result.previousBriefRevision,
 					currentBriefRevision: result.currentBriefRevision,
+					metaMissing: result.metaMissing,
+					revisionChanged: result.revisionChanged,
 					specWasStale: result.specWasStale,
 					specMarkedStale: result.specMarkedStale,
+					regenerationRequired: result.regenerationRequired,
 				})),
 			});
 		} else {
@@ -1524,11 +1473,15 @@ export async function missionRefreshBriefsCommand(
 				process.stdout.write("  Result:  no refreshable briefs found\n");
 			} else {
 				for (const result of results) {
-					const status = result.specMarkedStale
-						? "stale-marked"
-						: result.specWasStale
-							? "already-stale"
-							: "current";
+					const status = result.metaMissing
+						? "meta-missing"
+						: result.specMarkedStale
+							? "stale-marked"
+							: result.specWasStale
+								? "already-stale"
+								: result.regenerationRequired
+									? "regen-required"
+									: "current";
 					process.stdout.write(
 						`  ${result.workstream.id}: ${status} (${result.projectRelativeBriefPath})\n`,
 					);

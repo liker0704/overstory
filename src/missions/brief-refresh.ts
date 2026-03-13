@@ -17,10 +17,16 @@ export interface BriefRefreshResult {
 	previousBriefRevision: string | null;
 	/** SHA-256 hex hash of the brief file as of this refresh. */
 	currentBriefRevision: string;
+	/** Whether the spec metadata was missing entirely before refresh. */
+	metaMissing: boolean;
+	/** Whether the brief revision changed relative to the recorded meta. */
+	revisionChanged: boolean;
 	/** Whether the spec was already stale before this refresh. */
 	specWasStale: boolean;
 	/** Whether this refresh call marked the spec as stale. */
 	specMarkedStale: boolean;
+	/** Whether execution must regenerate spec metadata before resuming. */
+	regenerationRequired: boolean;
 }
 
 export interface StaleCheckResult {
@@ -117,6 +123,7 @@ export async function refreshBriefChain(
 	]);
 
 	const previousBriefRevision = meta?.briefRevision ?? null;
+	const metaMissing = meta === null;
 	const specWasStale = meta !== null && meta.status === "stale";
 
 	const revisionChanged = previousBriefRevision !== currentRevision;
@@ -131,7 +138,10 @@ export async function refreshBriefChain(
 		workstreamId,
 		previousBriefRevision,
 		currentBriefRevision: currentRevision,
+		metaMissing,
+		revisionChanged,
 		specWasStale,
 		specMarkedStale,
+		regenerationRequired: metaMissing || revisionChanged || specWasStale,
 	};
 }

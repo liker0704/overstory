@@ -124,13 +124,17 @@ describe("refreshBriefChain", () => {
 		expect(result.workstreamId).toBe("ws-auth");
 		expect(result.previousBriefRevision).toBeNull();
 		expect(result.currentBriefRevision).toHaveLength(64);
+		expect(result.metaMissing).toBe(true);
+		expect(result.revisionChanged).toBe(true);
 		expect(result.specWasStale).toBe(false);
 		expect(result.specMarkedStale).toBe(false);
+		expect(result.regenerationRequired).toBe(true);
 	});
 
-	test("specMarkedStale=false when no meta exists (nothing to mark)", async () => {
+	test("missing meta still requires regeneration even though nothing can be marked stale", async () => {
 		const result = await refreshBriefChain(tempDir, "task-001", "ws-auth", briefPath);
 		expect(result.specMarkedStale).toBe(false);
+		expect(result.regenerationRequired).toBe(true);
 	});
 
 	test("no stale marking when revision is unchanged", async () => {
@@ -141,8 +145,11 @@ describe("refreshBriefChain", () => {
 			makeMeta({ briefRevision: currentRev, status: "current" }),
 		);
 		const result = await refreshBriefChain(tempDir, "task-001", "ws-auth", briefPath);
+		expect(result.metaMissing).toBe(false);
+		expect(result.revisionChanged).toBe(false);
 		expect(result.specWasStale).toBe(false);
 		expect(result.specMarkedStale).toBe(false);
+		expect(result.regenerationRequired).toBe(false);
 		expect(result.previousBriefRevision).toBe(currentRev);
 		expect(result.currentBriefRevision).toBe(currentRev);
 	});
@@ -158,8 +165,10 @@ describe("refreshBriefChain", () => {
 		const result = await refreshBriefChain(tempDir, "task-001", "ws-auth", briefPath);
 		expect(result.previousBriefRevision).toBe(oldRev);
 		expect(result.currentBriefRevision).not.toBe(oldRev);
+		expect(result.revisionChanged).toBe(true);
 		expect(result.specWasStale).toBe(false);
 		expect(result.specMarkedStale).toBe(true);
+		expect(result.regenerationRequired).toBe(true);
 	});
 
 	test("specWasStale=true and specMarkedStale=false when already stale", async () => {
@@ -169,6 +178,7 @@ describe("refreshBriefChain", () => {
 		const result = await refreshBriefChain(tempDir, "task-001", "ws-auth", briefPath);
 		expect(result.specWasStale).toBe(true);
 		expect(result.specMarkedStale).toBe(false);
+		expect(result.regenerationRequired).toBe(true);
 	});
 
 	test("does not regenerate spec, only marks stale", async () => {

@@ -240,6 +240,11 @@ describe("printStatus", () => {
 				pendingUserInput: true,
 				pendingInputKind: "clarification",
 			}),
+			missionRoles: {
+				coordinator: "running",
+				analyst: "running",
+				executionDirector: "stopped",
+			},
 		});
 
 		printStatus(data);
@@ -249,6 +254,9 @@ describe("printStatus", () => {
 		expect(out).toContain("Pending:      clarification");
 		expect(out).toContain("Paused:       2 workstreams");
 		expect(out).toContain("Pause reason: brief refresh requires regeneration");
+		expect(out).toContain("Coordinator:  running");
+		expect(out).toContain("Analyst:      running");
+		expect(out).toContain("Exec Dir:     stopped");
 	});
 });
 

@@ -36,6 +36,7 @@ import { stateColor, stateIcon } from "../logging/theme.ts";
 import { createMailStore, type MailStore } from "../mail/store.ts";
 import { createMergeQueue, type MergeQueue } from "../merge/queue.ts";
 import { createMetricsStore, type MetricsStore } from "../metrics/store.ts";
+import { resolveMissionRoleStates, type MissionRoleStates } from "../missions/runtime-context.ts";
 import { createMissionStore } from "../missions/store.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import type { SessionStore } from "../sessions/store.ts";
@@ -551,12 +552,16 @@ async function loadDashboardData(
 
 	// Load active mission inline (fast, open/close per tick)
 	let mission: Mission | null = null;
+	let missionRoles: MissionRoleStates | null = null;
 	try {
 		const sessionsDbPath = join(root, ".overstory", "sessions.db");
 		if (existsSync(sessionsDbPath)) {
 			const missionStore = createMissionStore(sessionsDbPath);
 			try {
 				mission = missionStore.getActive();
+				if (mission) {
+					missionRoles = resolveMissionRoleStates(mission, allSessions);
+				}
 			} finally {
 				missionStore.close();
 			}
@@ -564,6 +569,9 @@ async function loadDashboardData(
 	} catch {
 		// mission store unavailable
 	}
+
+	status.mission = mission;
+	status.missionRoles = missionRoles;
 
 	return {
 		currentRunId: runId,
@@ -1005,7 +1013,12 @@ function missionStateColor(state: string): (s: string) => string {
 /**
  * Render a compact mission strip (2 rows: content line + separator).
  */
-export function renderMissionStrip(mission: Mission, width: number, startRow: number): string {
+export function renderMissionStrip(
+	mission: Mission,
+	missionRoles: MissionRoleStates | null | undefined,
+	width: number,
+	startRow: number,
+): string {
 	const stateColorFn = missionStateColor(mission.state);
 	const stateStr = stateColorFn(`${mission.state}/${mission.phase}`);
 	const pendingStr = mission.pendingUserInput
@@ -1015,7 +1028,12 @@ export function renderMissionStrip(mission: Mission, width: number, startRow: nu
 		mission.pausedWorkstreamIds.length > 0
 			? ` ${color.yellow(`paused:${mission.pausedWorkstreamIds.length}`)}`
 			: "";
-	const contentLine = `${dimBox.vertical} Mission: ${accent(mission.slug)} [${stateStr}]${pendingStr}${pausedStr}`;
+	const rolesStr = missionRoles
+		? ` ${color.dim(`roles c:${missionRoles.coordinator} a:${missionRoles.analyst} e:${missionRoles.executionDirector}`)}`
+		: "";
+	const contentLine =
+		`${dimBox.vertical} Mission: ${accent(mission.slug)} [${stateStr}]` +
+		`${pendingStr}${pausedStr}${rolesStr}`;
 	const contentPadding = " ".repeat(
 		Math.max(0, width - visibleLength(contentLine) - visibleLength(dimBox.vertical)),
 	);
@@ -1042,7 +1060,7 @@ function renderDashboard(data: DashboardData, interval: number): void {
 	// Mission strip (rows 3-4 if active mission exists)
 	let agentPanelStart = 3;
 	if (data.mission) {
-		output += renderMissionStrip(data.mission, width, 3);
+		output += renderMissionStrip(data.mission, data.status.missionRoles, width, 3);
 		agentPanelStart = 5;
 	}
 

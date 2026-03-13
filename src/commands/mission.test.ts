@@ -107,4 +107,36 @@ describe("createMissionCommand", () => {
 		expect(missionId).toBe("mission-pointed");
 		expect(await Bun.file(join(overstoryDir, "current-run.txt")).exists()).toBe(false);
 	});
+
+	test("resolveCurrentMissionId ignores a stale pointer when the pointed mission is terminal", async () => {
+		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
+		try {
+			missionStore.create({
+				id: "mission-active",
+				slug: "mission-active",
+				objective: "Recover from stale pointer",
+				runId: "run-active",
+			});
+			missionStore.create({
+				id: "mission-stopped",
+				slug: "mission-stopped",
+				objective: "Terminal mission",
+				runId: "run-stopped",
+			});
+			missionStore.updateState("mission-stopped", "stopped");
+			missionStore.updatePhase("mission-stopped", "done");
+		} finally {
+			missionStore.close();
+		}
+
+		await Bun.write(join(overstoryDir, "current-mission.txt"), "mission-stopped\n");
+
+		const missionId = await resolveCurrentMissionId(overstoryDir);
+
+		expect(missionId).toBe("mission-active");
+		expect((await Bun.file(join(overstoryDir, "current-mission.txt")).text()).trim()).toBe(
+			"mission-active",
+		);
+		expect((await Bun.file(join(overstoryDir, "current-run.txt")).text()).trim()).toBe("run-active");
+	});
 });

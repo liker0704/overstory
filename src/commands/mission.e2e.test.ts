@@ -7,10 +7,20 @@ import { createMailStore } from "../mail/store.ts";
 import { getMissionArtifactPaths } from "../missions/context.ts";
 import { readSpecMeta } from "../missions/spec-meta.ts";
 import { createMissionStore } from "../missions/store.ts";
+import { loadWorkstreamsFile } from "../missions/workstreams.ts";
 import { createRunStore, createSessionStore } from "../sessions/store.ts";
 import { cleanupTempDir, createTempGitRepo } from "../test-helpers.ts";
 import type { AgentSession } from "../types.ts";
-import { missionAnswer, missionComplete, missionHandoff, missionRefreshBriefsCommand, missionResume, missionStart, type MissionCommandDeps } from "./mission.ts";
+import {
+	missionAnswer,
+	missionComplete,
+	missionHandoff,
+	missionRefreshBriefsCommand,
+	missionResume,
+	missionStart,
+	missionStop,
+	type MissionCommandDeps,
+} from "./mission.ts";
 import { specWriteCommand } from "./spec.ts";
 
 let tempDir: string;
@@ -102,6 +112,21 @@ function makeRoleDeps(
 	return {
 		started,
 		stopped,
+		ensureCanonicalWorkstreamTasks: async (filePath) => {
+			const validation = await loadWorkstreamsFile(filePath);
+			if (!validation.valid || !validation.workstreams) {
+				throw new Error(validation.errors[0]?.message ?? "invalid workstreams file");
+			}
+			return {
+				workstreams: validation.workstreams.workstreams,
+				results: validation.workstreams.workstreams.map((workstream) => ({
+					workstreamId: workstream.id,
+					taskId: workstream.taskId,
+					canonicalTaskId: workstream.taskId,
+					created: false,
+				})),
+			};
+		},
 		startMissionAnalyst: async (opts) => startRole("mission-analyst", opts),
 		startExecutionDirector: async (opts) => startRole("execution-director", opts),
 		stopMissionRole: async (agentName) => {
@@ -134,7 +159,7 @@ beforeEach(async () => {
 	process.chdir(tempDir);
 
 	originalExitCode = process.exitCode;
-	process.exitCode = undefined;
+	process.exitCode = 0;
 	originalStdoutWrite = process.stdout.write;
 	originalStderrWrite = process.stderr.write;
 	process.stdout.write = (() => true) as typeof process.stdout.write;
@@ -143,7 +168,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
 	process.chdir(originalCwd);
-	process.exitCode = originalExitCode;
+	process.exitCode = originalExitCode ?? 0;
 	process.stdout.write = originalStdoutWrite;
 	process.stderr.write = originalStderrWrite;
 	await cleanupTempDir(tempDir);
@@ -281,6 +306,166 @@ describe("mission command e2e", () => {
 		expect(await Bun.file(join(paths.resultsDir, "review.json")).exists()).toBe(true);
 
 		mailStore.close();
+		missionStore.close();
+	});
+
+	test("refresh-briefs with missing meta still pauses the workstream and blocks resume until spec regeneration", async () => {
+		const deps = makeRoleDeps(tempDir, overstoryDir);
+
+		await missionStart(
+			overstoryDir,
+			tempDir,
+			{ slug: "missing-meta", objective: "Handle missing mission spec metadata", json: true },
+			deps,
+		);
+
+		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
+		const mission = missionStore.getActive();
+		expect(mission).not.toBeNull();
+
+		const paths = getMissionArtifactPaths(mission!);
+		await Bun.write(
+			paths.workstreamsJson,
+			`${JSON.stringify(
+				{
+					version: 1,
+					workstreams: [
+						{
+							id: "ws-auth",
+							taskId: "task-auth",
+							objective: "Refresh authentication flow",
+							fileScope: ["src/auth.ts"],
+							dependsOn: [],
+							briefPath: "plan/ws-auth.md",
+							status: "planned",
+						},
+					],
+				},
+				null,
+				2,
+			)}\n`,
+		);
+		const briefPath = join(paths.planDir, "ws-auth.md");
+		await Bun.write(briefPath, "# Auth brief v1\n");
+
+		await missionHandoff(overstoryDir, tempDir, true, deps);
+		await Bun.write(briefPath, "# Auth brief v2\n");
+		await missionRefreshBriefsCommand(overstoryDir, tempDir, {
+			workstream: "ws-auth",
+			json: true,
+		});
+
+		const refreshedMission = missionStore.getById(mission!.id);
+		expect(refreshedMission?.pausedWorkstreamIds).toContain("ws-auth");
+		expect((await readSpecMeta(tempDir, "task-auth"))).toBeNull();
+
+		await missionResume(overstoryDir, tempDir, "ws-auth", true);
+		expect(process.exitCode).toBe(1);
+		process.exitCode = 0;
+
+		await specWriteCommand("task-auth", {
+			body: "# Auth spec v2",
+			agent: "lead-auth",
+			workstreamId: "ws-auth",
+			briefPath: relative(tempDir, briefPath),
+		});
+
+		await missionResume(overstoryDir, tempDir, "ws-auth", true);
+		expect(missionStore.getById(mission!.id)?.pausedWorkstreamIds).toEqual([]);
+
+		missionStore.close();
+	});
+
+	test("handoff recovers lost mission and run pointers from MissionStore durable state", async () => {
+		const deps = makeRoleDeps(tempDir, overstoryDir);
+
+		await missionStart(
+			overstoryDir,
+			tempDir,
+			{ slug: "pointer-recovery", objective: "Recover mission runtime pointers", json: true },
+			deps,
+		);
+
+		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
+		const mission = missionStore.getActive();
+		expect(mission).not.toBeNull();
+
+		const paths = getMissionArtifactPaths(mission!);
+		await Bun.write(
+			paths.workstreamsJson,
+			`${JSON.stringify(
+				{
+					version: 1,
+					workstreams: [
+						{
+							id: "ws-auth",
+							taskId: "task-auth",
+							objective: "Refresh authentication flow",
+							fileScope: ["src/auth.ts"],
+							dependsOn: [],
+							briefPath: "plan/ws-auth.md",
+							status: "planned",
+						},
+					],
+				},
+				null,
+				2,
+			)}\n`,
+		);
+		const briefPath = join(paths.planDir, "ws-auth.md");
+		await Bun.write(briefPath, "# Auth brief v1\n");
+		await specWriteCommand("task-auth", {
+			body: "# Auth spec v1",
+			agent: "lead-auth",
+			workstreamId: "ws-auth",
+			briefPath: relative(tempDir, briefPath),
+		});
+
+		await Bun.write(join(overstoryDir, "current-mission.txt"), "");
+		await Bun.write(join(overstoryDir, "current-run.txt"), "");
+
+		await missionHandoff(overstoryDir, tempDir, true, deps);
+
+		expect((await Bun.file(join(overstoryDir, "current-mission.txt")).text()).trim()).toBe(mission!.id);
+		expect((await Bun.file(join(overstoryDir, "current-run.txt")).text()).trim()).toBe(
+			mission!.runId ?? "",
+		);
+		expect(deps.started).toEqual(["mission-analyst", "execution-director"]);
+
+		missionStore.close();
+	});
+
+	test("mission stop exports result bundle and review for stopped terminal state", async () => {
+		const deps = makeRoleDeps(tempDir, overstoryDir);
+
+		await missionStart(
+			overstoryDir,
+			tempDir,
+			{ slug: "stop-flow", objective: "Verify stopped mission terminalization", json: true },
+			deps,
+		);
+
+		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
+		const mission = missionStore.getActive();
+		expect(mission).not.toBeNull();
+
+		const paths = getMissionArtifactPaths(mission!);
+		await missionStop(overstoryDir, tempDir, true, deps);
+
+		const stoppedMission = missionStore.getById(mission!.id);
+		expect(stoppedMission?.state).toBe("stopped");
+		expect(await Bun.file(join(paths.resultsDir, "manifest.json")).exists()).toBe(true);
+		expect(await Bun.file(join(paths.resultsDir, "review.json")).exists()).toBe(true);
+		expect(await Bun.file(join(overstoryDir, "current-mission.txt")).exists()).toBe(false);
+		expect(await Bun.file(join(overstoryDir, "current-run.txt")).exists()).toBe(false);
+
+		const runStore = createRunStore(join(overstoryDir, "sessions.db"));
+		try {
+			expect(runStore.getRun(mission!.runId ?? "")?.status).toBe("stopped");
+		} finally {
+			runStore.close();
+		}
+
 		missionStore.close();
 	});
 });

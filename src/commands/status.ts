@@ -16,6 +16,8 @@ import { renderHeader } from "../logging/theme.ts";
 import { createMailStore } from "../mail/store.ts";
 import { createMergeQueue } from "../merge/queue.ts";
 import { createMetricsStore } from "../metrics/store.ts";
+import type { MissionRoleStates } from "../missions/runtime-context.ts";
+import { resolveMissionRoleStates } from "../missions/runtime-context.ts";
 import { createMissionStore } from "../missions/store.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import type { AgentSession, Mission } from "../types.ts";
@@ -89,6 +91,7 @@ export interface StatusData {
 	recentMetricsCount: number;
 	verboseDetails?: Record<string, VerboseAgentDetail>;
 	mission?: Mission | null;
+	missionRoles?: MissionRoleStates | null;
 }
 
 async function readCurrentRunId(overstoryDir: string): Promise<string | null> {
@@ -233,6 +236,7 @@ export async function gatherStatus(
 		}
 
 		let mission: Mission | null = null;
+		let missionRoles: MissionRoleStates | null = null;
 		try {
 			const sessionsDbPath = join(overstoryDir, "sessions.db");
 			const dbFile = Bun.file(sessionsDbPath);
@@ -240,6 +244,9 @@ export async function gatherStatus(
 				const missionStore = createMissionStore(sessionsDbPath);
 				try {
 					mission = missionStore.getActive();
+					if (mission) {
+						missionRoles = resolveMissionRoleStates(mission, sessions);
+					}
 				} finally {
 					missionStore.close();
 				}
@@ -258,6 +265,7 @@ export async function gatherStatus(
 			recentMetricsCount,
 			verboseDetails,
 			mission,
+			missionRoles,
 		};
 	} finally {
 		store.close();
@@ -296,6 +304,7 @@ export function printStatus(data: StatusData): void {
 	// Mission section (only when active mission exists)
 	if (data.mission) {
 		const m = data.mission;
+		const roles = data.missionRoles;
 		const stateColorFn = missionStateColor(m.state);
 		const stateStr = stateColorFn(`${m.state}/${m.phase}`);
 		w(`Mission: ${accent(m.slug)} (${stateStr})\n`);
@@ -308,6 +317,9 @@ export function printStatus(data: StatusData): void {
 		if (m.pauseReason) {
 			w(`   Pause reason: ${m.pauseReason}\n`);
 		}
+		w(`   Coordinator:  ${roles?.coordinator ?? "unknown"}\n`);
+		w(`   Analyst:      ${roles?.analyst ?? "unknown"}\n`);
+		w(`   Exec Dir:     ${roles?.executionDirector ?? "unknown"}\n`);
 		w("\n");
 	}
 

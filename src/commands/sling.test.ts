@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { realpathSync } from "node:fs";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveModel, resolveProviderEnv } from "../agents/manifest.ts";
 import { HierarchyError } from "../errors.ts";
+import { computeBriefRevision } from "../missions/brief-refresh.ts";
+import { writeSpecMeta } from "../missions/spec-meta.ts";
+import { createMissionStore } from "../missions/store.ts";
 import { ClaudeRuntime } from "../runtimes/claude.ts";
 import { getRuntime } from "../runtimes/registry.ts";
 import { cleanupTempDir, createTempGitRepo } from "../test-helpers.ts";
@@ -27,6 +30,7 @@ import {
 	isRunningAsRoot,
 	parentHasScouts,
 	shouldShowScoutWarning,
+	slingCommand,
 	validateHierarchy,
 } from "./sling.ts";
 
@@ -427,17 +431,25 @@ describe("validateHierarchy", () => {
 
 	test("allows builder when parentAgent is provided", () => {
 		expect(() =>
-			validateHierarchy("lead-alpha", "builder", "test-builder", 1, false),
+			validateHierarchy("lead-alpha", "builder", "test-builder", 1, false, [
+				{ agentName: "lead-alpha", capability: "lead" },
+			]),
 		).not.toThrow();
 	});
 
 	test("allows scout when parentAgent is provided", () => {
-		expect(() => validateHierarchy("lead-alpha", "scout", "test-scout", 1, false)).not.toThrow();
+		expect(() =>
+			validateHierarchy("lead-alpha", "scout", "test-scout", 1, false, [
+				{ agentName: "lead-alpha", capability: "lead" },
+			]),
+		).not.toThrow();
 	});
 
 	test("allows reviewer when parentAgent is provided", () => {
 		expect(() =>
-			validateHierarchy("lead-alpha", "reviewer", "test-reviewer", 1, false),
+			validateHierarchy("lead-alpha", "reviewer", "test-reviewer", 1, false, [
+				{ agentName: "lead-alpha", capability: "lead" },
+			]),
 		).not.toThrow();
 	});
 
@@ -476,16 +488,179 @@ describe("validateHierarchy", () => {
 		).not.toThrow();
 	});
 
-	test("allows mission-analyst when parentAgent is provided", () => {
+	test("allows execution-director when spawned by coordinator parent session", () => {
 		expect(() =>
-			validateHierarchy("coordinator", "mission-analyst", "test-analyst", 1, false),
+			validateHierarchy("coordinator", "execution-director", "test-director", 1, false, [
+				{ agentName: "coordinator", capability: "coordinator" },
+			]),
 		).not.toThrow();
 	});
 
-	test("allows execution-director when parentAgent is provided", () => {
+	test("allows mission-analyst when spawned by coordinator parent session", () => {
 		expect(() =>
-			validateHierarchy("coordinator", "execution-director", "test-director", 1, false),
+			validateHierarchy("coordinator", "mission-analyst", "test-analyst", 1, false, [
+				{ agentName: "coordinator", capability: "coordinator" },
+			]),
 		).not.toThrow();
+	});
+
+	test("allows execution-director to spawn lead only", () => {
+		expect(() =>
+			validateHierarchy("execution-director", "lead", "lead-auth", 1, false, [
+				{ agentName: "execution-director", capability: "execution-director" },
+			]),
+		).not.toThrow();
+	});
+
+	test("rejects execution-director spawning builder directly", () => {
+		expect(() =>
+			validateHierarchy("execution-director", "builder", "builder-auth", 1, false, [
+				{ agentName: "execution-director", capability: "execution-director" },
+			]),
+		).toThrow(HierarchyError);
+	});
+
+	test("rejects unknown parent session unless forceHierarchy is set", () => {
+		expect(() =>
+			validateHierarchy("missing-parent", "builder", "builder-auth", 1, false, []),
+		).toThrow(HierarchyError);
+		expect(() =>
+			validateHierarchy("missing-parent", "builder", "builder-auth", 1, true, []),
+		).not.toThrow();
+	});
+});
+
+describe("slingCommand mission spec enforcement", () => {
+	let repoDir: string;
+	let originalCwd: string;
+
+	async function writeMissionConfig(root: string): Promise<void> {
+		await mkdir(join(root, ".overstory", "agent-defs"), { recursive: true });
+		await Bun.write(
+			join(root, ".overstory", "config.yaml"),
+			[
+				"project:",
+				"  name: sling-mission-test",
+				`  root: ${root}`,
+				"  canonicalBranch: main",
+				"agents:",
+				"  manifestPath: .overstory/agent-manifest.json",
+				"  baseDir: .overstory/agent-defs",
+				"taskTracker:",
+				"  enabled: false",
+			].join("\n"),
+		);
+		await Bun.write(
+			join(root, ".overstory", "agent-manifest.json"),
+			JSON.stringify(
+				{
+					version: "1",
+					agents: {
+						builder: {
+							file: "builder.md",
+							model: "sonnet",
+							tools: [],
+							capabilities: ["builder"],
+							canSpawn: false,
+							constraints: [],
+						},
+					},
+				},
+				null,
+				2,
+			),
+		);
+		await Bun.write(join(root, ".overstory", "agent-defs", "builder.md"), "# Builder\n");
+	}
+
+	beforeEach(async () => {
+		repoDir = realpathSync(await createTempGitRepo());
+		originalCwd = process.cwd();
+		process.chdir(repoDir);
+		await writeMissionConfig(repoDir);
+
+		const missionStore = createMissionStore(join(repoDir, ".overstory", "sessions.db"));
+		try {
+			missionStore.create({
+				id: "mission-sling-001",
+				slug: "sling-guard",
+				objective: "Exercise mission builder guards",
+				runId: "run-sling-001",
+				artifactRoot: join(repoDir, ".overstory", "missions", "mission-sling-001"),
+			});
+		} finally {
+			missionStore.close();
+		}
+	});
+
+	afterEach(async () => {
+		process.chdir(originalCwd);
+		await cleanupTempDir(repoDir);
+	});
+
+	test("recovers mission context from store and requires --spec for mission builders", async () => {
+		await expect(slingCommand("task-001", { capability: "builder" })).rejects.toThrow(
+			"must be launched with --spec",
+		);
+	});
+
+	test("requires --spec for mission reviewers too", async () => {
+		await expect(slingCommand("task-001", { capability: "reviewer" })).rejects.toThrow(
+			"must be launched with --spec",
+		);
+	});
+
+	test("rejects stale mission spec metadata even when mission pointer is missing", async () => {
+		const artifactRoot = join(repoDir, ".overstory", "missions", "mission-sling-001");
+		const briefPath = join(artifactRoot, "plan", "ws-auth.md");
+		const specPath = join(repoDir, ".overstory", "specs", "task-001.md");
+		await mkdir(join(artifactRoot, "plan"), { recursive: true });
+		await mkdir(join(repoDir, ".overstory", "specs"), { recursive: true });
+		await Bun.write(briefPath, "# Brief v1\n");
+		await Bun.write(specPath, "# Spec v1\n");
+
+		const initialRevision = await computeBriefRevision(briefPath);
+		await writeSpecMeta(repoDir, "task-001", {
+			taskId: "task-001",
+			workstreamId: "ws-auth",
+			briefPath: ".overstory/missions/mission-sling-001/plan/ws-auth.md",
+			briefRevision: initialRevision,
+			specRevision: "spec-rev-1",
+			status: "current",
+			generatedAt: "2026-03-13T00:00:00.000Z",
+			generatedBy: "lead-auth",
+		});
+		await Bun.write(briefPath, "# Brief v2\n");
+
+		await expect(
+			slingCommand("task-001", { capability: "builder", spec: specPath }),
+		).rejects.toThrow("Mission spec is not current");
+	});
+
+	test("rejects a mission spec whose task does not match the requested spawn task", async () => {
+		const artifactRoot = join(repoDir, ".overstory", "missions", "mission-sling-001");
+		const briefPath = join(artifactRoot, "plan", "ws-other.md");
+		const specPath = join(repoDir, ".overstory", "specs", "task-002.md");
+		await mkdir(join(artifactRoot, "plan"), { recursive: true });
+		await mkdir(join(repoDir, ".overstory", "specs"), { recursive: true });
+		await Bun.write(briefPath, "# Brief v1\n");
+		await Bun.write(specPath, "# Spec v1\n");
+
+		const currentRevision = await computeBriefRevision(briefPath);
+		await writeSpecMeta(repoDir, "task-002", {
+			taskId: "task-002",
+			workstreamId: "ws-other",
+			briefPath: ".overstory/missions/mission-sling-001/plan/ws-other.md",
+			briefRevision: currentRevision,
+			specRevision: "spec-rev-2",
+			status: "current",
+			generatedAt: "2026-03-13T00:00:00.000Z",
+			generatedBy: "lead-other",
+		});
+
+		await expect(
+			slingCommand("task-001", { capability: "builder", spec: specPath }),
+		).rejects.toThrow("does not match requested task task-001");
 	});
 });
 

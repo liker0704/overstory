@@ -31,6 +31,7 @@ import { jsonOutput } from "../json.ts";
 import { printSuccess } from "../logging/color.ts";
 import { createMailClient } from "../mail/client.ts";
 import { createMailStore } from "../mail/store.ts";
+import { resolveActiveMissionContext } from "../missions/runtime-context.ts";
 import { validateCurrentMissionSpec } from "../missions/workstream-control.ts";
 import { createMulchClient } from "../mulch/client.ts";
 import { getRuntime } from "../runtimes/registry.ts";
@@ -384,21 +385,64 @@ export function checkParentAgentLimit(
  * @param forceHierarchy - If true, bypass the check (for debugging)
  * @throws HierarchyError if the constraint is violated
  */
+export function resolveParentCapability(
+	parentAgent: string | null,
+	sessions: ReadonlyArray<{ agentName: string; capability: string }>,
+): string | null {
+	if (parentAgent === null) {
+		return null;
+	}
+	return sessions.find((session) => session.agentName === parentAgent)?.capability ?? null;
+}
+
+export function allowedChildCapabilities(parentCapability: string | null): string[] {
+	if (parentCapability === null) {
+		return ["lead", "scout", "builder", "mission-analyst", "execution-director"];
+	}
+
+	if (parentCapability === "coordinator" || parentCapability === "coordinator-mission") {
+		return ["lead", "scout", "builder", "mission-analyst", "execution-director"];
+	}
+
+	if (parentCapability === "execution-director") {
+		return ["lead"];
+	}
+
+	if (parentCapability === "lead" || parentCapability === "lead-mission") {
+		return ["scout", "builder", "reviewer", "merger"];
+	}
+
+	return [];
+}
+
 export function validateHierarchy(
 	parentAgent: string | null,
 	capability: string,
 	name: string,
 	_depth: number,
 	forceHierarchy: boolean,
+	sessions: ReadonlyArray<{ agentName: string; capability: string }> = [],
 ): void {
 	if (forceHierarchy) {
 		return;
 	}
 
-	const directSpawnCapabilities = ["lead", "scout", "builder", "mission-analyst", "execution-director"];
-	if (parentAgent === null && !directSpawnCapabilities.includes(capability)) {
+	const parentCapability = resolveParentCapability(parentAgent, sessions);
+	if (parentAgent !== null && parentCapability === null) {
 		throw new HierarchyError(
-			`Coordinator cannot spawn "${capability}" directly. Only lead, scout, builder, mission-analyst, and execution-director are allowed without --parent. Use a lead as intermediary, or pass --force-hierarchy to bypass.`,
+			`Parent agent "${parentAgent}" was not found in session state. Cannot spawn "${capability}" safely without a known parent capability.`,
+			{ agentName: name, requestedCapability: capability },
+		);
+	}
+
+	const allowed = allowedChildCapabilities(parentCapability);
+	if (!allowed.includes(capability)) {
+		const parentLabel =
+			parentAgent === null
+				? "Coordinator"
+				: `Parent "${parentAgent}" (${parentCapability ?? "unknown"})`;
+		throw new HierarchyError(
+			`${parentLabel} cannot spawn "${capability}". Allowed child capabilities: ${allowed.join(", ") || "none"}. Use a valid intermediary, or pass --force-hierarchy to bypass.`,
 			{ agentName: name, requestedCapability: capability },
 		);
 	}
@@ -562,6 +606,9 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 	const cwd = process.cwd();
 	const config = await loadConfig(cwd);
 	const resolvedBackend = await resolveBackend(config.taskTracker.backend, config.project.root);
+	const overstoryDir = join(config.project.root, ".overstory");
+	const missionContext = await resolveActiveMissionContext(overstoryDir);
+	const hasMission = missionContext !== null;
 
 	// 2. Validate depth limit
 	// Hierarchy: orchestrator(0) -> lead(1) -> specialist(2)
@@ -573,8 +620,12 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 		);
 	}
 
-	// 2b. Validate hierarchy: coordinator (no --parent) can only spawn leads
-	validateHierarchy(parentAgent, capability, name, depth, forceHierarchy);
+	if (hasMission && (capability === "builder" || capability === "reviewer") && absoluteSpecPath === null) {
+		throw new ValidationError(
+			`Mission ${capability} agents must be launched with --spec so runtime can verify current mission metadata.`,
+			{ field: "spec", value: specPath },
+		);
+	}
 
 	// 3. Load manifest and validate capability
 	const manifestLoader = createManifestLoader(
@@ -583,14 +634,12 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 	);
 	const manifest = await manifestLoader.load();
 
-	// Check for active mission to resolve mission-variant capabilities
-	const currentMissionFile = Bun.file(join(config.project.root, ".overstory", "current-mission.txt"));
-	const hasMission =
-		(await currentMissionFile.exists()) && (await currentMissionFile.text()).trim().length > 0;
 	const resolvedCapability = resolveMissionCapability(capability, hasMission);
 
 	if (hasMission && absoluteSpecPath !== null && (capability === "builder" || capability === "reviewer")) {
-		const specValidation = await validateCurrentMissionSpec(config.project.root, absoluteSpecPath);
+		const specValidation = await validateCurrentMissionSpec(config.project.root, absoluteSpecPath, {
+			expectedTaskId: taskId,
+		});
 		if (!specValidation.ok) {
 			throw new ValidationError(
 				`Mission spec is not current: ${specValidation.reason}. Regenerate the spec before spawning ${capability}.`,
@@ -608,13 +657,15 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 	}
 
 	// 4. Resolve or create run_id for this spawn
-	const overstoryDir = join(config.project.root, ".overstory");
 	const currentRunPath = join(overstoryDir, "current-run.txt");
 
 	// 5. Check name uniqueness and concurrency limit against active sessions
 	// (Session store opened here so we can also use it for parent run ID inheritance in step 4.)
 	const { store } = openSessionStore(overstoryDir);
 	try {
+		// 2b. Validate hierarchy using live parent capability data when available.
+		validateHierarchy(parentAgent, capability, name, depth, forceHierarchy, store.getAll());
+
 		// 4a. Resolve run ID: inherit from parent → current-run.txt fallback → create new.
 		// Parent inheritance ensures child agents belong to the same run as their coordinator.
 		const runId = await (async (): Promise<string> => {

@@ -216,6 +216,7 @@ export async function loadWorkstreamsFile(filePath: string): Promise<ValidationR
 export interface TaskBridgeResult {
 	workstreamId: string;
 	taskId: string;
+	canonicalTaskId: string;
 	created: boolean;
 	error?: string;
 }
@@ -229,7 +230,12 @@ export async function bridgeWorkstreamsToTasks(
 	for (const ws of workstreams) {
 		try {
 			await tracker.show(ws.taskId);
-			results.push({ workstreamId: ws.id, taskId: ws.taskId, created: false });
+			results.push({
+				workstreamId: ws.id,
+				taskId: ws.taskId,
+				canonicalTaskId: ws.taskId,
+				created: false,
+			});
 		} catch (showErr) {
 			// Distinguish 'not found' from API/network errors
 			const showMsg = showErr instanceof Error ? showErr.message : String(showErr);
@@ -239,23 +245,33 @@ export async function bridgeWorkstreamsToTasks(
 				results.push({
 					workstreamId: ws.id,
 					taskId: ws.taskId,
+					canonicalTaskId: ws.taskId,
 					created: false,
 					error: `Failed to check task: ${showMsg}`,
 				});
 				continue;
 			}
 			try {
-				await tracker.create(ws.objective, {
+				const canonicalTaskId = await tracker.create(ws.objective, {
 					type: "task",
 					priority: 2,
 					description: `Workstream: ${ws.id}`,
 				});
-				results.push({ workstreamId: ws.id, taskId: ws.taskId, created: true });
+				if (canonicalTaskId.trim().length === 0) {
+					throw new Error("tracker returned empty task ID");
+				}
+				results.push({
+					workstreamId: ws.id,
+					taskId: ws.taskId,
+					canonicalTaskId,
+					created: true,
+				});
 			} catch (createErr) {
 				const message = createErr instanceof Error ? createErr.message : String(createErr);
 				results.push({
 					workstreamId: ws.id,
 					taskId: ws.taskId,
+					canonicalTaskId: ws.taskId,
 					created: false,
 					error: message,
 				});
@@ -281,6 +297,58 @@ export async function validateTaskIds(
 	}
 
 	return missing;
+}
+
+export function applyCanonicalTaskIds(
+	workstreams: Workstream[],
+	results: TaskBridgeResult[],
+): Workstream[] {
+	const canonicalByWorkstreamId = new Map(
+		results.map((result) => [result.workstreamId, result.canonicalTaskId] as const),
+	);
+	return workstreams.map((workstream) => ({
+		...workstream,
+		taskId: canonicalByWorkstreamId.get(workstream.id) ?? workstream.taskId,
+	}));
+}
+
+export async function persistWorkstreamsFile(
+	filePath: string,
+	workstreams: Workstream[],
+): Promise<void> {
+	await Bun.write(
+		filePath,
+		`${JSON.stringify({ version: 1, workstreams } satisfies WorkstreamsFile, null, 2)}\n`,
+	);
+}
+
+export async function ensureCanonicalWorkstreamTasks(
+	filePath: string,
+	tracker: TrackerClient,
+): Promise<{ workstreams: Workstream[]; results: TaskBridgeResult[] }> {
+	const validation = await loadWorkstreamsFile(filePath);
+	if (!validation.valid || !validation.workstreams) {
+		const message = validation.errors[0]?.message ?? "workstreams.json is missing or invalid";
+		throw new Error(message);
+	}
+
+	const results = await bridgeWorkstreamsToTasks(validation.workstreams.workstreams, tracker);
+	const failed = results.find((result) => result.error);
+	if (failed) {
+		throw new Error(
+			`Task bridge failed for ${failed.workstreamId} (${failed.taskId}): ${failed.error}`,
+		);
+	}
+
+	const canonicalized = applyCanonicalTaskIds(validation.workstreams.workstreams, results);
+	const changed = canonicalized.some(
+		(workstream, index) => workstream.taskId !== validation.workstreams?.workstreams[index]?.taskId,
+	);
+	if (changed) {
+		await persistWorkstreamsFile(filePath, canonicalized);
+	}
+
+	return { workstreams: canonicalized, results };
 }
 
 // === Execution Handoff ===
@@ -330,7 +398,6 @@ export function slingArgsFromHandoff(
 		opts.parentAgent,
 		"--depth",
 		String(opts.depth),
-		"--skip-task-check",
 	];
 
 	if (handoff.fileScope.length > 0) {

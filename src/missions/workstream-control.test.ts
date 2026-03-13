@@ -120,6 +120,31 @@ describe("validateCurrentMissionSpec", () => {
 		expect(result.reason).toContain("No spec metadata found");
 	});
 
+	test("fails when the provided spec path belongs to a different task than the requested task", async () => {
+		const specPath = join(tempDir, ".overstory", "specs", "task-001.md");
+		await mkdir(join(tempDir, ".overstory", "specs"), { recursive: true });
+		await Bun.write(specPath, "# Spec\n");
+		const currentRevision = await computeBriefRevision(briefPath);
+		await writeSpecMeta(tempDir, "task-001", {
+			taskId: "task-001",
+			workstreamId: "ws-auth",
+			briefPath: normalizeTrackedPath(tempDir, briefPath),
+			briefRevision: currentRevision,
+			specRevision: "spec-revision",
+			status: "current",
+			generatedAt: "2026-03-13T00:00:00.000Z",
+			generatedBy: "lead-auth",
+		});
+
+		const result = await validateCurrentMissionSpec(tempDir, specPath, {
+			expectedTaskId: "task-002",
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.taskId).toBe("task-001");
+		expect(result.reason).toContain("does not match requested task task-002");
+	});
+
 	test("passes when metadata is current and brief revision matches", async () => {
 		const specPath = join(tempDir, ".overstory", "specs", "task-001.md");
 		await mkdir(join(tempDir, ".overstory", "specs"), { recursive: true });
@@ -145,6 +170,14 @@ describe("validateCurrentMissionSpec", () => {
 });
 
 describe("validateWorkstreamResume", () => {
+	test("blocks resume when current spec metadata is missing for a brief-backed workstream", async () => {
+		const result = await validateWorkstreamResume(tempDir, mission, "ws-auth");
+
+		expect(result.ok).toBe(false);
+		expect(result.specCount).toBe(0);
+		expect(result.reason).toContain("No current spec metadata found");
+	});
+
 	test("blocks resume when a workstream spec is stale", async () => {
 		const initialRevision = await computeBriefRevision(briefPath);
 		await writeSpecMeta(tempDir, "task-001", {
@@ -164,5 +197,25 @@ describe("validateWorkstreamResume", () => {
 		expect(result.ok).toBe(false);
 		expect(result.specCount).toBe(1);
 		expect(result.reason).toContain("Brief has changed");
+	});
+
+	test("allows resume when current spec metadata matches the latest brief", async () => {
+		const currentRevision = await computeBriefRevision(briefPath);
+		await writeSpecMeta(tempDir, "task-001", {
+			taskId: "task-001",
+			workstreamId: "ws-auth",
+			briefPath: normalizeTrackedPath(tempDir, briefPath),
+			briefRevision: currentRevision,
+			specRevision: "spec-revision",
+			status: "current",
+			generatedAt: "2026-03-13T00:00:00.000Z",
+			generatedBy: "lead-auth",
+		});
+
+		const result = await validateWorkstreamResume(tempDir, mission, "ws-auth");
+
+		expect(result.ok).toBe(true);
+		expect(result.specCount).toBe(1);
+		expect(result.reason).toBeNull();
 	});
 });

@@ -15,8 +15,10 @@ import {
 	type ExecutionHandoff,
 	type Workstream,
 	bridgeWorkstreamsToTasks,
+	ensureCanonicalWorkstreamTasks,
 	loadWorkstreamsFile,
 	packageHandoffs,
+	persistWorkstreamsFile,
 	slingArgsFromHandoff,
 	validateTaskIds,
 	validateWorkstreamsFile,
@@ -27,6 +29,7 @@ import {
 function createMockTracker(options: {
 	existingIds?: Set<string>;
 	createShouldFail?: boolean;
+	createdId?: string;
 } = {}): TrackerClient {
 	const existingIds = options.existingIds ?? new Set<string>();
 	return {
@@ -41,7 +44,7 @@ function createMockTracker(options: {
 			if (options.createShouldFail) {
 				throw new Error("create failed");
 			}
-			const newId = `created-${Date.now()}`;
+			const newId = options.createdId ?? `created-${Date.now()}`;
 			existingIds.add(newId);
 			return newId;
 		},
@@ -246,15 +249,17 @@ describe("bridgeWorkstreamsToTasks", () => {
 		const results = await bridgeWorkstreamsToTasks([ws], tracker);
 		expect(results).toHaveLength(1);
 		expect(results[0]?.created).toBe(false);
+		expect(results[0]?.canonicalTaskId).toBe("task-existing");
 		expect(results[0]?.error).toBeUndefined();
 	});
 
 	test("missing tasks are created (created: true)", async () => {
 		const ws = makeWorkstream({ taskId: "task-missing" });
-		const tracker = createMockTracker({ existingIds: new Set() });
+		const tracker = createMockTracker({ existingIds: new Set(), createdId: "task-created" });
 		const results = await bridgeWorkstreamsToTasks([ws], tracker);
 		expect(results).toHaveLength(1);
 		expect(results[0]?.created).toBe(true);
+		expect(results[0]?.canonicalTaskId).toBe("task-created");
 		expect(results[0]?.error).toBeUndefined();
 	});
 
@@ -265,6 +270,42 @@ describe("bridgeWorkstreamsToTasks", () => {
 		expect(results).toHaveLength(1);
 		expect(results[0]?.created).toBe(false);
 		expect(results[0]?.error).toContain("create failed");
+	});
+});
+
+describe("ensureCanonicalWorkstreamTasks", () => {
+	let tmpDir: string;
+	let filePath: string;
+
+	beforeEach(async () => {
+		tmpDir = await mkdtemp(join(tmpdir(), "workstreams-canonical-test-"));
+		filePath = join(tmpDir, "workstreams.json");
+		await persistWorkstreamsFile(filePath, [makeWorkstream({ taskId: "task-missing" })]);
+	});
+
+	afterEach(async () => {
+		await rm(tmpDir, { recursive: true, force: true });
+	});
+
+	test("persists tracker-returned canonical IDs back into workstreams.json", async () => {
+		const tracker = createMockTracker({ createdId: "task-canonical-002" });
+
+		const result = await ensureCanonicalWorkstreamTasks(filePath, tracker);
+		expect(result.workstreams[0]?.taskId).toBe("task-canonical-002");
+
+		const reloaded = await loadWorkstreamsFile(filePath);
+		expect(reloaded.workstreams?.workstreams[0]?.taskId).toBe("task-canonical-002");
+	});
+
+	test("throws and leaves file unchanged when task bridging fails", async () => {
+		const tracker = createMockTracker({ createShouldFail: true });
+
+		await expect(ensureCanonicalWorkstreamTasks(filePath, tracker)).rejects.toThrow(
+			"Task bridge failed",
+		);
+
+		const reloaded = await loadWorkstreamsFile(filePath);
+		expect(reloaded.workstreams?.workstreams[0]?.taskId).toBe("task-missing");
 	});
 });
 
@@ -388,7 +429,7 @@ describe("slingArgsFromHandoff", () => {
 		expect(args).toContain("exec-director");
 		expect(args).toContain("--depth");
 		expect(args).toContain("1");
-		expect(args).toContain("--skip-task-check");
+		expect(args).not.toContain("--skip-task-check");
 		expect(args).toContain("--files");
 		expect(args).toContain("src/auth.ts,src/auth.test.ts");
 	});

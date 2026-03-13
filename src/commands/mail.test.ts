@@ -413,6 +413,104 @@ describe("mailCommand", () => {
 	});
 
 	describe("mail_sent event recording", () => {
+		test("mission_finding to mission-analyst requires payload", async () => {
+			await expect(
+				mailCommand([
+					"send",
+					"--to",
+					"mission-analyst",
+					"--subject",
+					"Need analyst attention",
+					"--body",
+					"Routing finding",
+					"--from",
+					"lead-auth",
+					"--type",
+					"mission_finding",
+				]),
+			).rejects.toThrow("requires --payload");
+		});
+
+		test("mission_finding to mission-analyst rejects malformed payload", async () => {
+			await expect(
+				mailCommand([
+					"send",
+					"--to",
+					"mission-analyst",
+					"--subject",
+					"Need analyst attention",
+					"--body",
+					"Routing finding",
+					"--from",
+					"lead-auth",
+					"--type",
+					"mission_finding",
+					"--payload",
+					"{not-json}",
+				]),
+			).rejects.toThrow("--payload must be valid JSON");
+		});
+
+		test("mission_finding to mission-analyst rejects non-qualifying local findings", async () => {
+			await expect(
+				mailCommand([
+					"send",
+					"--to",
+					"mission-analyst",
+					"--subject",
+					"Local finding",
+					"--body",
+					"Should stay within lead scope",
+					"--from",
+					"lead-auth",
+					"--type",
+					"mission_finding",
+					"--payload",
+					JSON.stringify({
+						workstreamId: "ws-auth",
+						category: "cross-stream",
+						summary: "Only touches auth workstream",
+						affectedWorkstreams: ["ws-auth"],
+					}),
+				]),
+			).rejects.toThrow("does not qualify for mission-level ingress");
+		});
+
+		test("mission_finding to mission-analyst accepts valid cross-stream escalation", async () => {
+			await mailCommand([
+				"send",
+				"--to",
+				"mission-analyst",
+				"--subject",
+				"Cross-stream finding",
+				"--body",
+				"Impacts multiple workstreams",
+				"--from",
+				"lead-auth",
+				"--type",
+				"mission_finding",
+				"--payload",
+				JSON.stringify({
+					workstreamId: "ws-auth",
+					category: "cross-stream",
+					summary: "Shared contract changed",
+					affectedWorkstreams: ["ws-auth", "ws-billing"],
+				}),
+			]);
+
+			const store = createMailStore(join(tempDir, ".overstory", "mail.db"));
+			const client = createMailClient(store);
+			try {
+				const sent = client
+					.list({ to: "mission-analyst" })
+					.find((message) => message.subject === "Cross-stream finding");
+				expect(sent).toBeDefined();
+				expect(sent?.type).toBe("mission_finding");
+			} finally {
+				client.close();
+			}
+		});
+
 		test("mail send records mail_sent event to events.db", async () => {
 			await mailCommand([
 				"send",

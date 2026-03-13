@@ -17,9 +17,11 @@ import { isGroupAddress, resolveGroupAddress } from "../mail/broadcast.ts";
 import { createMailClient } from "../mail/client.ts";
 import { createMailStore } from "../mail/store.ts";
 import { recordMissionEvent } from "../missions/events.ts";
+import { validateMissionIngress } from "../missions/ingress.ts";
+import { resolveActiveMissionContext } from "../missions/runtime-context.ts";
 import { createMissionStore } from "../missions/store.ts";
 import { openSessionStore } from "../sessions/compat.ts";
-import type { MailMessage, MailMessageType } from "../types.ts";
+import type { MailMessage, MailMessageType, MissionFindingPayload } from "../types.ts";
 import { MAIL_MESSAGE_TYPES } from "../types.ts";
 
 /**
@@ -120,11 +122,8 @@ async function syncMissionPendingInputFromMail(
 	const dbPath = join(overstoryDir, "sessions.db");
 	const missionStore = createMissionStore(dbPath);
 	try {
-		const currentMissionFile = Bun.file(join(overstoryDir, "current-mission.txt"));
-		let mission =
-			(await currentMissionFile.exists())
-				? missionStore.getById((await currentMissionFile.text()).trim())
-				: null;
+		const missionContext = await resolveActiveMissionContext(overstoryDir);
+		let mission = missionContext ? missionStore.getById(missionContext.missionId) : null;
 		if (!mission) {
 			mission = missionStore.getActive();
 		}
@@ -152,6 +151,71 @@ async function syncMissionPendingInputFromMail(
 	} finally {
 		missionStore.close();
 	}
+}
+
+function parseMissionFindingPayload(rawPayload: string | undefined): MissionFindingPayload {
+	if (!rawPayload) {
+		throw new ValidationError(
+			"mission_finding mail to mission-analyst requires --payload with MissionFindingPayload JSON",
+			{ field: "payload", value: rawPayload },
+		);
+	}
+
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(rawPayload);
+	} catch {
+		throw new ValidationError("--payload must be valid JSON", {
+			field: "payload",
+			value: rawPayload,
+		});
+	}
+
+	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+		throw new ValidationError("mission_finding payload must be a JSON object", {
+			field: "payload",
+			value: rawPayload,
+		});
+	}
+
+	const payload = parsed as Record<string, unknown>;
+	if (typeof payload["workstreamId"] !== "string" || payload["workstreamId"].trim().length === 0) {
+		throw new ValidationError("mission_finding payload.workstreamId must be a non-empty string", {
+			field: "payload.workstreamId",
+			value: payload["workstreamId"],
+		});
+	}
+	if (typeof payload["category"] !== "string" || payload["category"].trim().length === 0) {
+		throw new ValidationError("mission_finding payload.category must be a non-empty string", {
+			field: "payload.category",
+			value: payload["category"],
+		});
+	}
+	if (typeof payload["summary"] !== "string" || payload["summary"].trim().length === 0) {
+		throw new ValidationError("mission_finding payload.summary must be a non-empty string", {
+			field: "payload.summary",
+			value: payload["summary"],
+		});
+	}
+	if (
+		!Array.isArray(payload["affectedWorkstreams"]) ||
+		!payload["affectedWorkstreams"].every((value) => typeof value === "string")
+	) {
+		throw new ValidationError(
+			"mission_finding payload.affectedWorkstreams must be a string[]",
+			{
+				field: "payload.affectedWorkstreams",
+				value: payload["affectedWorkstreams"],
+			},
+		);
+	}
+
+	return {
+		workstreamId: payload["workstreamId"],
+		category: payload["category"] as MissionFindingPayload["category"],
+		summary: payload["summary"],
+		affectedWorkstreams: payload["affectedWorkstreams"] as string[],
+	};
 }
 
 /**
@@ -358,6 +422,7 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 
 	// Validate JSON payload if provided
 	let payload: string | undefined;
+	let missionFindingPayload: MissionFindingPayload | null = null;
 	if (rawPayload !== undefined) {
 		try {
 			JSON.parse(rawPayload);
@@ -370,6 +435,24 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 		}
 	}
 
+	const validateMissionFindingRecipients = (recipients: string[]): void => {
+		if (type !== "mission_finding" || !recipients.includes("mission-analyst")) {
+			return;
+		}
+
+		missionFindingPayload ??= parseMissionFindingPayload(rawPayload);
+		const ingress = validateMissionIngress(missionFindingPayload);
+		if (!ingress.valid) {
+			throw new ValidationError(
+				`Mission finding does not qualify for mission-level ingress: ${ingress.reason}`,
+				{
+					field: "payload.category",
+					value: missionFindingPayload.category,
+				},
+			);
+		}
+	};
+
 	// Handle broadcast messages (group addresses)
 	if (isGroupAddress(to)) {
 		const overstoryDir = join(cwd, ".overstory");
@@ -378,6 +461,7 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 		try {
 			const activeSessions = sessionStore.getActive();
 			const recipients = resolveGroupAddress(to, activeSessions, from);
+			validateMissionFindingRecipients(recipients);
 
 			const client = openClient(cwd);
 			const messageIds: string[] = [];
@@ -471,6 +555,8 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 			sessionStore.close();
 		}
 	}
+
+	validateMissionFindingRecipients([to]);
 
 	// Single-recipient message (existing logic)
 	const client = openClient(cwd);

@@ -59,6 +59,10 @@ export function specTaskIdFromPath(specPath: string): string | null {
 	return taskId.length > 0 ? taskId : null;
 }
 
+export function workstreamRequiresCurrentSpec(workstream: Workstream): boolean {
+	return workstream.briefPath !== null;
+}
+
 export async function loadMissionWorkstreams(
 	mission: Pick<Mission, "id" | "artifactRoot">,
 ): Promise<MissionWorkstreamRef[]> {
@@ -129,10 +133,19 @@ export async function refreshMissionBriefs(
 export async function validateCurrentMissionSpec(
 	projectRoot: string,
 	specPath: string,
+	opts: { expectedTaskId?: string } = {},
 ): Promise<SpecValidationResult> {
 	const taskId = specTaskIdFromPath(specPath);
 	if (!taskId) {
 		return { ok: false, taskId: null, reason: "Unable to derive task ID from spec path", meta: null };
+	}
+	if (opts.expectedTaskId && taskId !== opts.expectedTaskId) {
+		return {
+			ok: false,
+			taskId,
+			reason: `Spec path task ${taskId} does not match requested task ${opts.expectedTaskId}`,
+			meta: null,
+		};
 	}
 
 	const meta = await readSpecMeta(projectRoot, taskId);
@@ -150,6 +163,14 @@ export async function validateCurrentMissionSpec(
 			ok: false,
 			taskId,
 			reason: `Spec metadata for ${taskId} is ${meta.status}`,
+			meta,
+		};
+	}
+	if (meta.taskId !== taskId) {
+		return {
+			ok: false,
+			taskId,
+			reason: `Spec metadata taskId ${meta.taskId} does not match spec path task ${taskId}`,
 			meta,
 		};
 	}
@@ -174,7 +195,19 @@ export async function validateWorkstreamResume(
 	workstreamId: string,
 ): Promise<WorkstreamResumeCheck> {
 	const entry = await getMissionWorkstream(mission, workstreamId);
-	const metas = (await listSpecMeta(projectRoot)).filter((meta) => meta.workstreamId === workstreamId);
+	const metas = (await listSpecMeta(projectRoot)).filter(
+		(meta) => meta.workstreamId === workstreamId && meta.taskId === entry.workstream.taskId,
+	);
+	const requiresSpec = workstreamRequiresCurrentSpec(entry.workstream);
+
+	if (metas.length === 0 && requiresSpec) {
+		return {
+			ok: false,
+			workstream: entry.workstream,
+			specCount: 0,
+			reason: `No current spec metadata found for ${entry.workstream.taskId}; regenerate the lead spec before resuming`,
+		};
+	}
 
 	if (metas.length === 0) {
 		return {
