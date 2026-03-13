@@ -102,6 +102,9 @@ export function resumeWorkstream(
 			missionId,
 			mission.pausedWorkstreamIds.filter((id) => id !== workstreamId),
 		);
+		if (mission.pausedWorkstreamIds.length === 1) {
+			store.updatePauseReason(missionId, null);
+		}
 	}
 
 	const pausedWorkstreamCount = wasNotPaused

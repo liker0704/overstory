@@ -27,6 +27,7 @@ import {
 } from "../missions/context.ts";
 import { loadMissionEvents, recordMissionEvent } from "../missions/events.ts";
 import { buildNarrative, renderNarrative } from "../missions/narrative.ts";
+import { pauseWorkstream, resumeWorkstream } from "../missions/pause.ts";
 import { generateMissionReview } from "../missions/review.ts";
 import {
 	startExecutionDirector,
@@ -34,6 +35,11 @@ import {
 	stopMissionRole,
 } from "../missions/roles.ts";
 import { createMissionStore } from "../missions/store.ts";
+import {
+	getMissionWorkstream,
+	refreshMissionBriefs,
+	validateWorkstreamResume,
+} from "../missions/workstream-control.ts";
 import { loadWorkstreamsFile, packageHandoffs } from "../missions/workstreams.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import { createRunStore } from "../sessions/store.ts";
@@ -79,7 +85,7 @@ async function clearMissionPointers(overstoryDir: string): Promise<void> {
 	}
 }
 
-async function resolveCurrentMissionId(overstoryDir: string): Promise<string | null> {
+export async function resolveCurrentMissionId(overstoryDir: string): Promise<string | null> {
 	const pointedId = await readPointerMissionId(overstoryDir);
 	if (pointedId) {
 		return pointedId;
@@ -113,6 +119,11 @@ function toSummary(mission: Mission): MissionSummary {
 		state: mission.state,
 		phase: mission.phase,
 		pendingUserInput: mission.pendingUserInput,
+		pendingInputKind: mission.pendingInputKind,
+		firstFreezeAt: mission.firstFreezeAt,
+		reopenCount: mission.reopenCount,
+		pausedWorkstreamCount: mission.pausedWorkstreamIds.length,
+		pauseReason: mission.pauseReason,
 		createdAt: mission.createdAt,
 		updatedAt: mission.updatedAt,
 	};
@@ -203,6 +214,26 @@ async function sendMissionDispatchMail(opts: {
 			subject: opts.subject,
 			body: opts.body,
 			type: "dispatch",
+		});
+	} finally {
+		client.close();
+	}
+}
+
+async function sendMissionControlMail(opts: {
+	overstoryDir: string;
+	to: string;
+	subject: string;
+	body: string;
+}): Promise<string> {
+	const client = openMailClient(opts.overstoryDir);
+	try {
+		return client.send({
+			from: "operator",
+			to: opts.to,
+			subject: opts.subject,
+			body: opts.body,
+			type: "status",
 		});
 	} finally {
 		client.close();
@@ -551,7 +582,12 @@ async function missionStatus(overstoryDir: string, json: boolean): Promise<void>
 		} else {
 			process.stdout.write("  Pending:      none\n");
 		}
+		process.stdout.write(`  First freeze: ${mission.firstFreezeAt ?? "never"}\n`);
 		process.stdout.write(`  Reopen count: ${mission.reopenCount}\n`);
+		process.stdout.write(`  Paused:       ${mission.pausedWorkstreamIds.length} workstreams\n`);
+		if (mission.pauseReason) {
+			process.stdout.write(`  Pause reason: ${mission.pauseReason}\n`);
+		}
 		process.stdout.write(`  Coordinator:  ${roles.coordinator}\n`);
 		process.stdout.write(`  Analyst:      ${roles.analyst}\n`);
 		process.stdout.write(`  Exec Dir:     ${roles.executionDirector}\n`);
@@ -626,6 +662,9 @@ async function missionOutput(overstoryDir: string, json: boolean): Promise<void>
 		process.stdout.write(
 			`  Paused workstreams:  ${mission.pausedWorkstreamIds.length > 0 ? mission.pausedWorkstreamIds.join(", ") : "none"}\n`,
 		);
+		if (mission.pauseReason) {
+			process.stdout.write(`  Pause reason:        ${mission.pauseReason}\n`);
+		}
 		if (mission.artifactRoot) {
 			process.stdout.write(`  Artifacts:           ${mission.artifactRoot}\n`);
 		}
@@ -854,12 +893,20 @@ async function missionHandoff(
 			return;
 		}
 
-		const handoffs = packageHandoffs(validation.workstreams.workstreams);
+		const pausedWorkstreamIds = new Set(mission.pausedWorkstreamIds);
+		const handoffs = packageHandoffs(validation.workstreams.workstreams).filter(
+			(handoff) => !pausedWorkstreamIds.has(handoff.workstreamId),
+		);
+		const skippedPausedCount = packageHandoffs(validation.workstreams.workstreams).length - handoffs.length;
 		if (handoffs.length === 0) {
+			const message =
+				skippedPausedCount > 0
+					? "No dispatchable workstreams found; all eligible workstreams are currently paused"
+					: "No dispatchable workstreams found";
 			if (json) {
-				jsonError("mission handoff", "No dispatchable workstreams found");
+				jsonError("mission handoff", message);
 			} else {
-				printError("No dispatchable workstreams found");
+				printError(message);
 			}
 			process.exitCode = 1;
 			return;
@@ -963,6 +1010,7 @@ async function missionHandoff(
 				kind: "execution_handoff",
 				detail: `Execution handoff sent to execution-director (${messageId})`,
 				workstreamCount: handoffs.length,
+				skippedPausedCount,
 			},
 		});
 
@@ -971,11 +1019,438 @@ async function missionHandoff(
 				missionId: mission.id,
 				messageId,
 				workstreamCount: handoffs.length,
+				skippedPausedCount,
 			});
 		} else {
 			printSuccess("Mission handed off to execution director", mission.slug);
 			process.stdout.write(`  Mail:        ${messageId}\n`);
 			process.stdout.write(`  Workstreams: ${handoffs.length}\n`);
+			if (skippedPausedCount > 0) {
+				process.stdout.write(`  Paused skip: ${skippedPausedCount}\n`);
+			}
+		}
+	} finally {
+		missionStore.close();
+	}
+}
+
+// === ov mission pause / resume / refresh-briefs ===
+
+interface PauseOpts {
+	reason?: string;
+	json?: boolean;
+}
+
+interface RefreshBriefOpts {
+	workstream?: string;
+	json?: boolean;
+}
+
+async function missionPause(
+	overstoryDir: string,
+	workstreamId: string,
+	opts: PauseOpts,
+): Promise<void> {
+	const missionId = await resolveCurrentMissionId(overstoryDir);
+	if (!missionId) {
+		if (opts.json) {
+			jsonError("mission pause", "No active mission");
+		} else {
+			printError("No active mission");
+		}
+		process.exitCode = 1;
+		return;
+	}
+
+	const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
+	try {
+		const mission = missionStore.getById(missionId);
+		if (!mission) {
+			if (opts.json) {
+				jsonError("mission pause", `Mission ${missionId} not found`);
+			} else {
+				printError("Mission not found in store", missionId);
+			}
+			process.exitCode = 1;
+			return;
+		}
+
+		let workstreamObjective = workstreamId;
+		try {
+			const { workstream } = await getMissionWorkstream(mission, workstreamId);
+			workstreamObjective = workstream.objective;
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			if (opts.json) {
+				jsonError("mission pause", message);
+			} else {
+				printError("Mission pause failed", message);
+			}
+			process.exitCode = 1;
+			return;
+		}
+
+		const result = pauseWorkstream(missionStore, mission.id, workstreamId, opts.reason);
+		const refreshedMission = missionStore.getById(mission.id) ?? mission;
+		recordMissionEvent({
+			overstoryDir,
+			mission: refreshedMission,
+			agentName: "operator",
+			data: {
+				kind: "workstream_paused",
+				detail: `Paused ${workstreamId}${opts.reason ? `: ${opts.reason}` : ""}`,
+				workstreamId,
+				alreadyPaused: result.alreadyPaused,
+				reason: opts.reason ?? null,
+			},
+		});
+
+		let controlMessageId: string | null = null;
+		const roles = resolveMissionRoleStates(overstoryDir, refreshedMission);
+		if (roles.executionDirector === "running") {
+			controlMessageId = await sendMissionControlMail({
+				overstoryDir,
+				to: "execution-director",
+				subject: `Mission control: pause ${workstreamId}`,
+				body: [
+					`Mission ID: ${refreshedMission.id}`,
+					`Workstream: ${workstreamId}`,
+					`Objective: ${workstreamObjective}`,
+					`Reason: ${refreshedMission.pauseReason ?? opts.reason ?? "operator pause"}`,
+					`Paused workstreams: ${refreshedMission.pausedWorkstreamIds.join(", ")}`,
+				].join("\n"),
+			});
+			recordMissionEvent({
+				overstoryDir,
+				mission: refreshedMission,
+				agentName: "operator",
+				data: {
+					kind: "control_mail",
+					detail: `Pause control sent to execution-director (${controlMessageId})`,
+					workstreamId,
+					to: "execution-director",
+				},
+			});
+		}
+
+		if (opts.json) {
+			jsonOutput("mission pause", {
+				mission: toSummary(refreshedMission),
+				workstreamId,
+				alreadyPaused: result.alreadyPaused,
+				controlMessageId,
+			});
+		} else {
+			printSuccess("Mission workstream paused", workstreamId);
+			process.stdout.write(`  Objective:   ${workstreamObjective}\n`);
+			process.stdout.write(`  Already set: ${result.alreadyPaused ? "yes" : "no"}\n`);
+			process.stdout.write(`  Paused:      ${refreshedMission.pausedWorkstreamIds.length} workstreams\n`);
+			if (refreshedMission.pauseReason) {
+				process.stdout.write(`  Reason:      ${refreshedMission.pauseReason}\n`);
+			}
+			if (controlMessageId) {
+				process.stdout.write(`  Control:     ${controlMessageId}\n`);
+			}
+		}
+	} finally {
+		missionStore.close();
+	}
+}
+
+async function missionResume(
+	overstoryDir: string,
+	projectRoot: string,
+	workstreamId: string,
+	json: boolean,
+): Promise<void> {
+	const missionId = await resolveCurrentMissionId(overstoryDir);
+	if (!missionId) {
+		if (json) {
+			jsonError("mission resume", "No active mission");
+		} else {
+			printError("No active mission");
+		}
+		process.exitCode = 1;
+		return;
+	}
+
+	const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
+	try {
+		const mission = missionStore.getById(missionId);
+		if (!mission) {
+			if (json) {
+				jsonError("mission resume", `Mission ${missionId} not found`);
+			} else {
+				printError("Mission not found in store", missionId);
+			}
+			process.exitCode = 1;
+			return;
+		}
+
+		let resumeCheck;
+		try {
+			resumeCheck = await validateWorkstreamResume(projectRoot, mission, workstreamId);
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			if (json) {
+				jsonError("mission resume", message);
+			} else {
+				printError("Mission resume failed", message);
+			}
+			process.exitCode = 1;
+			return;
+		}
+		if (!resumeCheck.ok) {
+			if (json) {
+				jsonError("mission resume", resumeCheck.reason ?? "Workstream is not ready to resume");
+			} else {
+				printError(
+					"Workstream is not ready to resume",
+					resumeCheck.reason ?? "spec regeneration is still required",
+				);
+			}
+			process.exitCode = 1;
+			return;
+		}
+
+		const result = resumeWorkstream(missionStore, mission.id, workstreamId);
+		const refreshedMission = missionStore.getById(mission.id) ?? mission;
+		recordMissionEvent({
+			overstoryDir,
+			mission: refreshedMission,
+			agentName: "operator",
+			data: {
+				kind: "workstream_resumed",
+				detail: `Resumed ${workstreamId}`,
+				workstreamId,
+				wasNotPaused: result.wasNotPaused,
+				specCount: resumeCheck.specCount,
+			},
+		});
+
+		let controlMessageId: string | null = null;
+		const roles = resolveMissionRoleStates(overstoryDir, refreshedMission);
+		if (roles.executionDirector === "running" && !result.wasNotPaused) {
+			controlMessageId = await sendMissionControlMail({
+				overstoryDir,
+				to: "execution-director",
+				subject: `Mission control: resume ${workstreamId}`,
+				body: [
+					`Mission ID: ${refreshedMission.id}`,
+					`Workstream: ${workstreamId}`,
+					`Objective: ${resumeCheck.workstream.objective}`,
+					`Spec meta records checked: ${resumeCheck.specCount}`,
+					`Paused workstreams remaining: ${
+						refreshedMission.pausedWorkstreamIds.length > 0
+							? refreshedMission.pausedWorkstreamIds.join(", ")
+							: "none"
+					}`,
+				].join("\n"),
+			});
+			recordMissionEvent({
+				overstoryDir,
+				mission: refreshedMission,
+				agentName: "operator",
+				data: {
+					kind: "control_mail",
+					detail: `Resume control sent to execution-director (${controlMessageId})`,
+					workstreamId,
+					to: "execution-director",
+				},
+			});
+		}
+
+		if (json) {
+			jsonOutput("mission resume", {
+				mission: toSummary(refreshedMission),
+				workstreamId,
+				wasNotPaused: result.wasNotPaused,
+				specCount: resumeCheck.specCount,
+				controlMessageId,
+			});
+		} else {
+			printSuccess("Mission workstream resumed", workstreamId);
+			process.stdout.write(`  Objective:   ${resumeCheck.workstream.objective}\n`);
+			process.stdout.write(`  Already run: ${result.wasNotPaused ? "yes" : "no"}\n`);
+			process.stdout.write(`  Spec metas:  ${resumeCheck.specCount}\n`);
+			process.stdout.write(`  Paused left: ${refreshedMission.pausedWorkstreamIds.length}\n`);
+			if (controlMessageId) {
+				process.stdout.write(`  Control:     ${controlMessageId}\n`);
+			}
+		}
+	} finally {
+		missionStore.close();
+	}
+}
+
+async function missionRefreshBriefsCommand(
+	overstoryDir: string,
+	projectRoot: string,
+	opts: RefreshBriefOpts,
+): Promise<void> {
+	const missionId = await resolveCurrentMissionId(overstoryDir);
+	if (!missionId) {
+		if (opts.json) {
+			jsonError("mission refresh-briefs", "No active mission");
+		} else {
+			printError("No active mission");
+		}
+		process.exitCode = 1;
+		return;
+	}
+
+	const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
+	try {
+		const mission = missionStore.getById(missionId);
+		if (!mission) {
+			if (opts.json) {
+				jsonError("mission refresh-briefs", `Mission ${missionId} not found`);
+			} else {
+				printError("Mission not found in store", missionId);
+			}
+			process.exitCode = 1;
+			return;
+		}
+
+		let results;
+		try {
+			results = await refreshMissionBriefs(projectRoot, mission, {
+				workstreamId: opts.workstream,
+			});
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			if (opts.json) {
+				jsonError("mission refresh-briefs", message);
+			} else {
+				printError("Mission brief refresh failed", message);
+			}
+			process.exitCode = 1;
+			return;
+		}
+
+		const pausedWorkstreamIds = new Set<string>();
+		for (const result of results) {
+			const pauseReason = `Brief refreshed for ${result.workstream.id}; regenerate the spec before resuming execution`;
+			const shouldPause = result.specMarkedStale || result.specWasStale;
+			if (shouldPause) {
+				const pauseResult = pauseWorkstream(missionStore, mission.id, result.workstream.id, pauseReason);
+				pausedWorkstreamIds.add(result.workstream.id);
+				if (!pauseResult.alreadyPaused) {
+					recordMissionEvent({
+						overstoryDir,
+						mission,
+						agentName: "operator",
+						data: {
+							kind: "workstream_paused",
+							detail: `Paused ${result.workstream.id} after brief refresh`,
+							workstreamId: result.workstream.id,
+							reason: pauseReason,
+						},
+					});
+				}
+			}
+
+			recordMissionEvent({
+				overstoryDir,
+				mission,
+				agentName: "operator",
+				data: {
+					kind: "brief_refreshed",
+					detail: `Refreshed brief for ${result.workstream.id}`,
+					workstreamId: result.workstream.id,
+					taskId: result.taskId,
+					briefPath: result.projectRelativeBriefPath,
+					specWasStale: result.specWasStale,
+					specMarkedStale: result.specMarkedStale,
+				},
+			});
+		}
+
+		const refreshedMission = missionStore.getById(mission.id) ?? mission;
+		const roles = resolveMissionRoleStates(overstoryDir, refreshedMission);
+		const controlMessageIds: string[] = [];
+		const pausedList = [...pausedWorkstreamIds];
+		const refreshSummary = results.length
+			? results
+					.map(
+						(result) =>
+							`${result.workstream.id} (${result.taskId}) brief=${result.projectRelativeBriefPath} markedStale=${result.specMarkedStale} alreadyStale=${result.specWasStale}`,
+					)
+					.join("\n")
+			: "No refreshable workstreams were found.";
+
+		for (const recipient of [
+			roles.executionDirector === "running" ? "execution-director" : null,
+			roles.analyst === "running" ? "mission-analyst" : null,
+		]) {
+			if (!recipient) {
+				continue;
+			}
+			const controlMessageId = await sendMissionControlMail({
+				overstoryDir,
+				to: recipient,
+				subject: pausedList.length
+					? `Mission control: refreshed briefs (${pausedList.length} paused)`
+					: "Mission control: refreshed briefs",
+				body: [
+					`Mission ID: ${refreshedMission.id}`,
+					`Scope: ${opts.workstream ?? "all workstreams"}`,
+					`Paused workstreams: ${pausedList.length > 0 ? pausedList.join(", ") : "none"}`,
+					"",
+					refreshSummary,
+				].join("\n"),
+			});
+			controlMessageIds.push(controlMessageId);
+			recordMissionEvent({
+				overstoryDir,
+				mission: refreshedMission,
+				agentName: "operator",
+				data: {
+					kind: "control_mail",
+					detail: `Brief refresh control sent to ${recipient} (${controlMessageId})`,
+					to: recipient,
+					workstreamCount: results.length,
+				},
+			});
+		}
+
+		if (opts.json) {
+			jsonOutput("mission refresh-briefs", {
+				mission: toSummary(refreshedMission),
+				workstreamId: opts.workstream ?? null,
+				pausedWorkstreamIds: pausedList,
+				controlMessageIds,
+				results: results.map((result) => ({
+					workstreamId: result.workstream.id,
+					taskId: result.taskId,
+					briefPath: result.projectRelativeBriefPath,
+					previousBriefRevision: result.previousBriefRevision,
+					currentBriefRevision: result.currentBriefRevision,
+					specWasStale: result.specWasStale,
+					specMarkedStale: result.specMarkedStale,
+				})),
+			});
+		} else {
+			printSuccess("Mission briefs refreshed", refreshedMission.slug);
+			process.stdout.write(`  Scope:   ${opts.workstream ?? "all workstreams"}\n`);
+			process.stdout.write(`  Paused:  ${pausedList.length > 0 ? pausedList.join(", ") : "none"}\n`);
+			if (results.length === 0) {
+				process.stdout.write("  Result:  no refreshable briefs found\n");
+			} else {
+				for (const result of results) {
+					const status = result.specMarkedStale
+						? "stale-marked"
+						: result.specWasStale
+							? "already-stale"
+							: "current";
+					process.stdout.write(
+						`  ${result.workstream.id}: ${status} (${result.projectRelativeBriefPath})\n`,
+					);
+				}
+			}
+			if (controlMessageIds.length > 0) {
+				process.stdout.write(`  Control: ${controlMessageIds.join(", ")}\n`);
+			}
 		}
 	} finally {
 		missionStore.close();
@@ -1186,6 +1661,9 @@ async function missionShow(overstoryDir: string, idOrSlug: string, json: boolean
 		if (mission.pausedWorkstreamIds.length > 0) {
 			process.stdout.write(`  Paused:       ${mission.pausedWorkstreamIds.join(", ")}\n`);
 		}
+		if (mission.pauseReason) {
+			process.stdout.write(`  Pause reason: ${mission.pauseReason}\n`);
+		}
 		if (mission.artifactRoot) {
 			process.stdout.write(`  Artifacts:    ${mission.artifactRoot}\n`);
 		}
@@ -1347,6 +1825,43 @@ export function createMissionCommand(): Command {
 			const config = await loadConfig(cwd);
 			const overstoryDir = join(config.project.root, ".overstory");
 			await missionHandoff(overstoryDir, config.project.root, opts.json ?? false);
+		});
+
+	cmd
+		.command("pause")
+		.description("Pause a mission workstream without changing runtime agent state")
+		.argument("<workstream-id>", "Mission workstream ID")
+		.option("--reason <text>", "Operator-visible pause reason")
+		.option("--json", "Output as JSON")
+		.action(async (workstreamId: string, opts: PauseOpts) => {
+			const cwd = process.cwd();
+			const config = await loadConfig(cwd);
+			const overstoryDir = join(config.project.root, ".overstory");
+			await missionPause(overstoryDir, workstreamId, opts);
+		});
+
+	cmd
+		.command("resume")
+		.description("Resume a paused mission workstream after spec/brief validation")
+		.argument("<workstream-id>", "Mission workstream ID")
+		.option("--json", "Output as JSON")
+		.action(async (workstreamId: string, opts: MissionDefaultOpts) => {
+			const cwd = process.cwd();
+			const config = await loadConfig(cwd);
+			const overstoryDir = join(config.project.root, ".overstory");
+			await missionResume(overstoryDir, config.project.root, workstreamId, opts.json ?? false);
+		});
+
+	cmd
+		.command("refresh-briefs")
+		.description("Refresh brief revisions, mark stale specs, and pause affected workstreams")
+		.option("--workstream <id>", "Refresh a single workstream instead of the full mission plan")
+		.option("--json", "Output as JSON")
+		.action(async (opts: RefreshBriefOpts) => {
+			const cwd = process.cwd();
+			const config = await loadConfig(cwd);
+			const overstoryDir = join(config.project.root, ".overstory");
+			await missionRefreshBriefsCommand(overstoryDir, config.project.root, opts);
 		});
 
 	cmd

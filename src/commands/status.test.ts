@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { stripAnsi } from "../logging/color.ts";
 import { createSessionStore } from "../sessions/store.ts";
 import { cleanupTempDir, createTempGitRepo } from "../test-helpers.ts";
-import type { AgentSession } from "../types.ts";
+import type { AgentSession, Mission } from "../types.ts";
 import {
 	gatherStatus,
 	invalidateStatusCache,
@@ -67,6 +67,34 @@ function makeStatusData(overrides: Partial<StatusData> = {}): StatusData {
 		unreadMailCount: 0,
 		mergeQueueCount: 0,
 		recentMetricsCount: 0,
+		...overrides,
+	};
+}
+
+function makeMission(overrides: Partial<Mission> = {}): Mission {
+	return {
+		id: "mission-001",
+		slug: "mission-auth",
+		objective: "Improve auth flow",
+		runId: "run-001",
+		state: "active",
+		phase: "execute",
+		firstFreezeAt: "2026-03-13T12:00:00.000Z",
+		pendingUserInput: false,
+		pendingInputKind: null,
+		pendingInputThreadId: null,
+		reopenCount: 1,
+		artifactRoot: "/tmp/.overstory/missions/mission-001",
+		pausedWorkstreamIds: ["ws-auth", "ws-billing"],
+		analystSessionId: null,
+		executionDirectorSessionId: null,
+		coordinatorSessionId: null,
+		pausedLeadNames: [],
+		pauseReason: "brief refresh requires regeneration",
+		startedAt: "2026-03-13T10:00:00.000Z",
+		completedAt: null,
+		createdAt: "2026-03-13T10:00:00.000Z",
+		updatedAt: "2026-03-13T12:00:00.000Z",
 		...overrides,
 	};
 }
@@ -204,6 +232,23 @@ describe("printStatus", () => {
 		expect(out).toContain("Worktree: /tmp/wt/scout-1");
 		expect(out).toContain("Logs:     /tmp/logs/builder-1");
 		expect(out).toContain("Logs:     /tmp/logs/scout-1");
+	});
+
+	test("shows mission pause metadata when an active mission exists", () => {
+		const data = makeStatusData({
+			mission: makeMission({
+				pendingUserInput: true,
+				pendingInputKind: "clarification",
+			}),
+		});
+
+		printStatus(data);
+		const out = stripAnsi(output());
+
+		expect(out).toContain("Mission: mission-auth");
+		expect(out).toContain("Pending:      clarification");
+		expect(out).toContain("Paused:       2 workstreams");
+		expect(out).toContain("Pause reason: brief refresh requires regeneration");
 	});
 });
 

@@ -164,6 +164,19 @@ describe("resumeWorkstream", () => {
 		resumeWorkstream(store, MISSION_ID, "ws-auth");
 		expect(getMission().pausedWorkstreamIds).not.toContain("ws-auth");
 	});
+
+	test("clears pauseReason when the last paused workstream resumes", () => {
+		pauseWorkstream(store, MISSION_ID, "ws-auth", "brief refresh");
+		resumeWorkstream(store, MISSION_ID, "ws-auth");
+		expect(getMission().pauseReason).toBeNull();
+	});
+
+	test("retains pauseReason when other paused workstreams remain", () => {
+		pauseWorkstream(store, MISSION_ID, "ws-auth", "brief refresh");
+		pauseWorkstream(store, MISSION_ID, "ws-billing");
+		resumeWorkstream(store, MISSION_ID, "ws-auth");
+		expect(getMission().pauseReason).toBe("brief refresh");
+	});
 });
 
 // === round-trip ===

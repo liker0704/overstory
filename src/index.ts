@@ -314,6 +314,8 @@ specCmd
 	.argument("<task-id>", "Task ID for the spec file")
 	.option("--body <content>", "Spec content (or pipe via stdin)")
 	.option("--agent <name>", "Agent writing the spec (for attribution)")
+	.option("--workstream-id <id>", "Mission workstream ID for companion spec metadata")
+	.option("--brief-path <path>", "Brief path used to derive companion spec metadata")
 	.option("--json", "Output as JSON")
 	.action(async (taskId, opts) => {
 		await specWriteCommand(taskId, opts);

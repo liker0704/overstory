@@ -31,6 +31,7 @@ import { jsonOutput } from "../json.ts";
 import { printSuccess } from "../logging/color.ts";
 import { createMailClient } from "../mail/client.ts";
 import { createMailStore } from "../mail/store.ts";
+import { validateCurrentMissionSpec } from "../missions/workstream-control.ts";
 import { createMulchClient } from "../mulch/client.ts";
 import { getRuntime } from "../runtimes/registry.ts";
 import { openSessionStore } from "../sessions/compat.ts";
@@ -587,6 +588,16 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 	const hasMission =
 		(await currentMissionFile.exists()) && (await currentMissionFile.text()).trim().length > 0;
 	const resolvedCapability = resolveMissionCapability(capability, hasMission);
+
+	if (hasMission && absoluteSpecPath !== null && (capability === "builder" || capability === "reviewer")) {
+		const specValidation = await validateCurrentMissionSpec(config.project.root, absoluteSpecPath);
+		if (!specValidation.ok) {
+			throw new ValidationError(
+				`Mission spec is not current: ${specValidation.reason}. Regenerate the spec before spawning ${capability}.`,
+				{ field: "spec", value: specPath ?? absoluteSpecPath },
+			);
+		}
+	}
 
 	const agentDef = manifest.agents[resolvedCapability];
 	if (!agentDef) {

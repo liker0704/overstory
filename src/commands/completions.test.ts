@@ -209,44 +209,44 @@ describe("completionsCommand", () => {
 	});
 
 	it("should exit with error for missing shell argument", () => {
-		const originalExitCode = process.exitCode;
-		const originalStderr = process.stderr.write;
-		let stderrOutput = "";
+		const moduleUrl = new URL("./completions.ts", import.meta.url).href;
+		const proc = Bun.spawn(
+			[
+				process.execPath,
+				"-e",
+				`import { completionsCommand } from ${JSON.stringify(moduleUrl)}; completionsCommand([]);`,
+			],
+			{ stdout: "pipe", stderr: "pipe" },
+		);
 
-		process.stderr.write = mock((chunk: unknown) => {
-			stderrOutput += String(chunk);
-			return true;
-		});
-
-		try {
-			completionsCommand([]);
-			expect(process.exitCode).toBe(1);
+		return Promise.all([
+			new Response(proc.stderr).text(),
+			proc.exited,
+		]).then(([stderrOutput, exitCode]) => {
+			expect(exitCode).toBe(1);
 			expect(stderrOutput).toContain("missing shell argument");
-		} finally {
-			process.exitCode = originalExitCode;
-			process.stderr.write = originalStderr;
-		}
+		});
 	});
 
 	it("should exit with error for unknown shell", () => {
-		const originalExitCode = process.exitCode;
-		const originalStderr = process.stderr.write;
-		let stderrOutput = "";
+		const moduleUrl = new URL("./completions.ts", import.meta.url).href;
+		const proc = Bun.spawn(
+			[
+				process.execPath,
+				"-e",
+				`import { completionsCommand } from ${JSON.stringify(moduleUrl)}; completionsCommand(["powershell"]);`,
+			],
+			{ stdout: "pipe", stderr: "pipe" },
+		);
 
-		process.stderr.write = mock((chunk: unknown) => {
-			stderrOutput += String(chunk);
-			return true;
-		});
-
-		try {
-			completionsCommand(["powershell"]);
-			expect(process.exitCode).toBe(1);
+		return Promise.all([
+			new Response(proc.stderr).text(),
+			proc.exited,
+		]).then(([stderrOutput, exitCode]) => {
+			expect(exitCode).toBe(1);
 			expect(stderrOutput).toContain("unknown shell");
 			expect(stderrOutput).toContain("powershell");
-		} finally {
-			process.exitCode = originalExitCode;
-			process.stderr.write = originalStderr;
-		}
+		});
 	});
 });
 
@@ -299,6 +299,19 @@ describe("Flag completions", () => {
 		expect(catFlag?.values).toContain("dependencies");
 		expect(catFlag?.values).toContain("config");
 		expect(catFlag?.values).toContain("databases");
+	});
+
+	it("should include mission control flags and spec metadata flags", () => {
+		const mission = COMMANDS.find((c) => c.name === "mission");
+		const pause = mission?.subcommands?.find((s) => s.name === "pause");
+		const refresh = mission?.subcommands?.find((s) => s.name === "refresh-briefs");
+		const spec = COMMANDS.find((c) => c.name === "spec");
+		const write = spec?.subcommands?.find((s) => s.name === "write");
+
+		expect(pause?.flags?.find((flag) => flag.name === "--reason")?.takesValue).toBe(true);
+		expect(refresh?.flags?.find((flag) => flag.name === "--workstream")?.takesValue).toBe(true);
+		expect(write?.flags?.find((flag) => flag.name === "--workstream-id")?.takesValue).toBe(true);
+		expect(write?.flags?.find((flag) => flag.name === "--brief-path")?.takesValue).toBe(true);
 	});
 });
 
@@ -355,6 +368,9 @@ describe("Subcommands", () => {
 		expect(subNames).toContain("start");
 		expect(subNames).toContain("answer");
 		expect(subNames).toContain("handoff");
+		expect(subNames).toContain("pause");
+		expect(subNames).toContain("resume");
+		expect(subNames).toContain("refresh-briefs");
 		expect(subNames).toContain("complete");
 		expect(subNames).toContain("bundle");
 	});

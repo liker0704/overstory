@@ -428,6 +428,27 @@ export const COMMANDS: readonly CommandDef[] = [
 				flags: [{ name: "--json", desc: "JSON output" }],
 			},
 			{
+				name: "pause",
+				desc: "Pause a mission workstream",
+				flags: [
+					{ name: "--reason", desc: "Operator-visible pause reason", takesValue: true },
+					{ name: "--json", desc: "JSON output" },
+				],
+			},
+			{
+				name: "resume",
+				desc: "Resume a paused mission workstream",
+				flags: [{ name: "--json", desc: "JSON output" }],
+			},
+			{
+				name: "refresh-briefs",
+				desc: "Refresh brief revisions and pause stale workstreams",
+				flags: [
+					{ name: "--workstream", desc: "Single workstream scope", takesValue: true },
+					{ name: "--json", desc: "JSON output" },
+				],
+			},
+			{
 				name: "complete",
 				desc: "Complete the active mission",
 				flags: [{ name: "--json", desc: "JSON output" }],
@@ -469,6 +490,8 @@ export const COMMANDS: readonly CommandDef[] = [
 				flags: [
 					{ name: "--body", desc: "Spec content", takesValue: true },
 					{ name: "--agent", desc: "Agent attribution", takesValue: true },
+					{ name: "--workstream-id", desc: "Mission workstream ID", takesValue: true },
+					{ name: "--brief-path", desc: "Brief path for spec metadata", takesValue: true },
 					{ name: "--help", desc: "Show help" },
 				],
 			},

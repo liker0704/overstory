@@ -999,6 +999,11 @@ export interface MissionSummary {
 	state: MissionState;
 	phase: MissionPhase;
 	pendingUserInput: boolean;
+	pendingInputKind: PendingInputKind | null;
+	firstFreezeAt: string | null;
+	reopenCount: number;
+	pausedWorkstreamCount: number;
+	pauseReason: string | null;
 	createdAt: string;
 	updatedAt: string;
 }

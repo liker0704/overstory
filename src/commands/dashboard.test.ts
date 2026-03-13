@@ -12,9 +12,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ValidationError } from "../errors.ts";
 import { createEventStore } from "../events/store.ts";
-import { color } from "../logging/color.ts";
+import { color, stripAnsi } from "../logging/color.ts";
 import { createSessionStore } from "../sessions/store.ts";
 import { cleanupTempDir } from "../test-helpers.ts";
+import type { Mission } from "../types.ts";
 import type { DashboardStores } from "./dashboard.ts";
 import {
 	closeDashboardStores,
@@ -28,9 +29,38 @@ import {
 	pad,
 	renderAgentPanel,
 	renderFeedPanel,
+	renderMissionStrip,
 	renderTasksPanel,
 	truncate,
 } from "./dashboard.ts";
+
+function makeMission(overrides: Partial<Mission> = {}): Mission {
+	return {
+		id: "mission-001",
+		slug: "mission-auth",
+		objective: "Improve auth flow",
+		runId: "run-001",
+		state: "active",
+		phase: "execute",
+		firstFreezeAt: null,
+		pendingUserInput: true,
+		pendingInputKind: "question",
+		pendingInputThreadId: "msg-001",
+		reopenCount: 1,
+		artifactRoot: "/tmp/.overstory/missions/mission-001",
+		pausedWorkstreamIds: ["ws-auth", "ws-billing"],
+		analystSessionId: null,
+		executionDirectorSessionId: null,
+		coordinatorSessionId: null,
+		pausedLeadNames: [],
+		pauseReason: "brief refresh requires regeneration",
+		startedAt: "2026-03-13T10:00:00.000Z",
+		completedAt: null,
+		createdAt: "2026-03-13T10:00:00.000Z",
+		updatedAt: "2026-03-13T12:00:00.000Z",
+		...overrides,
+	};
+}
 
 describe("dashboardCommand", () => {
 	let chunks: string[];
@@ -210,6 +240,16 @@ describe("filterAgentsByRun", () => {
 
 	test("empty agents list returns empty", () => {
 		expect(filterAgentsByRun([], "run-001")).toEqual([]);
+	});
+});
+
+describe("renderMissionStrip", () => {
+	test("shows pending input and paused workstream count", () => {
+		const out = stripAnsi(renderMissionStrip(makeMission(), 120, 3));
+
+		expect(out).toContain("Mission: mission-auth");
+		expect(out).toContain("⏳ question");
+		expect(out).toContain("paused:2");
 	});
 });
 

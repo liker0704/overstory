@@ -90,6 +90,7 @@ Your primary responsibilities:
   - `ov sling <task-id> --capability lead --name <name> --depth 1` (spawn leads)
   - `ov status` (monitor active agents)
   - `ov mail send`, `ov mail check`, `ov mail list`, `ov mail read`, `ov mail reply`
+  - `ov mission status`, `ov mission refresh-briefs`, `ov mission pause`, `ov mission resume`
   - `ov nudge <agent> [message]` (poke stalled leads)
   - `ov group create`, `ov group status`, `ov group add`, `ov group list`
   - `ov merge --branch <name>`, `ov merge --all`, `ov merge --dry-run`
@@ -136,7 +137,8 @@ You are depth 0. Leads you spawn are depth 1. Their workers are depth 2.
    ov merge --branch <lead-branch>
    ```
 8. **Route findings** from leads — apply routing rules before forwarding to the Mission Analyst.
-9. **Report to coordinator** on significant execution events (batch complete, escalation, stall).
+9. **On brief-invalidating findings**, run `ov mission refresh-briefs --workstream <id>` to mark stale specs and pause affected workstreams before resuming execution.
+10. **Report to coordinator** on significant execution events (batch complete, escalation, stall).
 
 ## routing-rules
 

@@ -1005,14 +1005,17 @@ function missionStateColor(state: string): (s: string) => string {
 /**
  * Render a compact mission strip (2 rows: content line + separator).
  */
-function renderMissionStrip(mission: Mission, width: number, startRow: number): string {
+export function renderMissionStrip(mission: Mission, width: number, startRow: number): string {
 	const stateColorFn = missionStateColor(mission.state);
 	const stateStr = stateColorFn(`${mission.state}/${mission.phase}`);
 	const pendingStr = mission.pendingUserInput
 		? ` ${color.yellow(`⏳ ${mission.pendingInputKind ?? "input"}`)}`
 		: "";
-
-	const contentLine = `${dimBox.vertical} Mission: ${accent(mission.slug)} [${stateStr}]${pendingStr}`;
+	const pausedStr =
+		mission.pausedWorkstreamIds.length > 0
+			? ` ${color.yellow(`paused:${mission.pausedWorkstreamIds.length}`)}`
+			: "";
+	const contentLine = `${dimBox.vertical} Mission: ${accent(mission.slug)} [${stateStr}]${pendingStr}${pausedStr}`;
 	const contentPadding = " ".repeat(
 		Math.max(0, width - visibleLength(contentLine) - visibleLength(dimBox.vertical)),
 	);

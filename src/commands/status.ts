@@ -305,6 +305,9 @@ export function printStatus(data: StatusData): void {
 		w(`   First freeze: ${m.firstFreezeAt ?? "never"}\n`);
 		w(`   Reopens:      ${m.reopenCount}\n`);
 		w(`   Paused:       ${m.pausedWorkstreamIds.length} workstreams\n`);
+		if (m.pauseReason) {
+			w(`   Pause reason: ${m.pauseReason}\n`);
+		}
 		w("\n");
 	}
 

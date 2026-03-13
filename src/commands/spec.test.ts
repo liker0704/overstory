@@ -8,6 +8,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { computeBriefRevision } from "../missions/brief-refresh.ts";
+import { readSpecMeta } from "../missions/spec-meta.ts";
 import { cleanupTempDir, createTempGitRepo } from "../test-helpers.ts";
 import { specWriteCommand, writeSpec } from "./spec.ts";
 
@@ -72,6 +74,15 @@ describe("validation", () => {
 		await expect(specWriteCommand("task-abc", { body: "  " })).rejects.toThrow(
 			"Spec body is required",
 		);
+	});
+
+	test("mission spec metadata requires both workstream-id and brief-path", async () => {
+		await expect(
+			specWriteCommand("task-meta", {
+				body: "# Spec",
+				workstreamId: "ws-auth",
+			}),
+		).rejects.toThrow("requires both --workstream-id and --brief-path");
 	});
 });
 
@@ -175,5 +186,29 @@ describe("specWriteCommand (integration)", () => {
 		const content = await Bun.file(specPath).text();
 		expect(content).not.toContain("written-by");
 		expect(content).toBe("# No Agent\n");
+	});
+
+	test("writes companion spec metadata when mission flags are provided", async () => {
+		await mkdir(join(tempDir, "briefs"), { recursive: true });
+		const briefPath = join(tempDir, "briefs", "ws-auth.md");
+		await Bun.write(briefPath, "# Workstream brief\n");
+
+		await specWriteCommand("task-meta", {
+			body: "# Mission Spec",
+			agent: "lead-auth",
+			workstreamId: "ws-auth",
+			briefPath: "briefs/ws-auth.md",
+		});
+
+		const meta = await readSpecMeta(tempDir, "task-meta");
+		expect(meta).not.toBeNull();
+		expect(meta?.taskId).toBe("task-meta");
+		expect(meta?.workstreamId).toBe("ws-auth");
+		expect(meta?.briefPath).toBe("briefs/ws-auth.md");
+		expect(meta?.status).toBe("current");
+		expect(meta?.generatedBy).toBe("lead-auth");
+		expect(meta?.briefRevision).toBe(await computeBriefRevision(briefPath));
+		expect(meta?.specRevision).toHaveLength(64);
+		expect(stdoutOutput).toContain("Meta:");
 	});
 });
