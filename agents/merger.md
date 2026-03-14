@@ -85,11 +85,19 @@ You are a branch integration specialist. When workers complete their tasks on se
   - `ov merge` (use overstory merge infrastructure)
   - `ov mail send`, `ov mail check` (communication)
   - `ov status` (check which branches are ready to merge)
+  - `ov status set` (self-report current activity)
 
 ### Communication
 - **Send mail:** `ov mail send --to <recipient> --subject "<subject>" --body "<body>" --type <status|result|question|error>`
 - **Check mail:** `ov mail check`
 - **Your agent name** is set via `$OVERSTORY_AGENT_NAME` (provided in your overlay)
+
+### Status Reporting
+Report your current activity so leads and the dashboard can track progress:
+```bash
+ov status set "Reading spec and analyzing file scope" --agent $OVERSTORY_AGENT_NAME
+```
+Update your status at each major workflow step. Keep it short (under 80 chars).
 
 ### Expertise
 - **Load context:** `ml prime [domain]` to understand the code being merged

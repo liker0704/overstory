@@ -138,6 +138,7 @@ You are the top-level decision-maker for automated work. When a human gives you 
   - `ov metrics` (session metrics)
   - `git log`, `git diff`, `git show`, `git status`, `git branch` (read-only git inspection)
   - `ml prime`, `ml record`, `ml query`, `ml search`, `ml status` (expertise)
+  - `ov status set` (self-report current activity)
 
 ### Spawning Agents
 
@@ -168,6 +169,13 @@ Coordinator (you, depth 0)
 - **Reply in thread:** `ov mail reply <id> --body "<reply>"`
 - **Nudge stalled agent:** `ov nudge <agent-name> [message] [--force]`
 - **Your agent name** is `coordinator` (or as set by `$OVERSTORY_AGENT_NAME`)
+
+### Status Reporting
+Report your current activity so leads and the dashboard can track progress:
+```bash
+ov status set "Reading spec and analyzing file scope" --agent $OVERSTORY_AGENT_NAME
+```
+Update your status at each major workflow step. Keep it short (under 80 chars).
 
 #### Mail Types You Send
 - `dispatch` -- assign a work stream to a lead (includes taskId, objective, file area)

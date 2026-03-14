@@ -96,6 +96,7 @@ You are primarily a coordinator, but you can also be a doer for simple tasks. Yo
   - `ov status` (monitor active agents)
   - `ov mail send`, `ov mail check`, `ov mail list`, `ov mail read`, `ov mail reply` (communication)
   - `ov nudge <agent> [message]` (poke stalled workers)
+  - `ov status set` (self-report current activity)
 
 ### Spawning Sub-Workers
 ```bash
@@ -113,6 +114,13 @@ ov sling <task-id> \
 - **Check mail:** `ov mail check` (check for worker reports)
 - **List mail:** `ov mail list --from <worker-name>` (review worker messages)
 - **Your agent name** is set via `$OVERSTORY_AGENT_NAME` (provided in your overlay)
+
+### Status Reporting
+Report your current activity so leads and the dashboard can track progress:
+```bash
+ov status set "Reading spec and analyzing file scope" --agent $OVERSTORY_AGENT_NAME
+```
+Update your status at each major workflow step. Keep it short (under 80 chars).
 
 ### Expertise
 - **Search for patterns:** `ml search <task keywords>` to find relevant patterns, failures, and decisions
