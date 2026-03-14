@@ -51,6 +51,7 @@ import { openSessionStore } from "../sessions/compat.ts";
 import { createRunStore } from "../sessions/store.ts";
 import { createTrackerClient, resolveBackend } from "../tracker/factory.ts";
 import type { InsertMission, Mission, MissionSummary } from "../types.ts";
+import { attachOrSwitch } from "../worktree/tmux.ts";
 import { nudgeAgent } from "./nudge.ts";
 import { stopCommand } from "./stop.ts";
 
@@ -529,6 +530,7 @@ interface StartOpts {
 	slug?: string;
 	objective?: string;
 	json?: boolean;
+	attach?: boolean;
 }
 
 export async function missionStart(
@@ -540,6 +542,7 @@ export async function missionStart(
 	const slug = opts.slug ?? `mission-${Date.now()}`;
 	const objective = opts.objective ?? "Pending — coordinator will clarify with operator";
 	const pendingObjective = !opts.objective;
+	const shouldAttach = opts.attach ?? false;
 
 	const dbPath = join(overstoryDir, "sessions.db");
 	const missionStore = createMissionStore(dbPath);
@@ -742,6 +745,10 @@ export async function missionStart(
 			process.stdout.write(`  Coordinator: ${coordResult.session.id}\n`);
 			process.stdout.write(`  Analyst:     ${analystResult.session.id}\n`);
 			process.stdout.write(`  Dispatch:    ${dispatchId}\n`);
+		}
+
+		if (shouldAttach && coordResult.session.tmuxSession) {
+			attachOrSwitch(coordResult.session.tmuxSession);
 		}
 	} catch (err) {
 		for (const roleName of ["coordinator", "mission-analyst"]) {
@@ -2242,13 +2249,24 @@ export function createMissionCommand(): Command {
 		.description("Create a new mission (run + pointer files + artifact root)")
 		.option("--slug <slug>", "Short identifier for the mission (e.g. auth-rewrite)")
 		.option("--objective <objective>", "Mission objective (what to accomplish)")
+		.option("--attach", "Attach to coordinator tmux session after start")
+		.option("--no-attach", "Do not attach to coordinator tmux session")
 		.option("--json", "Output as JSON")
-		.action(async (opts: { slug?: string; objective?: string; json?: boolean }) => {
-			const cwd = process.cwd();
-			const config = await loadConfig(cwd);
-			const overstoryDir = join(config.project.root, ".overstory");
-			await missionStart(overstoryDir, config.project.root, opts);
-		});
+		.action(
+			async (opts: {
+				slug?: string;
+				objective?: string;
+				attach?: boolean;
+				json?: boolean;
+			}) => {
+				const cwd = process.cwd();
+				const config = await loadConfig(cwd);
+				const overstoryDir = join(config.project.root, ".overstory");
+				const attach =
+					opts.attach ?? (opts.json ? false : process.stdout.isTTY === true);
+				await missionStart(overstoryDir, config.project.root, { ...opts, attach });
+			},
+		);
 
 	cmd
 		.command("status")
