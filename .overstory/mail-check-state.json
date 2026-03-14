@@ -40,7 +40,7 @@
 	"fix-errors-tests-lead": 1773352762554,
 	"fix-roles-test-builder": 1773354104466,
 	"mission-analyst": 1773507703980,
-	"execution-director": 1773510407231,
+	"execution-director": 1773510543200,
 	"e2e-verify-lead": 1773414340183,
 	"lead-child-e2e": 1773414344523,
 	"builder-child-e2e": 1773414337660,
@@ -55,9 +55,9 @@
 	"notification-store-lead": 1773478217153,
 	"version-cmd-lead": 1773481801386,
 	"artifact-staleness-lead": 1773510394284,
-	"mission-score-lead": 1773510405699,
+	"mission-score-lead": 1773510539674,
 	"review-batching-lead": 1773510163073,
 	"review-batching-builder": 1773510109921,
 	"artifact-staleness-builder": 1773510290460,
-	"score-builder": 1773510403794
+	"score-builder": 1773510461013
 }
