@@ -6,6 +6,7 @@
  * responsibility of the mission analyst.
  */
 
+import { computeFileHash } from "./artifact-staleness.ts";
 import { markStale, readSpecMeta } from "./spec-meta.ts";
 
 // === Types ===
@@ -44,19 +45,18 @@ export interface StaleCheckResult {
 // === Core functions ===
 
 /**
- * Compute the SHA-256 hex hash of a file's contents.
+ * Compute the SHA-256 hex hash of a brief file's contents.
  *
- * Uses Bun.CryptoHasher (not node:crypto).
+ * Delegates to computeFileHash from artifact-staleness module.
+ * Uses arrayBuffer() for consistency across all staleness modules.
+ * Throws if the file does not exist.
  */
 export async function computeBriefRevision(briefPath: string): Promise<string> {
-	const file = Bun.file(briefPath);
-	if (!(await file.exists())) {
+	const hash = await computeFileHash(briefPath);
+	if (hash === "MISSING") {
 		throw new Error(`Brief file not found: ${briefPath}`);
 	}
-	const content = await file.text();
-	const hasher = new Bun.CryptoHasher("sha256");
-	hasher.update(content);
-	return hasher.digest("hex");
+	return hash;
 }
 
 /**
