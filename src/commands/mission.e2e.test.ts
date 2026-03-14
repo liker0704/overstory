@@ -19,6 +19,7 @@ import {
 	missionResume,
 	missionStart,
 	missionStop,
+	missionUpdate,
 	type MissionCommandDeps,
 } from "./mission.ts";
 import { specWriteCommand } from "./spec.ts";
@@ -741,6 +742,57 @@ describe("mission command e2e", () => {
 		await missionHandoff(overstoryDir, tempDir, true, deps);
 		expect(deps.started).toContain("execution-director");
 		expect(missionStore.getById(mission!.id)?.phase).toBe("execute");
+
+		mailStore.close();
+		missionStore.close();
+	});
+
+	test("mission start without slug/objective uses placeholders, update sets real values", async () => {
+		const deps = makeRoleDeps(tempDir, overstoryDir);
+
+		// Start with no slug or objective
+		await missionStart(overstoryDir, tempDir, { json: true }, deps);
+
+		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
+		const mission = missionStore.getActive();
+		expect(mission).not.toBeNull();
+		expect(mission?.slug).toMatch(/^mission-\d+$/);
+		expect(mission?.objective).toBe("Pending — coordinator will clarify with operator");
+		expect(deps.started).toEqual(["coordinator", "mission-analyst"]);
+
+		// Verify dispatch mail tells coordinator to discover objective
+		const mailStore = createMailStore(join(overstoryDir, "mail.db"));
+		const dispatchMail = mailStore
+			.getAll({ to: "coordinator" })
+			.find((m) => m.type === "dispatch");
+		expect(dispatchMail?.body).toContain("No objective was provided at start");
+		expect(dispatchMail?.body).toContain("ov mission update");
+
+		// Update slug and objective
+		await missionUpdate(overstoryDir, {
+			slug: "auth-rewrite",
+			objective: "Rewrite the authentication system",
+			json: true,
+		});
+
+		const updated = missionStore.getById(mission!.id);
+		expect(updated?.slug).toBe("auth-rewrite");
+		expect(updated?.objective).toBe("Rewrite the authentication system");
+
+		// Update only objective
+		await missionUpdate(overstoryDir, {
+			objective: "Rewrite auth with OAuth2 support",
+			json: true,
+		});
+		expect(missionStore.getById(mission!.id)?.objective).toBe(
+			"Rewrite auth with OAuth2 support",
+		);
+		expect(missionStore.getById(mission!.id)?.slug).toBe("auth-rewrite");
+
+		// Update with no args should fail
+		process.exitCode = 0;
+		await missionUpdate(overstoryDir, { json: true });
+		expect(process.exitCode).toBe(1);
 
 		mailStore.close();
 		missionStore.close();
