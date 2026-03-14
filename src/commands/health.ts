@@ -6,6 +6,7 @@
  * computes a weighted score, and renders the result.
  */
 
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Command } from "commander";
 import { loadConfig } from "../config.ts";
@@ -15,6 +16,9 @@ import { computeScore } from "../health/score.ts";
 import { collectSignals } from "../health/signals.ts";
 import type { HealthSnapshot } from "../health/types.ts";
 import { jsonError, jsonOutput } from "../json.ts";
+import { computeMissionScore } from "../missions/score.ts";
+import type { MissionScore } from "../missions/score.ts";
+import { createMissionStore } from "../missions/store.ts";
 
 export interface HealthOptions {
 	json?: boolean;
@@ -63,6 +67,20 @@ export async function executeHealth(opts: HealthOptions): Promise<void> {
 	const score = computeScore(signals);
 	const recommendation = selectRecommendation(score);
 
+	let missionScore: MissionScore | null = null;
+	const sessionsDb = join(overstoryDir, "sessions.db");
+	if (existsSync(sessionsDb)) {
+		const missionStore = createMissionStore(sessionsDb);
+		try {
+			const active = missionStore.getActive();
+			if (active) {
+				missionScore = computeMissionScore(overstoryDir, active);
+			}
+		} finally {
+			missionStore.close();
+		}
+	}
+
 	const snapshot: HealthSnapshot = {
 		score,
 		recommendation,
@@ -96,6 +114,9 @@ export async function executeHealth(opts: HealthOptions): Promise<void> {
 		};
 		if (comparisonDelta !== undefined) {
 			out.comparison = { overallDelta: comparisonDelta };
+		}
+		if (missionScore) {
+			out.missionScore = missionScore;
 		}
 		jsonOutput("health", out);
 		return;

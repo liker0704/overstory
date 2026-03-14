@@ -23,6 +23,7 @@ import { loadMissionEvents, recordMissionEvent } from "../missions/events.ts";
 import { buildNarrative, renderNarrative } from "../missions/narrative.ts";
 import { pauseWorkstream, resumeWorkstream } from "../missions/pause.ts";
 import { generateMissionReview } from "../missions/review.ts";
+import { computeMissionScore, renderMissionScore } from "../missions/score.ts";
 import {
 	startExecutionDirector,
 	startMissionAnalyst,
@@ -881,8 +882,10 @@ export async function missionStatus(overstoryDir: string, json: boolean): Promis
 		await writeMissionRuntimePointers(overstoryDir, mission.id, mission.runId);
 		const roles = resolveMissionRoleStates(overstoryDir, mission);
 
+		const missionScore = computeMissionScore(overstoryDir, mission);
+
 		if (json) {
-			jsonOutput("mission status", { mission: toSummary(mission), roles });
+			jsonOutput("mission status", { mission: toSummary(mission), roles, score: missionScore });
 			return;
 		}
 
@@ -916,6 +919,7 @@ export async function missionStatus(overstoryDir: string, json: boolean): Promis
 		}
 		process.stdout.write(`  Created:      ${mission.createdAt}\n`);
 		process.stdout.write(`  Updated:      ${mission.updatedAt}\n`);
+		renderMissionScore(missionScore);
 	} finally {
 		missionStore.close();
 	}
