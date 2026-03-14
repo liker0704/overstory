@@ -490,6 +490,10 @@ describe("mission command e2e", () => {
 			briefPath: relative(tempDir, briefPath),
 		});
 
+		// Freeze the mission (required before handoff)
+		missionStore.freeze(mission!.id, "approval", null);
+		missionStore.unfreeze(mission!.id);
+
 		await Bun.write(join(overstoryDir, "current-mission.txt"), "");
 		await Bun.write(join(overstoryDir, "current-run.txt"), "");
 
@@ -559,6 +563,10 @@ describe("mission command e2e", () => {
 			workstreamId: "ws-auth",
 			briefPath: relative(tempDir, briefPath),
 		});
+
+		// Freeze the mission (required before handoff)
+		missionStore.freeze(mission!.id, "approval", null);
+		missionStore.unfreeze(mission!.id);
 
 		const staleDirectorId = staleMailClient.send({
 			from: "lead-auth",
@@ -663,6 +671,78 @@ describe("mission command e2e", () => {
 		}
 		expect(deps.stopped).toEqual(["coordinator", "mission-analyst", "execution-director", "docs-smoke-lead"]);
 
+		missionStore.close();
+	});
+
+	test("handoff rejects when mission has never been frozen", async () => {
+		const deps = makeRoleDeps(tempDir, overstoryDir);
+
+		await missionStart(
+			overstoryDir,
+			tempDir,
+			{ slug: "no-freeze", objective: "Test freeze guard", json: true },
+			deps,
+		);
+
+		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
+		const mission = missionStore.getActive();
+		expect(mission).not.toBeNull();
+
+		const paths = getMissionArtifactPaths(mission!);
+		await Bun.write(
+			paths.workstreamsJson,
+			`${JSON.stringify(
+				{
+					version: 1,
+					workstreams: [
+						{
+							id: "ws-test",
+							taskId: "task-test",
+							objective: "Test workstream",
+							fileScope: ["src/test.ts"],
+							dependsOn: [],
+							briefPath: "plan/ws-test.md",
+							status: "planned",
+						},
+					],
+				},
+				null,
+				2,
+			)}\n`,
+		);
+		const briefPath = join(paths.planDir, "ws-test.md");
+		await Bun.write(briefPath, "# Test brief\n");
+
+		// Handoff without freeze should fail
+		process.exitCode = 0;
+		await missionHandoff(overstoryDir, tempDir, true, deps);
+		expect(process.exitCode).toBe(1);
+
+		// Now freeze and unfreeze (simulating question→answer flow)
+		const mailStore = createMailStore(join(overstoryDir, "mail.db"));
+		const mailClient = createMailClient(mailStore);
+		const questionId = mailClient.send({
+			from: "mission-analyst",
+			to: "operator",
+			subject: "Confirm scope",
+			body: "Is this correct?",
+			type: "question",
+		});
+		missionStore.freeze(mission!.id, "clarification", questionId);
+		await missionAnswer(overstoryDir, { body: "Yes, proceed", json: true }, deps);
+
+		const afterAnswer = missionStore.getById(mission!.id);
+		expect(afterAnswer?.firstFreezeAt).not.toBeNull();
+		expect(afterAnswer?.pendingUserInput).toBe(false);
+		expect(afterAnswer?.state).toBe("active");
+
+		// Handoff after freeze should succeed
+		process.exitCode = 0;
+		await missionHandoff(overstoryDir, tempDir, true, deps);
+		expect(deps.started).toContain("execution-director");
+		expect(missionStore.getById(mission!.id)?.phase).toBe("execute");
+
+		mailStore.close();
 		missionStore.close();
 	});
 });

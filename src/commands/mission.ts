@@ -1135,6 +1135,17 @@ export async function missionHandoff(
 			process.exitCode = 1;
 			return;
 		}
+		if (!mission.firstFreezeAt) {
+			const message =
+				"Mission must be frozen at least once before execution handoff (freeze ensures blocking ambiguity is resolved)";
+			if (json) {
+				jsonError("mission handoff", message);
+			} else {
+				printError("Mission handoff failed", message);
+			}
+			process.exitCode = 1;
+			return;
+		}
 		const artifactRoot = mission.artifactRoot;
 		const roles = resolveMissionRoleStates(overstoryDir, mission);
 		if (roles.executionDirector === "running") {

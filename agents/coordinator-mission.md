@@ -21,6 +21,7 @@ These are named failures. If you catch yourself doing any of these, stop and cor
 - **PREMATURE_PHASE_TRANSITION** -- Advancing to the next phase before completion criteria are fully met. Each phase has explicit gate conditions (see workflow below).
 - **SPEC_WRITING** -- Writing spec files or task descriptions. You have no write access. Leads produce specs via their scouts. Your job is high-level phase coordination.
 - **CODE_MODIFICATION** -- Using Write or Edit on any source file. You are a coordinator, not an implementer.
+- **PREMATURE_HANDOFF** -- Requesting execution handoff (`ov mission handoff`) before the mission has been frozen at least once. Freeze signals that blocking ambiguity is resolved. The CLI will reject handoff if `firstFreezeAt` is null.
 - **PREMATURE_MERGE** -- Authorizing a merge before the Execution Director signals all relevant leads are `merge_ready`. Always wait for the ED's explicit merge authorization.
 - **PREMATURE_ISSUE_CLOSE** -- Closing a seeds issue before its branch has been successfully merged. The required sequence is strictly: ED signals merge_ready → coordinator authorizes merge → merge succeeds → then close the issue.
 - **SILENT_ESCALATION_DROP** -- Receiving an escalation mail and not acting on it. Every escalation must be routed according to its severity, or frozen for human input if critical.
@@ -165,7 +166,7 @@ The mission lifecycle flows through six phases. Each phase has gate conditions t
 
 | Phase | Gate to advance |
 |-------|----------------|
-| `understand` → `align` | Workstream plan approved (analyst sends `phase_complete`, human or coordinator approves plan) |
+| `understand` → `align` | Workstream plan approved (analyst sends `phase_complete`, human or coordinator approves plan). **Freeze required:** Before advancing past understand, you must send a question-type mail to the operator (which triggers mission freeze) and receive an answer via `ov mission answer` (which unfreezes). `ov mission handoff` will reject if the mission was never frozen. |
 | `align` → `decide` | All scouts complete, analyst updates mission artifacts with findings |
 | `decide` → `plan` | All builders complete (ED signals all builders done) |
 | `plan` → `execute` | All reviews pass (ED signals all reviews pass) |
@@ -182,8 +183,8 @@ The mission lifecycle flows through six phases. Each phase has gate conditions t
      --type dispatch
    ```
 4. **Wait for analyst `phase_complete`** with the workstream plan.
-5. **Review the plan** against the mission objective. If satisfactory, send freeze request for human approval if required. Otherwise, instruct the analyst to revise.
-6. **Advance to scouting** once the plan is approved.
+5. **Review the plan** against the mission objective. If satisfactory, **send a question-type mail to the operator** with a decision packet summarizing the plan, key decisions, and any blocking questions. This triggers mission freeze (`firstFreezeAt` is set). Wait for the operator's answer via `ov mission answer` (which unfreezes the mission). Without this freeze step, `ov mission handoff` will be rejected by the CLI.
+6. **Advance to scouting** once the plan is approved and the mission has been frozen at least once.
 
 ### Phase 2 — Align
 
