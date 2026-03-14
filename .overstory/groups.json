@@ -998,5 +998,27 @@
 		"status": "active",
 		"createdAt": "2026-03-13T18:15:23.058Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-32c23cd0",
+		"name": "notification-system-batch1",
+		"memberIssueIds": [
+			"overstory-901c"
+		],
+		"status": "active",
+		"createdAt": "2026-03-14T08:49:15.168Z",
+		"completedAt": null
+	},
+	{
+		"id": "group-ec161ed5",
+		"name": "desloppify-batch-1",
+		"memberIssueIds": [
+			"overstory-f1ee",
+			"overstory-da25",
+			"overstory-d869"
+		],
+		"status": "active",
+		"createdAt": "2026-03-14T17:32:50.071Z",
+		"completedAt": null
 	}
 ]
