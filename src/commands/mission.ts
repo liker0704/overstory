@@ -537,21 +537,14 @@ export async function missionStart(
 	opts: StartOpts,
 	deps: MissionCommandDeps = {},
 ): Promise<void> {
-	if (!opts.objective) {
-		printError("--objective is required");
-		process.exitCode = 1;
-		return;
-	}
-	if (!opts.slug) {
-		printError("--slug is required");
-		process.exitCode = 1;
-		return;
-	}
+	const slug = opts.slug ?? `mission-${Date.now()}`;
+	const objective = opts.objective ?? "Pending — coordinator will clarify with operator";
+	const pendingObjective = !opts.objective;
 
 	const dbPath = join(overstoryDir, "sessions.db");
 	const missionStore = createMissionStore(dbPath);
 	const runId = `run-${new Date().toISOString().replace(/[:.]/g, "-")}-mission`;
-	const missionId = `mission-${Date.now()}-${opts.slug}`;
+	const missionId = `mission-${Date.now()}-${slug}`;
 	const artifactRoot = join(overstoryDir, "missions", missionId);
 	let missionCreated = false;
 	let coordinatorStarted = false;
@@ -590,8 +583,8 @@ export async function missionStart(
 
 		const insertMission: InsertMission = {
 			id: missionId,
-			slug: opts.slug,
-			objective: opts.objective,
+			slug,
+			objective,
 			runId,
 			artifactRoot,
 			startedAt: new Date().toISOString(),
@@ -657,20 +650,33 @@ export async function missionStart(
 		missionStore.bindSessions(mission.id, { analystSessionId: analystResult.session.id });
 
 		// --- Dispatch objective to coordinator (not analyst) ---
+		const dispatchBody = pendingObjective
+			? [
+					`Mission ID: ${mission.id}`,
+					`Artifact root: ${mission.artifactRoot ?? "none"}`,
+					`Context file: ${coordPrompt.contextPath}`,
+					"",
+					"No objective was provided at start. Begin by asking the operator what they want to accomplish.",
+					"Once you understand the objective, set the mission identity:",
+					`  ov mission update --slug <short-name> --objective '<real objective>'`,
+					"Then proceed with standard mission coordination (planning, freeze, handoff).",
+					"Mission Analyst is running and available for research queries via mail.",
+				]
+			: [
+					`Mission ID: ${mission.id}`,
+					`Objective: ${mission.objective}`,
+					`Artifact root: ${mission.artifactRoot ?? "none"}`,
+					`Context file: ${coordPrompt.contextPath}`,
+					"",
+					"You are the user-facing mission coordinator.",
+					"Mission Analyst is running and available for research queries via mail.",
+					"Begin initial clarification with the operator.",
+				];
 		const dispatchId = await sendMissionDispatchMail({
 			overstoryDir,
 			to: "coordinator",
 			subject: `Mission started: ${mission.slug}`,
-			body: [
-				`Mission ID: ${mission.id}`,
-				`Objective: ${mission.objective}`,
-				`Artifact root: ${mission.artifactRoot ?? "none"}`,
-				`Context file: ${coordPrompt.contextPath}`,
-				"",
-				"You are the user-facing mission coordinator.",
-				"Mission Analyst is running and available for research queries via mail.",
-				"Begin initial clarification with the operator.",
-			].join("\n"),
+			body: dispatchBody.join("\n"),
 		});
 		await nudgeMissionRoleBestEffort(
 			projectRoot,
@@ -774,6 +780,65 @@ export async function missionStart(
 			printError("Mission start failed", message);
 		}
 		process.exitCode = 1;
+	} finally {
+		missionStore.close();
+	}
+}
+
+// === ov mission update ===
+
+interface UpdateOpts {
+	slug?: string;
+	objective?: string;
+	json?: boolean;
+}
+
+export async function missionUpdate(overstoryDir: string, opts: UpdateOpts): Promise<void> {
+	const json = opts.json ?? false;
+
+	if (!opts.slug && !opts.objective) {
+		if (json) {
+			jsonError("mission update", "At least one of --slug or --objective is required");
+		} else {
+			printError("Nothing to update", "Provide --slug and/or --objective");
+		}
+		process.exitCode = 1;
+		return;
+	}
+
+	const missionId = await resolveCurrentMissionId(overstoryDir);
+	if (!missionId) {
+		if (json) {
+			jsonError("mission update", "No active mission");
+		} else {
+			printError("No active mission", "Start one with: ov mission start");
+		}
+		process.exitCode = 1;
+		return;
+	}
+
+	const dbPath = join(overstoryDir, "sessions.db");
+	const missionStore = createMissionStore(dbPath);
+	try {
+		if (opts.slug) {
+			missionStore.updateSlug(missionId, opts.slug);
+		}
+		if (opts.objective) {
+			missionStore.updateObjective(missionId, opts.objective);
+		}
+
+		const updated = missionStore.getById(missionId);
+		if (json) {
+			jsonOutput("mission update", {
+				id: missionId,
+				slug: updated?.slug,
+				objective: updated?.objective,
+			});
+		} else {
+			printSuccess("Mission updated");
+			if (opts.slug) console.log(`  Slug: ${accent(opts.slug)}`);
+			if (opts.objective) console.log(`  Objective: ${opts.objective}`);
+		}
 	} finally {
 		missionStore.close();
 	}
@@ -2175,10 +2240,10 @@ export function createMissionCommand(): Command {
 	cmd
 		.command("start")
 		.description("Create a new mission (run + pointer files + artifact root)")
-		.requiredOption("--slug <slug>", "Short identifier for the mission (e.g. auth-rewrite)")
-		.requiredOption("--objective <objective>", "Mission objective (what to accomplish)")
+		.option("--slug <slug>", "Short identifier for the mission (e.g. auth-rewrite)")
+		.option("--objective <objective>", "Mission objective (what to accomplish)")
 		.option("--json", "Output as JSON")
-		.action(async (opts: { slug: string; objective: string; json?: boolean }) => {
+		.action(async (opts: { slug?: string; objective?: string; json?: boolean }) => {
 			const cwd = process.cwd();
 			const config = await loadConfig(cwd);
 			const overstoryDir = join(config.project.root, ".overstory");
@@ -2194,6 +2259,19 @@ export function createMissionCommand(): Command {
 			const config = await loadConfig(cwd);
 			const overstoryDir = join(config.project.root, ".overstory");
 			await missionStatus(overstoryDir, opts.json ?? false);
+		});
+
+	cmd
+		.command("update")
+		.description("Update the active mission's slug or objective")
+		.option("--slug <slug>", "New short identifier")
+		.option("--objective <objective>", "New mission objective")
+		.option("--json", "Output as JSON")
+		.action(async (opts: UpdateOpts) => {
+			const cwd = process.cwd();
+			const config = await loadConfig(cwd);
+			const overstoryDir = join(config.project.root, ".overstory");
+			await missionUpdate(overstoryDir, opts);
 		});
 
 	cmd

@@ -1039,5 +1039,7 @@ export interface MissionStore {
 	updatePauseReason(id: string, reason: string | null): void;
 	start(id: string): void;
 	completeMission(id: string): void;
+	updateSlug(id: string, slug: string): void;
+	updateObjective(id: string, objective: string): void;
 	close(): void;
 }

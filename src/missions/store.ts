@@ -423,6 +423,17 @@ export function createMissionStore(dbPath: string): MissionStore {
 		WHERE id = $id
 	`);
 
+	const updateSlugStmt = db.prepare<void, { $id: string; $slug: string; $updated_at: string }>(`
+		UPDATE missions SET slug = $slug, updated_at = $updated_at WHERE id = $id
+	`);
+
+	const updateObjectiveStmt = db.prepare<
+		void,
+		{ $id: string; $objective: string; $updated_at: string }
+	>(`
+		UPDATE missions SET objective = $objective, updated_at = $updated_at WHERE id = $id
+	`);
+
 	const completeMissionStmt = db.prepare<
 		void,
 		{ $id: string; $completed_at: string; $updated_at: string }
@@ -594,6 +605,18 @@ export function createMissionStore(dbPath: string): MissionStore {
 		completeMission(id: string): void {
 			const now = new Date().toISOString();
 			completeMissionStmt.run({ $id: id, $completed_at: now, $updated_at: now });
+		},
+
+		updateSlug(id: string, slug: string): void {
+			updateSlugStmt.run({ $id: id, $slug: slug, $updated_at: new Date().toISOString() });
+		},
+
+		updateObjective(id: string, objective: string): void {
+			updateObjectiveStmt.run({
+				$id: id,
+				$objective: objective,
+				$updated_at: new Date().toISOString(),
+			});
 		},
 
 		close(): void {

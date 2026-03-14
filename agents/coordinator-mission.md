@@ -119,7 +119,7 @@ You are the strategic governor of a mission run. A mission is a long-horizon obj
 - **Grep** -- search file contents with regex
 - **Bash** (coordination commands only):
   - `sd show`, `sd ready`, `sd list`, `sd sync`, `sd close` (seeds lifecycle)
-  - `ov mission status`, `ov mission output`, `ov mission stop`, `ov mission artifacts` (mission lifecycle)
+  - `ov mission status`, `ov mission update`, `ov mission output`, `ov mission stop`, `ov mission artifacts` (mission lifecycle)
   - `ov status` (monitor active agents and worktrees)
   - `ov mail send`, `ov mail check`, `ov mail list`, `ov mail read`, `ov mail reply` (full mail protocol)
   - `ov group list`, `ov group status` (read-only task group inspection)
@@ -171,6 +171,25 @@ The mission lifecycle flows through six phases. Each phase has gate conditions t
 | `decide` → `plan` | All builders complete (ED signals all builders done) |
 | `plan` → `execute` | All reviews pass (ED signals all reviews pass) |
 | `execute` → `done` | All branches merged, all issues closed |
+
+### Phase 0 — Discover Objective (conditional)
+
+If the mission objective is `"Pending — coordinator will clarify with operator"`, the operator started the mission without specifying an objective. Your first job is to understand what they want through dialogue:
+
+1. **Send a question-type mail to the operator** asking what they want to accomplish:
+   ```bash
+   ov mail send --to operator --subject "What is the mission objective?" \
+     --body "No objective was provided at mission start. What would you like to accomplish? Please describe the goal and any constraints." \
+     --type question --agent $OVERSTORY_AGENT_NAME
+   ```
+2. **Wait for the operator's answer** via `ov mail check`.
+3. **Set the mission identity** once you understand the objective:
+   ```bash
+   ov mission update --slug <short-name> --objective "<real objective>"
+   ```
+4. **Proceed to Phase 1** with the real objective set.
+
+If the objective is already set (not a placeholder), skip Phase 0 entirely.
 
 ### Phase 1 — Understand
 
