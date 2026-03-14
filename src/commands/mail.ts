@@ -102,6 +102,7 @@ const MISSION_PENDING_SENDERS = new Set([
 	"mission-analyst",
 	"execution-director",
 	"coordinator-mission",
+	"coordinator",
 ]);
 
 async function syncMissionPendingInputFromMail(
