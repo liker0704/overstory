@@ -23,8 +23,10 @@ import { loadMissionEvents, recordMissionEvent } from "../missions/events.ts";
 import {
 	DEFAULT_MISSION_GRAPH,
 	getAvailableTransitions,
+	nodeId,
 	renderGraphPosition,
 	toMermaid,
+	validateTransition,
 } from "../missions/graph.ts";
 import { buildNarrative, renderNarrative } from "../missions/narrative.ts";
 import { pauseWorkstream, resumeWorkstream } from "../missions/pause.ts";
@@ -57,7 +59,14 @@ import {
 import { openSessionStore } from "../sessions/compat.ts";
 import { createRunStore } from "../sessions/store.ts";
 import { createTrackerClient, resolveBackend } from "../tracker/factory.ts";
-import type { InsertMission, Mission, MissionSummary } from "../types.ts";
+import type {
+	InsertMission,
+	Mission,
+	MissionPhase,
+	MissionState,
+	MissionStore,
+	MissionSummary,
+} from "../types.ts";
 import {
 	attachOrSwitch,
 	isSessionAlive,
@@ -100,6 +109,41 @@ function toSummary(mission: Mission): MissionSummary {
 		createdAt: mission.createdAt,
 		updatedAt: mission.updatedAt,
 	};
+}
+
+/**
+ * Advisory graph transition: validate the transition, update currentNode,
+ * and log a warning event if the transition is not legal per the graph.
+ */
+function adviseGraphTransition(
+	overstoryDir: string,
+	missionStore: MissionStore,
+	mission: Mission,
+	toPhase: MissionPhase,
+	toState: MissionState,
+): void {
+	const result = validateTransition(
+		DEFAULT_MISSION_GRAPH,
+		mission.phase,
+		mission.state,
+		toPhase,
+		toState,
+	);
+	const targetNode = nodeId(toPhase, toState);
+	missionStore.updateCurrentNode(mission.id, targetNode);
+	if (!result.valid) {
+		recordMissionEvent({
+			overstoryDir,
+			mission,
+			agentName: "operator",
+			data: {
+				kind: "graph_transition_warning",
+				detail: result.reason,
+				from: nodeId(mission.phase, mission.state),
+				to: targetNode,
+			},
+		});
+	}
 }
 
 function openMailClient(overstoryDir: string) {
@@ -466,6 +510,7 @@ async function suspendMission(opts: {
 		}
 
 		// Set mission state to suspended (preserves runtime pointers, mail, run)
+		adviseGraphTransition(overstoryDir, missionStore, mission, mission.phase, "suspended");
 		const beforeState = mission.state;
 		missionStore.updateState(mission.id, "suspended");
 		recordMissionEvent({
@@ -554,6 +599,7 @@ async function terminalizeMission(opts: {
 		const beforeState = mission.state;
 		const beforePhase = mission.phase;
 		if (targetState === "completed") {
+			adviseGraphTransition(overstoryDir, missionStore, mission, "done", "completed");
 			if (mission.phase !== "done") {
 				missionStore.updatePhase(mission.id, "done");
 				recordMissionEvent({
@@ -565,6 +611,7 @@ async function terminalizeMission(opts: {
 			}
 			missionStore.completeMission(mission.id);
 		} else {
+			adviseGraphTransition(overstoryDir, missionStore, mission, "done", "stopped");
 			missionStore.updateState(mission.id, "stopped");
 		}
 
@@ -709,6 +756,7 @@ export async function missionStart(
 		const createdMission = missionStore.create(insertMission);
 		missionCreated = true;
 		missionStore.start(missionId);
+		missionStore.updateCurrentNode(missionId, nodeId("understand", "active"));
 		const mission = missionStore.getById(missionId) ?? createdMission;
 
 		await ensureMissionArtifacts(mission);
@@ -1188,6 +1236,7 @@ export async function missionAnswer(
 			client.close();
 		}
 
+		adviseGraphTransition(overstoryDir, missionStore, mission, mission.phase, "active");
 		missionStore.unfreeze(missionId);
 		recordMissionEvent({
 			overstoryDir,
@@ -1467,6 +1516,7 @@ export async function missionHandoff(
 			executionDirectorSessionId: executionDirectorResult.session.id,
 		});
 
+		adviseGraphTransition(overstoryDir, missionStore, mission, "execute", "active");
 		const beforePhase = mission.phase;
 		missionStore.updatePhase(mission.id, "execute");
 		recordMissionEvent({
@@ -2150,6 +2200,7 @@ export async function missionResumeAll(
 		}
 
 		// Restore mission state
+		adviseGraphTransition(overstoryDir, missionStore, mission, mission.phase, "active");
 		missionStore.updateState(mission.id, "active");
 		recordMissionEvent({
 			overstoryDir,

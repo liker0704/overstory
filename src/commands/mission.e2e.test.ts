@@ -5,6 +5,13 @@ import { join, relative } from "node:path";
 import { createMailClient } from "../mail/client.ts";
 import { createMailStore } from "../mail/store.ts";
 import { getMissionArtifactPaths } from "../missions/context.ts";
+import {
+	DEFAULT_MISSION_GRAPH,
+	getAvailableTransitions,
+	renderGraphPosition,
+	toMermaid,
+	validateTransition,
+} from "../missions/graph.ts";
 import { readSpecMeta } from "../missions/spec-meta.ts";
 import { createMissionStore } from "../missions/store.ts";
 import { loadWorkstreamsFile } from "../missions/workstreams.ts";
@@ -859,20 +866,20 @@ describe("mission command e2e", () => {
 		missionStore.close();
 	});
 
-	test("mission graph: currentNode defaults to null for new missions", async () => {
+	test("mission graph: currentNode is set to understand:active on start", async () => {
 		const deps = makeRoleDeps(tempDir, overstoryDir);
 
 		await missionStart(
 			overstoryDir,
 			tempDir,
-			{ slug: "graph-null", objective: "Test null default", json: true },
+			{ slug: "graph-init", objective: "Test initial node", json: true },
 			deps,
 		);
 
 		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
 		const mission = missionStore.getActive();
 		expect(mission).not.toBeNull();
-		expect(mission!.currentNode).toBeNull();
+		expect(mission!.currentNode).toBe("understand:active");
 
 		missionStore.close();
 	});
@@ -903,8 +910,6 @@ describe("mission command e2e", () => {
 	});
 
 	test("mission graph: validateTransition detects illegal phase skip", () => {
-		const { validateTransition, DEFAULT_MISSION_GRAPH } = require("../missions/graph.ts");
-
 		// Legal: understand → align
 		const legal = validateTransition(
 			DEFAULT_MISSION_GRAPH,
@@ -927,10 +932,8 @@ describe("mission command e2e", () => {
 	});
 
 	test("mission graph: getAvailableTransitions returns correct edges", () => {
-		const { getAvailableTransitions, DEFAULT_MISSION_GRAPH } = require("../missions/graph.ts");
-
 		const edges = getAvailableTransitions(DEFAULT_MISSION_GRAPH, "execute", "active");
-		const triggers = edges.map((e: { trigger: string }) => e.trigger);
+		const triggers = edges.map((e) => e.trigger);
 
 		// execute:active should have: complete, freeze, suspend, stop, fail
 		expect(triggers).toContain("complete");
@@ -940,8 +943,6 @@ describe("mission command e2e", () => {
 	});
 
 	test("mission graph: renderGraphPosition highlights current phase", () => {
-		const { renderGraphPosition, DEFAULT_MISSION_GRAPH } = require("../missions/graph.ts");
-
 		const output = renderGraphPosition(DEFAULT_MISSION_GRAPH, "execute", "active");
 		expect(output).toContain("[execute]");
 		expect(output).not.toContain("[understand]");
@@ -949,8 +950,6 @@ describe("mission command e2e", () => {
 	});
 
 	test("mission graph: toMermaid produces valid output", () => {
-		const { toMermaid, DEFAULT_MISSION_GRAPH } = require("../missions/graph.ts");
-
 		const output = toMermaid(DEFAULT_MISSION_GRAPH, "plan", "frozen");
 		expect(output).toContain("graph LR");
 		expect(output).toContain("-->|freeze|");

@@ -5,13 +5,15 @@
  * Phase 2 (future): active execution — nodes gain handlers, engine traverses graph.
  */
 
-import type {
-	GraphTransitionResult,
-	MissionGraph,
-	MissionGraphEdge,
-	MissionGraphNode,
-	MissionPhase,
-	MissionState,
+import {
+	type GraphTransitionResult,
+	MISSION_PHASES,
+	MISSION_STATES,
+	type MissionGraph,
+	type MissionGraphEdge,
+	type MissionGraphNode,
+	type MissionPhase,
+	type MissionState,
 } from "../types.ts";
 
 // === Node ID helpers ===
@@ -21,23 +23,19 @@ export function nodeId(phase: MissionPhase, state: MissionState): string {
 	return `${phase}:${state}`;
 }
 
+const VALID_PHASES = new Set<string>(MISSION_PHASES);
+const VALID_STATES = new Set<string>(MISSION_STATES);
+
 /** Parse a node ID back into phase + state. Returns undefined if format is invalid. */
 export function parseNodeId(id: string): { phase: MissionPhase; state: MissionState } | undefined {
 	const parts = id.split(":");
 	if (parts.length !== 2) return undefined;
-	return { phase: parts[0] as MissionPhase, state: parts[1] as MissionState };
+	const [phase, state] = parts;
+	if (!phase || !state || !VALID_PHASES.has(phase) || !VALID_STATES.has(state)) return undefined;
+	return { phase: phase as MissionPhase, state: state as MissionState };
 }
 
 // === Default Mission Lifecycle Graph ===
-
-const PHASES: readonly MissionPhase[] = [
-	"understand",
-	"align",
-	"decide",
-	"plan",
-	"execute",
-	"done",
-];
 
 function buildDefaultGraph(): MissionGraph {
 	const nodes: MissionGraphNode[] = [];
@@ -97,22 +95,22 @@ function buildDefaultGraph(): MissionGraph {
 			trigger: "resume",
 		});
 
-		// Stop edges (active/frozen → stopped terminal)
+		// Stop edges (active/frozen → done:stopped)
 		edges.push({
 			from: nodeId(phase, "active"),
-			to: "stopped",
+			to: nodeId("done", "stopped"),
 			trigger: "stop",
 		});
 		edges.push({
 			from: nodeId(phase, "frozen"),
-			to: "stopped",
+			to: nodeId("done", "stopped"),
 			trigger: "stop",
 		});
 
-		// Fail edges (active → failed terminal)
+		// Fail edges (active → done:failed)
 		edges.push({
 			from: nodeId(phase, "active"),
-			to: "failed",
+			to: nodeId("done", "failed"),
 			trigger: "fail",
 		});
 	}
@@ -145,18 +143,18 @@ function buildDefaultGraph(): MissionGraph {
 		weight: 10,
 	});
 
-	// Terminal: stopped
+	// Terminal: done:stopped
 	nodes.push({
-		id: "stopped",
+		id: nodeId("done", "stopped"),
 		phase: "done",
 		state: "stopped",
 		label: "stopped",
 		terminal: true,
 	});
 
-	// Terminal: failed
+	// Terminal: done:failed
 	nodes.push({
-		id: "failed",
+		id: nodeId("done", "failed"),
 		phase: "done",
 		state: "failed",
 		label: "failed",
@@ -202,10 +200,7 @@ export function validateTransition(
 	const fromId = nodeId(fromPhase, fromState);
 	const toId = nodeId(toPhase, toState);
 
-	// Terminal states also have non-phase-prefixed IDs (stopped, failed)
-	const edge = graph.edges.find(
-		(e) => e.from === fromId && (e.to === toId || e.to === toState || e.to === `done:${toState}`),
-	);
+	const edge = graph.edges.find((e) => e.from === fromId && e.to === toId);
 
 	if (edge) {
 		return {
@@ -286,7 +281,7 @@ export function renderGraphPosition(
 	currentPhase: MissionPhase,
 	currentState: MissionState,
 ): string {
-	const phaseLabels = PHASES.map((p) => {
+	const phaseLabels = MISSION_PHASES.map((p) => {
 		if (p === currentPhase) {
 			return `[${p}]`;
 		}
@@ -305,7 +300,7 @@ export function renderGraphPosition(
 
 	// Indent annotation under the current phase position
 	if (stateAnnotations.length > 0) {
-		const beforeCurrent = PHASES.slice(0, PHASES.indexOf(currentPhase))
+		const beforeCurrent = MISSION_PHASES.slice(0, MISSION_PHASES.indexOf(currentPhase))
 			.map((p) => p.length + 4) // "phase → "
 			.reduce((sum, len) => sum + len, 0);
 		const padding = " ".repeat(beforeCurrent + 1); // +1 for the bracket

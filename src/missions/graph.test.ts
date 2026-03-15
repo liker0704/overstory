@@ -22,9 +22,15 @@ describe("nodeId / parseNodeId", () => {
 		expect(result).toEqual({ phase: "plan", state: "frozen" });
 	});
 
-	test("parseNodeId returns undefined for invalid", () => {
+	test("parseNodeId returns undefined for invalid format", () => {
 		expect(parseNodeId("invalid")).toBeUndefined();
 		expect(parseNodeId("a:b:c")).toBeUndefined();
+	});
+
+	test("parseNodeId returns undefined for invalid phase/state values", () => {
+		expect(parseNodeId("garbage:active")).toBeUndefined();
+		expect(parseNodeId("understand:garbage")).toBeUndefined();
+		expect(parseNodeId("foo:bar")).toBeUndefined();
 	});
 });
 
@@ -46,8 +52,8 @@ describe("DEFAULT_MISSION_GRAPH", () => {
 		const terminals = DEFAULT_MISSION_GRAPH.nodes.filter((n) => n.terminal);
 		expect(terminals.length).toBeGreaterThanOrEqual(3);
 		expect(terminals.find((n) => n.id === "done:completed")).toBeDefined();
-		expect(terminals.find((n) => n.id === "stopped")).toBeDefined();
-		expect(terminals.find((n) => n.id === "failed")).toBeDefined();
+		expect(terminals.find((n) => n.id === "done:stopped")).toBeDefined();
+		expect(terminals.find((n) => n.id === "done:failed")).toBeDefined();
 	});
 
 	test("frozen nodes are marked as human gates", () => {
