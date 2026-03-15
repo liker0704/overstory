@@ -633,7 +633,7 @@ export function renderAgentPanel(
 	output += `${CURSOR.cursorTo(startRow, 1)}${headerLine}${headerPadding}${dimBox.vertical}\n`;
 
 	// Column headers
-	const colStr = `${dimBox.vertical} St Name            Capability    Runtime   State      Task ID          Duration  Live `;
+	const colStr = `${dimBox.vertical} St Name            Capability    Runtime   State      Status                    Duration  Live `;
 	const colPadding = " ".repeat(
 		Math.max(0, leftWidth - visibleLength(colStr) - visibleLength(dimBox.vertical)),
 	);
@@ -668,7 +668,10 @@ export function renderAgentPanel(
 		const runtimeName = resolveRuntimeName(agent.capability, data.runtimeConfig);
 		const runtime = pad(truncate(runtimeName, 8), 8);
 		const state = pad(agent.state, 10);
-		const taskId = accent(pad(truncate(agent.taskId, 16), 16));
+		const statusText = agent.statusLine ?? agent.taskId;
+		const statusCol = agent.statusLine
+			? color.dim(pad(truncate(statusText, 25), 25))
+			: accent(pad(truncate(statusText, 25), 25));
 		const endTime =
 			agent.state === "completed" || agent.state === "zombie"
 				? new Date(agent.lastActivity).getTime()
@@ -681,7 +684,7 @@ export function renderAgentPanel(
 			: data.status.tmuxSessions.some((s) => s.name === agent.tmuxSession);
 		const aliveDot = alive ? color.green(">") : color.red("x");
 
-		const lineContent = `${dimBox.vertical} ${stateColorFn(icon)}  ${name} ${capability} ${color.dim(runtime)} ${stateColorFn(state)} ${taskId} ${durationPadded} ${aliveDot}    `;
+		const lineContent = `${dimBox.vertical} ${stateColorFn(icon)}  ${name} ${capability} ${color.dim(runtime)} ${stateColorFn(state)} ${statusCol} ${durationPadded} ${aliveDot}    `;
 		const linePadding = " ".repeat(
 			Math.max(0, leftWidth - visibleLength(lineContent) - visibleLength(dimBox.vertical)),
 		);

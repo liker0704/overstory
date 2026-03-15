@@ -84,6 +84,7 @@ describe("worktreeCommand", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 			...overrides,
 		};
 	}
@@ -177,6 +178,7 @@ describe("worktreeCommand", () => {
 					runtimeSessionId: null,
 					transcriptPath: null,
 					originalRuntime: null,
+					statusLine: null,
 				},
 			]);
 
@@ -229,6 +231,7 @@ describe("worktreeCommand", () => {
 					runtimeSessionId: null,
 					transcriptPath: null,
 					originalRuntime: null,
+					statusLine: null,
 				},
 			]);
 
@@ -328,6 +331,7 @@ describe("worktreeCommand", () => {
 					runtimeSessionId: null,
 					transcriptPath: null,
 					originalRuntime: null,
+					statusLine: null,
 				},
 			]);
 
@@ -388,6 +392,7 @@ describe("worktreeCommand", () => {
 					runtimeSessionId: null,
 					transcriptPath: null,
 					originalRuntime: null,
+					statusLine: null,
 				},
 			]);
 
@@ -431,6 +436,7 @@ describe("worktreeCommand", () => {
 					runtimeSessionId: null,
 					transcriptPath: null,
 					originalRuntime: null,
+					statusLine: null,
 				},
 			]);
 
@@ -490,6 +496,7 @@ describe("worktreeCommand", () => {
 					runtimeSessionId: null,
 					transcriptPath: null,
 					originalRuntime: null,
+					statusLine: null,
 				},
 			]);
 
@@ -656,6 +663,7 @@ describe("worktreeCommand", () => {
 					runtimeSessionId: null,
 					transcriptPath: null,
 					originalRuntime: null,
+					statusLine: null,
 				},
 				{
 					id: "session-2",
@@ -679,6 +687,7 @@ describe("worktreeCommand", () => {
 					runtimeSessionId: null,
 					transcriptPath: null,
 					originalRuntime: null,
+					statusLine: null,
 				},
 			]);
 

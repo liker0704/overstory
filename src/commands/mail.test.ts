@@ -940,6 +940,7 @@ describe("mailCommand", () => {
 					runtimeSessionId: null,
 					transcriptPath: null,
 					originalRuntime: null,
+					statusLine: null,
 				},
 				{
 					id: "session-builder-1",
@@ -963,6 +964,7 @@ describe("mailCommand", () => {
 					runtimeSessionId: null,
 					transcriptPath: null,
 					originalRuntime: null,
+					statusLine: null,
 				},
 				{
 					id: "session-builder-2",
@@ -986,6 +988,7 @@ describe("mailCommand", () => {
 					runtimeSessionId: null,
 					transcriptPath: null,
 					originalRuntime: null,
+					statusLine: null,
 				},
 				{
 					id: "session-scout-1",
@@ -1009,6 +1012,7 @@ describe("mailCommand", () => {
 					runtimeSessionId: null,
 					transcriptPath: null,
 					originalRuntime: null,
+					statusLine: null,
 				},
 			];
 
@@ -1334,6 +1338,7 @@ describe("mailCommand", () => {
 					runtimeSessionId: null,
 					transcriptPath: null,
 					originalRuntime: null,
+					statusLine: null,
 				});
 			}
 

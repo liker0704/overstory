@@ -43,6 +43,7 @@ import {
 	isSessionAlive,
 	killProcessTree,
 	killSession,
+	removeAgentEnvFile,
 	sendKeys,
 } from "../worktree/tmux.ts";
 import { evaluateHealth, transitionState } from "./health.ts";
@@ -1012,6 +1013,8 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 
 				// Kill the agent: headless agents are killed via PID, TUI agents via tmux
 				await killAgent({ session, tmuxAlive, tmux, process: proc });
+				// Clean up .agent-env to prevent hook pollution in user sessions
+				removeAgentEnvFile(session.worktreePath);
 				store.updateState(session.agentName, "zombie");
 				// Reset escalation tracking on terminal state
 				store.updateEscalation(session.agentName, 0, null);
@@ -1276,6 +1279,8 @@ async function executeEscalationAction(ctx: {
 			await recordFailure(root, session, "Progressive escalation reached terminal level", 0);
 
 			await killAgent({ session, tmuxAlive, tmux, process: proc });
+			// Clean up .agent-env to prevent hook pollution in user sessions
+			removeAgentEnvFile(session.worktreePath);
 			return { terminated: true, stateChanged: true };
 		}
 	}

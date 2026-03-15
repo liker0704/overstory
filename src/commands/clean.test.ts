@@ -170,6 +170,7 @@ describe("--all", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		});
 		store.close();
 
@@ -319,6 +320,7 @@ describe("individual flags", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		});
 		store.close();
 
@@ -445,6 +447,7 @@ describe("synthetic session-end events", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 			...overrides,
 		};
 	}
@@ -701,6 +704,7 @@ describe("--agent", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 			...overrides,
 		};
 	}

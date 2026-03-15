@@ -251,6 +251,7 @@ describe("logCommand", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		};
 		const store = createSessionStore(dbPath);
 		store.upsert(session);
@@ -311,6 +312,7 @@ describe("logCommand", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		};
 		const sessStore = createSessionStore(sessionsDbPath);
 		sessStore.upsert(session);
@@ -356,6 +358,7 @@ describe("logCommand", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		};
 		const store = createSessionStore(dbPath);
 		store.upsert(session);
@@ -400,6 +403,7 @@ describe("logCommand", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		};
 		const store = createSessionStore(dbPath);
 		store.upsert(session);
@@ -439,6 +443,7 @@ describe("logCommand", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		};
 		const store = createSessionStore(dbPath);
 		store.upsert(session);
@@ -478,6 +483,7 @@ describe("logCommand", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		};
 		const store = createSessionStore(dbPath);
 		store.upsert(session);
@@ -522,6 +528,7 @@ describe("logCommand", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			});
 			sessionStoreLocal.close();
 
@@ -581,6 +588,7 @@ describe("logCommand", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			});
 			sessionStoreLocal.close();
 
@@ -616,6 +624,7 @@ describe("logCommand", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			});
 			sessionStoreLocal.close();
 
@@ -675,6 +684,7 @@ describe("logCommand", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			});
 			sessionStoreLocal.close();
 
@@ -733,6 +743,7 @@ describe("logCommand", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		};
 		const store = createSessionStore(dbPath);
 		store.upsert(session);
@@ -778,6 +789,7 @@ describe("logCommand", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		};
 		const store = createSessionStore(dbPath);
 		store.upsert(session);
@@ -825,6 +837,7 @@ describe("logCommand", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		};
 		const store = createSessionStore(dbPath);
 		store.upsert(session);
@@ -869,6 +882,7 @@ describe("logCommand", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		};
 		const store = createSessionStore(dbPath);
 		store.upsert(session);
@@ -1007,6 +1021,7 @@ describe("logCommand", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		};
 		const store = createSessionStore(dbPath);
 		store.upsert(session);
@@ -1051,6 +1066,7 @@ describe("logCommand", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		};
 		const store = createSessionStore(dbPath);
 		store.upsert(session);

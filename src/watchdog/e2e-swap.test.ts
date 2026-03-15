@@ -127,6 +127,7 @@ sleep 300
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		};
 		store.upsert(session);
 		store.close();
@@ -276,6 +277,7 @@ sleep 300
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		});
 		store.close();
 

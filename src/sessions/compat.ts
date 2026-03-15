@@ -41,6 +41,7 @@ function normalizeSession(raw: Record<string, unknown>): AgentSession {
 		runtimeSessionId: (raw.runtimeSessionId as string | null) ?? null,
 		transcriptPath: (raw.transcriptPath as string | null) ?? null,
 		originalRuntime: (raw.originalRuntime as string | null) ?? null,
+		statusLine: (raw.statusLine as string | null) ?? null,
 	};
 }
 

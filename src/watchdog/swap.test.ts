@@ -307,6 +307,7 @@ describe("swapRuntime", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			},
 			targetRuntimeName: "codex",
 			config: {} as never,

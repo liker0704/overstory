@@ -1022,6 +1022,7 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 					runtimeSessionId: null,
 					transcriptPath: null,
 					originalRuntime: null,
+					statusLine: null,
 				};
 				store.upsert(session);
 
@@ -1104,6 +1105,7 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 					runtimeSessionId: sessionId,
 					transcriptPath: null,
 					originalRuntime: null,
+					statusLine: null,
 				};
 
 				store.upsert(session);

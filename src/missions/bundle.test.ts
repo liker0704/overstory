@@ -106,6 +106,7 @@ function seedSession(rid: string): void {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		});
 	} finally {
 		store.close();

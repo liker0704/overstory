@@ -33,6 +33,7 @@ function makeSession(overrides: Partial<AgentSession> = {}): AgentSession {
 		runtimeSessionId: null,
 		transcriptPath: null,
 		originalRuntime: null,
+		statusLine: null,
 		...overrides,
 	};
 }

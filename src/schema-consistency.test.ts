@@ -70,6 +70,7 @@ describe("SQL schema consistency", () => {
 				"stalled_since",
 				"started_at",
 				"state",
+				"status_line",
 				"task_id",
 				"tmux_session",
 				"transcript_path",

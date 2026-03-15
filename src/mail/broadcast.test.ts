@@ -46,6 +46,7 @@ describe("resolveGroupAddress", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		};
 	}
 

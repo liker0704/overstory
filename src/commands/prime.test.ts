@@ -172,6 +172,7 @@ recentTasks:
 					runtimeSessionId: null,
 					transcriptPath: null,
 					originalRuntime: null,
+					statusLine: null,
 				},
 			];
 
@@ -214,6 +215,7 @@ recentTasks:
 					runtimeSessionId: null,
 					transcriptPath: null,
 					originalRuntime: null,
+					statusLine: null,
 				},
 			];
 

@@ -238,6 +238,7 @@ async function startSupervisor(opts: {
 			runtimeSessionId: sessionId,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		};
 
 		store.upsert(session);

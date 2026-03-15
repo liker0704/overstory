@@ -438,8 +438,35 @@ async function executeStatus(opts: StatusOpts): Promise<void> {
 	}
 }
 
+async function executeStatusSet(
+	statusLine: string,
+	opts: { agent: string; json?: boolean },
+): Promise<void> {
+	const cwd = process.cwd();
+	const config = await loadConfig(cwd);
+	const root = config.project.root;
+	const overstoryDir = join(root, ".overstory");
+
+	const { store } = openSessionStore(overstoryDir);
+	try {
+		const session = store.getByName(opts.agent);
+		if (!session) {
+			throw new ValidationError(`No session found for agent: ${opts.agent}`, {
+				field: "agent",
+				value: opts.agent,
+			});
+		}
+		store.updateStatusLine(opts.agent, statusLine);
+		if (opts.json) {
+			jsonOutput("status_set", { agent: opts.agent, statusLine });
+		}
+	} finally {
+		store.close();
+	}
+}
+
 export function createStatusCommand(): Command {
-	return new Command("status")
+	const cmd = new Command("status")
 		.description("Show all active agents and project state")
 		.option("--json", "Output as JSON")
 		.option("--verbose", "Show extra detail per agent (worktree, logs, mail timestamps)")
@@ -450,6 +477,16 @@ export function createStatusCommand(): Command {
 		.action(async (opts: StatusOpts) => {
 			await executeStatus(opts);
 		});
+
+	cmd.command("set <statusLine>")
+		.description("Set agent status line (self-reported current activity)")
+		.requiredOption("--agent <name>", "Agent name (use $OVERSTORY_AGENT_NAME)")
+		.option("--json", "Output as JSON")
+		.action(async (statusLine: string, opts: { agent: string; json?: boolean }) => {
+			await executeStatusSet(statusLine, opts);
+		});
+
+	return cmd;
 }
 
 export async function statusCommand(args: string[]): Promise<void> {

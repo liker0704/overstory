@@ -786,6 +786,7 @@ describe("costsCommand", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			});
 			sessionStore.close();
 
@@ -848,6 +849,7 @@ describe("costsCommand", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			});
 			sessionStore.close();
 
@@ -918,6 +920,7 @@ describe("costsCommand", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			});
 			sessionStore.upsert({
 				id: "sess-002",
@@ -941,6 +944,7 @@ describe("costsCommand", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			});
 			sessionStore.close();
 
@@ -1007,6 +1011,7 @@ describe("costsCommand", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			});
 			sessionStore.close();
 

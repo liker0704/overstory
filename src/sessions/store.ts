@@ -36,6 +36,8 @@ export interface SessionStore {
 	updateRateLimitedSince(agentName: string, rateLimitedSince: string | null): void;
 	/** Update original_runtime (set on swap, cleared on resume). */
 	updateOriginalRuntime(agentName: string, originalRuntime: string | null): void;
+	/** Update the agent's self-reported status line. */
+	updateStatusLine(agentName: string, statusLine: string): void;
 	/** Get sessions that can be resumed (not completed — includes zombie since dead tmux is expected). */
 	getResumable(): AgentSession[];
 	/** Remove a session by agent name. */
@@ -69,6 +71,7 @@ interface SessionRow {
 	runtime_session_id: string | null;
 	transcript_path: string | null;
 	original_runtime: string | null;
+	status_line: string | null;
 }
 
 /** Row shape for runs table as stored in SQLite (snake_case columns). */
@@ -148,6 +151,7 @@ function rowToSession(row: SessionRow): AgentSession {
 		runtimeSessionId: row.runtime_session_id ?? null,
 		transcriptPath: row.transcript_path,
 		originalRuntime: row.original_runtime ?? null,
+		statusLine: row.status_line ?? null,
 	};
 }
 
@@ -229,6 +233,19 @@ function migrateAddOriginalRuntime(db: Database): void {
 }
 
 /**
+ * Migrate an existing sessions table to add status_line column.
+ * Stores the agent's self-reported current activity.
+ * Safe to call multiple times — only adds the column if it does not exist.
+ */
+function migrateAddStatusLine(db: Database): void {
+	const rows = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
+	const existingColumns = new Set(rows.map((r) => r.name));
+	if (!existingColumns.has("status_line")) {
+		db.exec("ALTER TABLE sessions ADD COLUMN status_line TEXT");
+	}
+}
+
+/**
  * Create a new SessionStore backed by a SQLite database at the given path.
  *
  * Initializes the database with WAL mode and a 5-second busy timeout.
@@ -255,6 +272,8 @@ export function createSessionStore(dbPath: string): SessionStore {
 	migrateAddRuntimeSessionId(db);
 	// Migrate: add original_runtime column (swap-back support)
 	migrateAddOriginalRuntime(db);
+	// Migrate: add status_line column (agent self-reported status)
+	migrateAddStatusLine(db);
 	migrateAddCoordinatorName(db);
 	// Migrate: extend runs.status CHECK constraint to include 'stopped'
 	migrateRunsStatusStopped(db);
@@ -288,18 +307,21 @@ export function createSessionStore(dbPath: string): SessionStore {
 			$runtime_session_id: string | null;
 			$transcript_path: string | null;
 			$original_runtime: string | null;
+			$status_line: string | null;
 		}
 	>(`
 		INSERT INTO sessions
 			(id, agent_name, capability, runtime, worktree_path, branch_name, task_id,
 			 tmux_session, state, pid, parent_agent, depth, run_id,
 			 started_at, last_activity, escalation_level, stalled_since,
-			 rate_limited_since, runtime_session_id, transcript_path, original_runtime)
+			 rate_limited_since, runtime_session_id, transcript_path, original_runtime,
+			 status_line)
 		VALUES
 			($id, $agent_name, $capability, $runtime, $worktree_path, $branch_name, $task_id,
 			 $tmux_session, $state, $pid, $parent_agent, $depth, $run_id,
 			 $started_at, $last_activity, $escalation_level, $stalled_since,
-			 $rate_limited_since, $runtime_session_id, $transcript_path, $original_runtime)
+			 $rate_limited_since, $runtime_session_id, $transcript_path, $original_runtime,
+			 $status_line)
 		ON CONFLICT(agent_name) DO UPDATE SET
 			id = excluded.id,
 			capability = excluded.capability,
@@ -320,7 +342,8 @@ export function createSessionStore(dbPath: string): SessionStore {
 			rate_limited_since = excluded.rate_limited_since,
 			runtime_session_id = excluded.runtime_session_id,
 			transcript_path = excluded.transcript_path,
-			original_runtime = excluded.original_runtime
+			original_runtime = excluded.original_runtime,
+			status_line = excluded.status_line
 	`);
 
 	const getByNameStmt = db.prepare<SessionRow, { $agent_name: string }>(`
@@ -402,6 +425,13 @@ export function createSessionStore(dbPath: string): SessionStore {
 		UPDATE sessions SET original_runtime = $original_runtime WHERE agent_name = $agent_name
 	`);
 
+	const updateStatusLineStmt = db.prepare<
+		void,
+		{ $agent_name: string; $status_line: string; $last_activity: string }
+	>(`
+		UPDATE sessions SET status_line = $status_line, last_activity = $last_activity WHERE agent_name = $agent_name
+	`);
+
 	return {
 		upsert(session: AgentSession): void {
 			upsertStmt.run({
@@ -426,6 +456,7 @@ export function createSessionStore(dbPath: string): SessionStore {
 				$runtime_session_id: session.runtimeSessionId ?? null,
 				$transcript_path: session.transcriptPath,
 				$original_runtime: session.originalRuntime ?? null,
+				$status_line: session.statusLine ?? null,
 			});
 		},
 
@@ -500,6 +531,14 @@ export function createSessionStore(dbPath: string): SessionStore {
 			updateOriginalRuntimeStmt.run({
 				$agent_name: agentName,
 				$original_runtime: originalRuntime,
+			});
+		},
+
+		updateStatusLine(agentName: string, statusLine: string): void {
+			updateStatusLineStmt.run({
+				$agent_name: agentName,
+				$status_line: statusLine,
+				$last_activity: new Date().toISOString(),
 			});
 		},
 

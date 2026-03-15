@@ -41,6 +41,7 @@ function makeSession(agentName: string): AgentSession {
 		runtimeSessionId: "runtime-uuid",
 		transcriptPath: null,
 		originalRuntime: null,
+		statusLine: null,
 	};
 }
 

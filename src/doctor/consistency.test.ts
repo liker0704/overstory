@@ -212,6 +212,7 @@ describe("checkConsistency", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		});
 		store.close();
 
@@ -253,6 +254,7 @@ describe("checkConsistency", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		});
 		store.close();
 
@@ -293,6 +295,7 @@ describe("checkConsistency", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		});
 		store.close();
 
@@ -334,6 +337,7 @@ describe("checkConsistency", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		});
 		store.close();
 
@@ -378,6 +382,7 @@ describe("checkConsistency", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		});
 		store.close();
 
@@ -456,6 +461,7 @@ describe("checkConsistency", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		});
 
 		store.upsert({
@@ -480,6 +486,7 @@ describe("checkConsistency", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		});
 		store.close();
 
@@ -521,6 +528,7 @@ describe("checkConsistency", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			});
 		}
 
@@ -546,6 +554,7 @@ describe("checkConsistency", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		});
 		store.close();
 
@@ -585,6 +594,7 @@ describe("checkConsistency", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			});
 
 			store.upsert({
@@ -609,6 +619,7 @@ describe("checkConsistency", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			});
 		}
 		store.close();
@@ -657,6 +668,7 @@ describe("checkConsistency", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		});
 
 		store.upsert({
@@ -681,6 +693,7 @@ describe("checkConsistency", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		});
 
 		// Lead-2 has builders only (bad)
@@ -706,6 +719,7 @@ describe("checkConsistency", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		});
 		store.close();
 

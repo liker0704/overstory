@@ -411,6 +411,7 @@ describe("daemon tailer integration", () => {
 			stalledSince: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 			runtime: "claude",
 			rateLimitedSince: null,
 			runtimeSessionId: null,

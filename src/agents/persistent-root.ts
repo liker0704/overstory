@@ -33,6 +33,7 @@ import {
 	ensureTmuxAvailable,
 	isSessionAlive,
 	killSession,
+	removeAgentEnvFile,
 	sendKeys,
 	waitForTuiReady,
 } from "../worktree/tmux.ts";
@@ -328,6 +329,7 @@ export async function startPersistentAgent(
 			runtimeSessionId,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		};
 		store.upsert(session);
 
@@ -421,6 +423,9 @@ export async function stopPersistentAgent(
 			await tmux.killSession(session.tmuxSession);
 			sessionKilled = true;
 		}
+
+		// Clean up .agent-env to prevent hook pollution in user sessions
+		removeAgentEnvFile(opts.projectRoot);
 
 		// Update session state
 		store.updateState(agentName, "completed");

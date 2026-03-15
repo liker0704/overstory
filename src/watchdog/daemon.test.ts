@@ -82,6 +82,7 @@ function makeSession(overrides: Partial<AgentSession> = {}): AgentSession {
 		runtimeSessionId: null,
 		transcriptPath: null,
 		originalRuntime: null,
+		statusLine: null,
 		startedAt: new Date().toISOString(),
 		lastActivity: new Date().toISOString(),
 		...overrides,

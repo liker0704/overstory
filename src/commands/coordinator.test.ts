@@ -323,6 +323,7 @@ function makeCoordinatorSession(overrides: Partial<AgentSession> = {}): AgentSes
 		runtimeSessionId: null,
 		transcriptPath: null,
 		originalRuntime: null,
+		statusLine: null,
 		...overrides,
 	};
 }
@@ -2267,6 +2268,7 @@ describe("checkComplete", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			};
 			store.upsert(base);
 			store.upsert({ ...base, id: "s2", agentName: "builder-2" });
@@ -2323,6 +2325,7 @@ describe("checkComplete", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			};
 			store.upsert(session);
 		} finally {
@@ -2379,6 +2382,7 @@ describe("checkComplete", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			});
 			// worker session that is completed
 			store.upsert({
@@ -2403,6 +2407,7 @@ describe("checkComplete", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			});
 		} finally {
 			store.close();
@@ -2548,6 +2553,7 @@ describe("checkComplete", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			});
 		} finally {
 			store.close();
@@ -2618,6 +2624,7 @@ describe("checkComplete", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			});
 		} finally {
 			store.close();
@@ -2921,6 +2928,7 @@ describe("persistent-root: startPersistentAgent", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			});
 		} finally {
 			store.close();
@@ -2979,6 +2987,7 @@ describe("persistent-root: stopPersistentAgent", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			});
 		} finally {
 			store.close();
@@ -3047,6 +3056,7 @@ describe("persistent-root: stopPersistentAgent", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			});
 		} finally {
 			store.close();
@@ -3118,6 +3128,7 @@ describe("persistent-root: getPersistentAgentStatus", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			});
 		} finally {
 			store.close();
@@ -3157,6 +3168,7 @@ describe("persistent-root: getPersistentAgentStatus", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			});
 		} finally {
 			store.close();
@@ -3200,6 +3212,7 @@ describe("persistent-root: getPersistentAgentStatus", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			});
 		} finally {
 			store.close();
@@ -3260,6 +3273,7 @@ describe("persistent-root: readPersistentAgentOutput", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			});
 		} finally {
 			store.close();

@@ -91,6 +91,7 @@ describe("mission review generation", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			});
 		} finally {
 			sessionStore.close();

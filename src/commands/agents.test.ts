@@ -114,6 +114,7 @@ describe("discoverAgents", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		};
 
 		store.upsert(session);
@@ -151,6 +152,7 @@ describe("discoverAgents", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		};
 
 		const scout: AgentSession = {
@@ -175,6 +177,7 @@ describe("discoverAgents", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		};
 
 		store.upsert(builder);
@@ -212,6 +215,7 @@ describe("discoverAgents", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		};
 
 		const completed: AgentSession = {
@@ -236,6 +240,7 @@ describe("discoverAgents", () => {
 			runtimeSessionId: null,
 			transcriptPath: null,
 			originalRuntime: null,
+			statusLine: null,
 		};
 
 		store.upsert(working);

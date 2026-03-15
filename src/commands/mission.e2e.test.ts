@@ -90,6 +90,7 @@ function makeRoleDeps(
 			runtimeSessionId: null,
 			transcriptPath: overrides.transcriptPath ?? null,
 			originalRuntime: null,
+			statusLine: null,
 			...overrides,
 		};
 	}
@@ -657,6 +658,7 @@ describe("mission command e2e", () => {
 				runtimeSessionId: null,
 				transcriptPath: null,
 				originalRuntime: null,
+				statusLine: null,
 			});
 		} finally {
 			sessionStore.close();

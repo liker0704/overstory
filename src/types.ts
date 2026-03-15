@@ -233,6 +233,7 @@ export interface AgentSession {
 	runtimeSessionId: string | null; // Runtime-native session ID (e.g. Claude UUID, OpenCode ses_xxx)
 	transcriptPath: string | null; // Runtime-provided transcript JSONL path (decoupled from ~/.claude/)
 	originalRuntime: string | null; // Pre-swap runtime (set by watchdog on rate-limit swap, cleared on resume)
+	statusLine: string | null; // Agent self-reported current activity (set via `ov status set`)
 }
 
 // === Agent Identity ===
