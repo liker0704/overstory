@@ -270,6 +270,21 @@ describe("freeze", () => {
 		const result = store.getById("mission-001");
 		expect(result?.pendingInputThreadId).toBeNull();
 	});
+
+	test("updates currentNode to phase:frozen", () => {
+		store.create(makeMission());
+		store.freeze("mission-001", "question", null);
+		const result = store.getById("mission-001");
+		expect(result?.currentNode).toBe("understand:frozen");
+	});
+
+	test("updates currentNode to current phase:frozen after phase advance", () => {
+		store.create(makeMission());
+		store.updatePhase("mission-001", "plan");
+		store.freeze("mission-001", "approval", null);
+		const result = store.getById("mission-001");
+		expect(result?.currentNode).toBe("plan:frozen");
+	});
 });
 
 describe("unfreeze", () => {
@@ -296,6 +311,15 @@ describe("unfreeze", () => {
 
 		const result = store.getById("mission-001");
 		expect(result?.reopenCount).toBe(2);
+	});
+
+	test("updates currentNode to phase:active", () => {
+		store.create(makeMission());
+		store.freeze("mission-001", "question", null);
+		expect(store.getById("mission-001")?.currentNode).toBe("understand:frozen");
+
+		store.unfreeze("mission-001");
+		expect(store.getById("mission-001")?.currentNode).toBe("understand:active");
 	});
 });
 

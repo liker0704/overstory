@@ -356,6 +356,7 @@ export function createMissionStore(dbPath: string): MissionStore {
 		    pending_input_kind = $kind,
 		    pending_input_thread_id = $thread_id,
 		    first_freeze_at = COALESCE(first_freeze_at, $updated_at),
+		    current_node = phase || ':frozen',
 		    updated_at = $updated_at
 		WHERE id = $id
 	`);
@@ -367,6 +368,7 @@ export function createMissionStore(dbPath: string): MissionStore {
 		    pending_input_kind = NULL,
 		    pending_input_thread_id = NULL,
 		    reopen_count = reopen_count + 1,
+		    current_node = phase || ':active',
 		    updated_at = $updated_at
 		WHERE id = $id
 	`);
