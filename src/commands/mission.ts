@@ -20,6 +20,12 @@ import {
 	materializeMissionRolePrompt,
 } from "../missions/context.ts";
 import { loadMissionEvents, recordMissionEvent } from "../missions/events.ts";
+import {
+	DEFAULT_MISSION_GRAPH,
+	getAvailableTransitions,
+	renderGraphPosition,
+	toMermaid,
+} from "../missions/graph.ts";
 import { buildNarrative, renderNarrative } from "../missions/narrative.ts";
 import { pauseWorkstream, resumeWorkstream } from "../missions/pause.ts";
 import { generateMissionReview } from "../missions/review.ts";
@@ -2446,6 +2452,64 @@ export async function missionBundle(overstoryDir: string, opts: BundleOpts): Pro
 
 // === Command factory ===
 
+async function missionGraph(
+	overstoryDir: string,
+	json: boolean,
+	format: "text" | "mermaid" | "json",
+): Promise<void> {
+	const missionId = await resolveCurrentMissionId(overstoryDir);
+	const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
+	try {
+		const mission = missionId ? missionStore.getById(missionId) : null;
+		const graph = DEFAULT_MISSION_GRAPH;
+
+		if (json || format === "json") {
+			const transitions = mission
+				? getAvailableTransitions(graph, mission.phase, mission.state)
+				: [];
+			jsonOutput("mission graph", {
+				graph,
+				currentNode: mission ? `${mission.phase}:${mission.state}` : null,
+				availableTransitions: transitions.map((e) => ({
+					to: e.to,
+					trigger: e.trigger,
+					condition: e.condition,
+				})),
+			});
+			return;
+		}
+
+		if (format === "mermaid") {
+			const output = toMermaid(graph, mission?.phase ?? undefined, mission?.state ?? undefined);
+			console.log(output);
+			return;
+		}
+
+		// Default: text format
+		renderHeader("Mission Workflow Graph");
+		if (mission) {
+			const position = renderGraphPosition(graph, mission.phase, mission.state);
+			console.log(`\n  ${position}\n`);
+
+			const transitions = getAvailableTransitions(graph, mission.phase, mission.state);
+			if (transitions.length > 0) {
+				renderSubHeader("Available transitions");
+				for (const edge of transitions) {
+					const desc = edge.condition ? ` (${edge.condition})` : "";
+					console.log(`  ${edge.trigger} → ${edge.to}${desc}`);
+				}
+				console.log();
+			}
+		} else {
+			printHint("No active mission. Showing default lifecycle graph.");
+			const position = renderGraphPosition(graph, "understand", "active");
+			console.log(`\n  ${position}\n`);
+		}
+	} finally {
+		missionStore.close();
+	}
+}
+
 interface MissionDefaultOpts {
 	json?: boolean;
 }
@@ -2648,6 +2712,19 @@ export function createMissionCommand(): Command {
 			const config = await loadConfig(cwd);
 			const overstoryDir = join(config.project.root, ".overstory");
 			await missionBundle(overstoryDir, opts);
+		});
+
+	cmd
+		.command("graph")
+		.description("Show the mission workflow graph and current position")
+		.option("--format <type>", "Output format: text, mermaid, json", "text")
+		.option("--json", "Output as JSON")
+		.action(async (opts: { format?: string; json?: boolean }) => {
+			const cwd = process.cwd();
+			const config = await loadConfig(cwd);
+			const overstoryDir = join(config.project.root, ".overstory");
+			const format = (opts.format ?? "text") as "text" | "mermaid" | "json";
+			await missionGraph(overstoryDir, opts.json ?? false, format);
 		});
 
 	return cmd;

@@ -35,6 +35,7 @@ interface MissionRow {
 	coordinator_session_id: string | null;
 	paused_lead_names: string;
 	pause_reason: string | null;
+	current_node: string | null;
 	started_at: string | null;
 	completed_at: string | null;
 	created_at: string;
@@ -48,7 +49,7 @@ CREATE TABLE IF NOT EXISTS missions (
   objective TEXT NOT NULL,
   run_id TEXT,
   state TEXT NOT NULL DEFAULT 'active'
-    CHECK(state IN ('active','frozen','completed','failed','stopped')),
+    CHECK(state IN ('active','frozen','completed','failed','stopped','suspended')),
   phase TEXT NOT NULL DEFAULT 'understand'
     CHECK(phase IN ('understand','align','decide','plan','execute','done')),
   first_freeze_at TEXT,
@@ -93,6 +94,7 @@ const REQUIRED_MISSION_COLUMNS = [
 	"coordinator_session_id",
 	"paused_lead_names",
 	"pause_reason",
+	"current_node",
 	"started_at",
 	"completed_at",
 	"created_at",
@@ -128,7 +130,8 @@ function migrateMissionSchema(db: Database): void {
 
 	const existingColumns = getMissionColumns(db);
 	const missingColumns = REQUIRED_MISSION_COLUMNS.filter((column) => !existingColumns.has(column));
-	const hasCurrentStateConstraint = result.sql.includes("'stopped'");
+	const hasCurrentStateConstraint =
+		result.sql.includes("'stopped'") && result.sql.includes("'suspended'");
 	const hasCurrentPhaseConstraint =
 		result.sql.includes("'understand'") &&
 		result.sql.includes("'align'") &&
@@ -144,7 +147,7 @@ function migrateMissionSchema(db: Database): void {
 	const stateExpr = existingColumns.has("state")
 		? `CASE
 				WHEN state = 'cancelled' THEN 'stopped'
-				WHEN state IN ('active','frozen','completed','failed','stopped') THEN state
+				WHEN state IN ('active','frozen','completed','failed','stopped','suspended') THEN state
 				ELSE 'active'
 			END`
 		: `'active'`;
@@ -178,7 +181,7 @@ function migrateMissionSchema(db: Database): void {
 			objective TEXT NOT NULL,
 			run_id TEXT,
 			state TEXT NOT NULL DEFAULT 'active'
-				CHECK(state IN ('active','frozen','completed','failed','stopped')),
+				CHECK(state IN ('active','frozen','completed','failed','stopped','suspended')),
 			phase TEXT NOT NULL DEFAULT 'understand'
 				CHECK(phase IN ('understand','align','decide','plan','execute','done')),
 			first_freeze_at TEXT,
@@ -193,6 +196,7 @@ function migrateMissionSchema(db: Database): void {
 			coordinator_session_id TEXT,
 			paused_lead_names TEXT NOT NULL DEFAULT '[]',
 			pause_reason TEXT,
+			current_node TEXT,
 			started_at TEXT,
 			completed_at TEXT,
 			created_at TEXT NOT NULL,
@@ -203,7 +207,7 @@ function migrateMissionSchema(db: Database): void {
 			pending_user_input, pending_input_kind, pending_input_thread_id,
 			reopen_count, artifact_root, paused_workstream_ids, analyst_session_id,
 			execution_director_session_id, coordinator_session_id, paused_lead_names,
-			pause_reason, started_at, completed_at, created_at, updated_at
+			pause_reason, current_node, started_at, completed_at, created_at, updated_at
 		)
 		SELECT
 			${missionColumnExpr(existingColumns, "id", "NULL")},
@@ -224,6 +228,7 @@ function migrateMissionSchema(db: Database): void {
 			${missionColumnExpr(existingColumns, "coordinator_session_id", "NULL")},
 			COALESCE(${missionColumnExpr(existingColumns, "paused_lead_names", "'[]'")}, '[]'),
 			${missionColumnExpr(existingColumns, "pause_reason", "NULL")},
+			${missionColumnExpr(existingColumns, "current_node", "NULL")},
 			${missionColumnExpr(existingColumns, "started_at", createdAtExpr)},
 			${missionColumnExpr(existingColumns, "completed_at", "NULL")},
 			${createdAtExpr},
@@ -256,6 +261,7 @@ function rowToMission(row: MissionRow): Mission {
 		coordinatorSessionId: row.coordinator_session_id,
 		pausedLeadNames: JSON.parse(row.paused_lead_names) as string[],
 		pauseReason: row.pause_reason,
+		currentNode: row.current_node ?? null,
 		startedAt: row.started_at,
 		completedAt: row.completed_at,
 		createdAt: row.created_at,
@@ -279,6 +285,15 @@ export function createMissionStore(dbPath: string): MissionStore {
 
 	db.exec(CREATE_TABLE);
 	migrateMissionSchema(db);
+
+	// Migrate: add current_node column (workflow graph position tracking)
+	{
+		const cols = getMissionColumns(db);
+		if (!cols.has("current_node")) {
+			db.exec("ALTER TABLE missions ADD COLUMN current_node TEXT");
+		}
+	}
+
 	db.exec(CREATE_INDEXES);
 
 	const insertStmt = db.prepare<
@@ -434,6 +449,13 @@ export function createMissionStore(dbPath: string): MissionStore {
 		UPDATE missions SET objective = $objective, updated_at = $updated_at WHERE id = $id
 	`);
 
+	const updateCurrentNodeStmt = db.prepare<
+		void,
+		{ $id: string; $current_node: string; $updated_at: string }
+	>(`
+		UPDATE missions SET current_node = $current_node, updated_at = $updated_at WHERE id = $id
+	`);
+
 	const completeMissionStmt = db.prepare<
 		void,
 		{ $id: string; $completed_at: string; $updated_at: string }
@@ -483,7 +505,7 @@ export function createMissionStore(dbPath: string): MissionStore {
 			return row ? rowToMission(row) : null;
 		},
 
-			list(opts?: { state?: MissionState; limit?: number }): Mission[] {
+		list(opts?: { state?: MissionState; limit?: number }): Mission[] {
 			const hasState = opts?.state !== undefined;
 			const hasLimit = opts?.limit !== undefined;
 
@@ -516,16 +538,16 @@ export function createMissionStore(dbPath: string): MissionStore {
 					`SELECT * FROM missions ORDER BY created_at DESC`,
 				)
 				.all({});
-				return rows.map(rowToMission);
-			},
+			return rows.map(rowToMission);
+		},
 
-			delete(id: string): void {
-				deleteStmt.run({ $id: id });
-			},
+		delete(id: string): void {
+			deleteStmt.run({ $id: id });
+		},
 
-			updateState(id: string, state: MissionState): void {
-				updateStateStmt.run({ $id: id, $state: state, $updated_at: new Date().toISOString() });
-			},
+		updateState(id: string, state: MissionState): void {
+			updateStateStmt.run({ $id: id, $state: state, $updated_at: new Date().toISOString() });
+		},
 
 		updatePhase(id: string, phase: MissionPhase): void {
 			updatePhaseStmt.run({ $id: id, $phase: phase, $updated_at: new Date().toISOString() });
@@ -615,6 +637,14 @@ export function createMissionStore(dbPath: string): MissionStore {
 			updateObjectiveStmt.run({
 				$id: id,
 				$objective: objective,
+				$updated_at: new Date().toISOString(),
+			});
+		},
+
+		updateCurrentNode(id: string, nodeId: string): void {
+			updateCurrentNodeStmt.run({
+				$id: id,
+				$current_node: nodeId,
 				$updated_at: new Date().toISOString(),
 			});
 		},

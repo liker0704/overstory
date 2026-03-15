@@ -938,6 +938,58 @@ export interface InsightAnalysis {
 	fileProfile: FileProfile;
 }
 
+// === Mission Workflow Graph ===
+
+/** A node in the mission workflow graph. */
+export interface MissionGraphNode {
+	/** Unique node ID, conventionally "phase:state" (e.g., "understand:active"). */
+	id: string;
+	/** The mission phase this node represents. */
+	phase: MissionPhase;
+	/** The mission state this node represents. */
+	state: MissionState;
+	/** Human-readable label for display. */
+	label?: string;
+	/** Whether this node blocks on input (human gate). */
+	gate?: "human" | "auto";
+	/** Whether this is a terminal (sink) node. */
+	terminal?: boolean;
+}
+
+/** An edge in the mission workflow graph. */
+export interface MissionGraphEdge {
+	/** Source node ID. */
+	from: string;
+	/** Target node ID. */
+	to: string;
+	/** What triggers this transition (e.g. "freeze", "answer", "handoff"). */
+	trigger: string;
+	/** Human-readable condition description. */
+	condition?: string;
+	/** Weight for preferred-path rendering (higher = preferred). */
+	weight?: number;
+}
+
+/** The complete mission workflow graph. */
+export interface MissionGraph {
+	/** Graph format version. */
+	version: 1;
+	/** All nodes. */
+	nodes: MissionGraphNode[];
+	/** All edges. */
+	edges: MissionGraphEdge[];
+}
+
+/** Result of validating a transition against the graph. */
+export interface GraphTransitionResult {
+	/** Whether the transition is legal per the graph. */
+	valid: boolean;
+	/** The edge that permits this transition, if any. */
+	edge: MissionGraphEdge | null;
+	/** Human-readable explanation. */
+	reason: string;
+}
+
 // === Mission (Long-Running Objective Tracking) ===
 
 export type MissionState = "active" | "frozen" | "completed" | "failed" | "stopped" | "suspended";
@@ -987,6 +1039,7 @@ export interface Mission {
 	coordinatorSessionId: string | null;
 	pausedLeadNames: string[];
 	pauseReason: string | null;
+	currentNode: string | null;
 	startedAt: string | null;
 	completedAt: string | null;
 	createdAt: string;
@@ -1043,5 +1096,6 @@ export interface MissionStore {
 	completeMission(id: string): void;
 	updateSlug(id: string, slug: string): void;
 	updateObjective(id: string, objective: string): void;
+	updateCurrentNode(id: string, nodeId: string): void;
 	close(): void;
 }

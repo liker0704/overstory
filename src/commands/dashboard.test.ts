@@ -54,6 +54,7 @@ function makeMission(overrides: Partial<Mission> = {}): Mission {
 		coordinatorSessionId: null,
 		pausedLeadNames: [],
 		pauseReason: "brief refresh requires regeneration",
+		currentNode: null,
 		startedAt: "2026-03-13T10:00:00.000Z",
 		completedAt: null,
 		createdAt: "2026-03-13T10:00:00.000Z",
