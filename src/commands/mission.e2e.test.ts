@@ -12,6 +12,7 @@ import { createRunStore, createSessionStore } from "../sessions/store.ts";
 import { cleanupTempDir, createTempGitRepo } from "../test-helpers.ts";
 import type { AgentSession } from "../types.ts";
 import {
+	type MissionCommandDeps,
 	missionAnswer,
 	missionComplete,
 	missionHandoff,
@@ -20,7 +21,6 @@ import {
 	missionStart,
 	missionStop,
 	missionUpdate,
-	type MissionCommandDeps,
 } from "./mission.ts";
 import { specWriteCommand } from "./spec.ts";
 
@@ -78,7 +78,7 @@ function makeRoleDeps(
 			taskId: overrides.taskId ?? missionId,
 			tmuxSession: overrides.tmuxSession ?? `ov-${agentName}`,
 			state: overrides.state ?? "working",
-			pid: overrides.pid ?? (1000 + started.length),
+			pid: overrides.pid ?? 1000 + started.length,
 			parentAgent: overrides.parentAgent ?? null,
 			depth: overrides.depth ?? 0,
 			runId,
@@ -289,10 +289,15 @@ describe("mission command e2e", () => {
 		expect(handoffPayload.dispatchCommands?.[0]?.command).toContain(briefPath);
 
 		await Bun.write(briefPath, "# Auth brief v2\n");
-		await missionRefreshBriefsCommand(overstoryDir, tempDir, {
-			workstream: "ws-auth",
-			json: true,
-		}, deps);
+		await missionRefreshBriefsCommand(
+			overstoryDir,
+			tempDir,
+			{
+				workstream: "ws-auth",
+				json: true,
+			},
+			deps,
+		);
 
 		const refreshedMission = missionStore.getById(mission!.id);
 		expect(refreshedMission?.pausedWorkstreamIds).toContain("ws-auth");
@@ -421,14 +426,19 @@ describe("mission command e2e", () => {
 
 		await missionHandoff(overstoryDir, tempDir, true, deps);
 		await Bun.write(briefPath, "# Auth brief v2\n");
-		await missionRefreshBriefsCommand(overstoryDir, tempDir, {
-			workstream: "ws-auth",
-			json: true,
-		}, deps);
+		await missionRefreshBriefsCommand(
+			overstoryDir,
+			tempDir,
+			{
+				workstream: "ws-auth",
+				json: true,
+			},
+			deps,
+		);
 
 		const refreshedMission = missionStore.getById(mission!.id);
 		expect(refreshedMission?.pausedWorkstreamIds).toContain("ws-auth");
-		expect((await readSpecMeta(tempDir, "task-auth"))).toBeNull();
+		expect(await readSpecMeta(tempDir, "task-auth")).toBeNull();
 
 		await missionResume(overstoryDir, tempDir, "ws-auth", true, deps);
 		expect(process.exitCode).toBe(1);
@@ -501,7 +511,9 @@ describe("mission command e2e", () => {
 
 		await missionHandoff(overstoryDir, tempDir, true, deps);
 
-		expect((await Bun.file(join(overstoryDir, "current-mission.txt")).text()).trim()).toBe(mission!.id);
+		expect((await Bun.file(join(overstoryDir, "current-mission.txt")).text()).trim()).toBe(
+			mission!.id,
+		);
 		expect((await Bun.file(join(overstoryDir, "current-run.txt")).text()).trim()).toBe(
 			mission!.runId ?? "",
 		);
@@ -601,7 +613,7 @@ describe("mission command e2e", () => {
 		expect(mission).not.toBeNull();
 
 		const paths = getMissionArtifactPaths(mission!);
-		await missionStop(overstoryDir, tempDir, true, deps);
+		await missionStop(overstoryDir, tempDir, true, true, deps);
 
 		const stoppedMission = missionStore.getById(mission!.id);
 		expect(stoppedMission?.state).toBe("stopped");
@@ -664,7 +676,7 @@ describe("mission command e2e", () => {
 			sessionStore.close();
 		}
 
-		await missionStop(overstoryDir, tempDir, true, deps);
+		await missionStop(overstoryDir, tempDir, true, true, deps);
 
 		const verifySessionStore = createSessionStore(join(overstoryDir, "sessions.db"));
 		try {
@@ -672,7 +684,12 @@ describe("mission command e2e", () => {
 		} finally {
 			verifySessionStore.close();
 		}
-		expect(deps.stopped).toEqual(["coordinator", "mission-analyst", "execution-director", "docs-smoke-lead"]);
+		expect(deps.stopped).toEqual([
+			"coordinator",
+			"mission-analyst",
+			"execution-director",
+			"docs-smoke-lead",
+		]);
 
 		missionStore.close();
 	});
@@ -764,9 +781,7 @@ describe("mission command e2e", () => {
 
 		// Verify dispatch mail tells coordinator to discover objective
 		const mailStore = createMailStore(join(overstoryDir, "mail.db"));
-		const dispatchMail = mailStore
-			.getAll({ to: "coordinator" })
-			.find((m) => m.type === "dispatch");
+		const dispatchMail = mailStore.getAll({ to: "coordinator" }).find((m) => m.type === "dispatch");
 		expect(dispatchMail?.body).toContain("No objective was provided at start");
 		expect(dispatchMail?.body).toContain("ov mission update");
 
@@ -786,9 +801,7 @@ describe("mission command e2e", () => {
 			objective: "Rewrite auth with OAuth2 support",
 			json: true,
 		});
-		expect(missionStore.getById(mission!.id)?.objective).toBe(
-			"Rewrite auth with OAuth2 support",
-		);
+		expect(missionStore.getById(mission!.id)?.objective).toBe("Rewrite auth with OAuth2 support");
 		expect(missionStore.getById(mission!.id)?.slug).toBe("auth-rewrite");
 
 		// Update with no args should fail

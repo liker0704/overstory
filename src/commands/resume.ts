@@ -166,7 +166,7 @@ function buildResumeNudge(session: AgentSession): string {
 	return parts.join(" ");
 }
 
-async function resumeAgent(
+export async function resumeAgent(
 	session: AgentSession,
 	config: OverstoryConfig,
 	root: string,

@@ -940,13 +940,14 @@ export interface InsightAnalysis {
 
 // === Mission (Long-Running Objective Tracking) ===
 
-export type MissionState = "active" | "frozen" | "completed" | "failed" | "stopped";
+export type MissionState = "active" | "frozen" | "completed" | "failed" | "stopped" | "suspended";
 export const MISSION_STATES: readonly MissionState[] = [
 	"active",
 	"frozen",
 	"completed",
 	"failed",
 	"stopped",
+	"suspended",
 ] as const;
 
 export type MissionPhase = "understand" | "align" | "decide" | "plan" | "execute" | "done";

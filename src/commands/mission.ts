@@ -23,7 +23,6 @@ import { loadMissionEvents, recordMissionEvent } from "../missions/events.ts";
 import { buildNarrative, renderNarrative } from "../missions/narrative.ts";
 import { pauseWorkstream, resumeWorkstream } from "../missions/pause.ts";
 import { generateMissionReview } from "../missions/review.ts";
-import { computeMissionScore, renderMissionScore } from "../missions/score.ts";
 import {
 	startExecutionDirector,
 	startMissionAnalyst,
@@ -36,6 +35,7 @@ import {
 	resolveActiveMissionContext,
 	writeMissionRuntimePointers,
 } from "../missions/runtime-context.ts";
+import { computeMissionScore, renderMissionScore } from "../missions/score.ts";
 import { createMissionStore } from "../missions/store.ts";
 import {
 	getMissionWorkstream,
@@ -52,8 +52,15 @@ import { openSessionStore } from "../sessions/compat.ts";
 import { createRunStore } from "../sessions/store.ts";
 import { createTrackerClient, resolveBackend } from "../tracker/factory.ts";
 import type { InsertMission, Mission, MissionSummary } from "../types.ts";
-import { attachOrSwitch } from "../worktree/tmux.ts";
+import {
+	attachOrSwitch,
+	isSessionAlive,
+	killProcessTree,
+	killSession,
+	listSessions,
+} from "../worktree/tmux.ts";
 import { nudgeAgent } from "./nudge.ts";
+import { resumeAgent } from "./resume.ts";
 import { stopCommand } from "./stop.ts";
 
 export interface MissionCommandDeps {
@@ -367,6 +374,106 @@ async function stopMissionRunDescendants(opts: {
 		return stopped;
 	} finally {
 		store.close();
+	}
+}
+
+/**
+ * Suspend a mission: kill all tmux sessions but preserve state for resume.
+ * Unlike terminalizeMission(), this does NOT drain mail, clear runtime pointers,
+ * complete the run, or export bundle/review.
+ */
+async function suspendMission(opts: {
+	overstoryDir: string;
+	projectRoot: string;
+	mission: Mission;
+	json: boolean;
+}): Promise<void> {
+	const { overstoryDir, mission, json } = opts;
+	const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
+
+	try {
+		// Kill tmux sessions for persistent roles (without changing session state)
+		for (const roleName of ["coordinator", "mission-analyst", "execution-director"]) {
+			const { store } = openSessionStore(overstoryDir);
+			try {
+				const session = store.getByName(roleName);
+				if (!session || session.state === "completed") continue;
+				if (session.tmuxSession) {
+					const alive = await isSessionAlive(session.tmuxSession);
+					if (alive) {
+						await killSession(session.tmuxSession);
+					}
+				}
+				if (session.pid) {
+					try {
+						await killProcessTree(session.pid);
+					} catch {
+						// Process may already be dead
+					}
+				}
+				recordMissionEvent({
+					overstoryDir,
+					mission,
+					agentName: "operator",
+					data: { kind: "role_stopped", detail: `${roleName} suspended` },
+				});
+			} finally {
+				store.close();
+			}
+		}
+
+		// Kill tmux sessions for descendant worker agents
+		if (mission.runId) {
+			const { store } = openSessionStore(overstoryDir);
+			try {
+				const descendants = store
+					.getByRun(mission.runId)
+					.filter(
+						(s) =>
+							!["coordinator", "mission-analyst", "execution-director"].includes(s.agentName) &&
+							s.state !== "completed",
+					);
+				for (const session of descendants) {
+					if (session.tmuxSession) {
+						const alive = await isSessionAlive(session.tmuxSession);
+						if (alive) {
+							await killSession(session.tmuxSession);
+						}
+					}
+					if (session.pid) {
+						try {
+							await killProcessTree(session.pid);
+						} catch {
+							// Process may already be dead
+						}
+					}
+					recordMissionEvent({
+						overstoryDir,
+						mission,
+						agentName: "operator",
+						data: { kind: "role_stopped", detail: `${session.agentName} suspended` },
+					});
+				}
+			} finally {
+				store.close();
+			}
+		}
+
+		// Set mission state to suspended (preserves runtime pointers, mail, run)
+		const beforeState = mission.state;
+		missionStore.updateState(mission.id, "suspended");
+		recordMissionEvent({
+			overstoryDir,
+			mission,
+			agentName: "operator",
+			data: { kind: "state_change", from: beforeState, to: "suspended" },
+		});
+
+		if (!json) {
+			printSuccess("Mission suspended", `${mission.slug} — use 'ov mission resume' to restore`);
+		}
+	} finally {
+		missionStore.close();
 	}
 }
 
@@ -1946,6 +2053,7 @@ export async function missionStop(
 	overstoryDir: string,
 	projectRoot: string,
 	json: boolean,
+	kill: boolean,
 	deps: MissionCommandDeps = {},
 ): Promise<void> {
 	const missionId = await resolveCurrentMissionId(overstoryDir);
@@ -1972,24 +2080,130 @@ export async function missionStop(
 			return;
 		}
 
-		const result = await terminalizeMission({
-			overstoryDir,
-			projectRoot,
-			mission,
-			targetState: "stopped",
-			json,
-			deps,
-		});
-		if (json) {
-			jsonOutput("mission stop", {
-				missionId,
-				slug: mission.slug,
-				state: "stopped",
-				bundlePath: result.bundlePath,
-				reviewId: result.reviewId,
+		if (kill) {
+			const result = await terminalizeMission({
+				overstoryDir,
+				projectRoot,
+				mission,
+				targetState: "stopped",
+				json,
+				deps,
 			});
+			if (json) {
+				jsonOutput("mission stop", {
+					missionId,
+					slug: mission.slug,
+					state: "stopped",
+					bundlePath: result.bundlePath,
+					reviewId: result.reviewId,
+				});
+			} else {
+				printSuccess("Mission stopped", mission.slug);
+			}
 		} else {
-			printSuccess("Mission stopped", mission.slug);
+			await suspendMission({ overstoryDir, projectRoot, mission, json });
+			if (json) {
+				jsonOutput("mission stop", {
+					missionId,
+					slug: mission.slug,
+					state: "suspended",
+				});
+			}
+		}
+	} finally {
+		missionStore.close();
+	}
+}
+
+export async function missionResumeAll(
+	overstoryDir: string,
+	projectRoot: string,
+	json: boolean,
+): Promise<void> {
+	// Find suspended mission
+	const missionId = await resolveCurrentMissionId(overstoryDir);
+	const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
+	try {
+		let mission: Mission | undefined;
+		if (missionId) {
+			mission = missionStore.getById(missionId) ?? undefined;
+		}
+		if (!mission || mission.state !== "suspended") {
+			// Try finding most recent suspended mission
+			const suspended = missionStore.list({ state: "suspended", limit: 1 });
+			mission = suspended[0];
+		}
+		if (!mission) {
+			if (json) {
+				jsonError("mission resume", "No suspended mission to resume");
+			} else {
+				printError("No suspended mission to resume");
+			}
+			process.exitCode = 1;
+			return;
+		}
+
+		// Restore mission state
+		missionStore.updateState(mission.id, "active");
+		recordMissionEvent({
+			overstoryDir,
+			mission,
+			agentName: "operator",
+			data: { kind: "state_change", from: "suspended", to: "active" },
+		});
+
+		// Ensure runtime pointers are written
+		await writeMissionRuntimePointers(overstoryDir, mission.id, mission.runId ?? null);
+
+		// Find all resumable agents from this mission's run
+		const config = await loadConfig(projectRoot);
+		const { store } = openSessionStore(overstoryDir);
+		try {
+			const aliveSessions = new Set((await listSessions()).map((s) => s.name));
+			const allSessions = mission.runId ? store.getByRun(mission.runId) : [];
+			const resumable = allSessions.filter((s) => {
+				if (s.state === "completed") return false;
+				if (aliveSessions.has(s.tmuxSession)) return false;
+				return true;
+			});
+
+			// Resume persistent roles first, then workers (by depth)
+			const roleNames = new Set(["coordinator", "mission-analyst", "execution-director"]);
+			const roles = resumable.filter((s) => roleNames.has(s.agentName));
+			const workers = resumable
+				.filter((s) => !roleNames.has(s.agentName))
+				.sort((a, b) => a.depth - b.depth);
+			const ordered = [...roles, ...workers];
+
+			const results: Array<{ agentName: string; success: boolean; error?: string }> = [];
+			for (const session of ordered) {
+				try {
+					await resumeAgent(session, config, projectRoot);
+					results.push({ agentName: session.agentName, success: true });
+					if (!json) {
+						printSuccess(`Resumed ${session.agentName}`);
+					}
+				} catch (err) {
+					const msg = err instanceof Error ? err.message : String(err);
+					results.push({ agentName: session.agentName, success: false, error: msg });
+					if (!json) {
+						printWarning(`Failed to resume ${session.agentName}: ${msg}`);
+					}
+				}
+			}
+
+			if (json) {
+				jsonOutput("mission resume", {
+					missionId: mission.id,
+					slug: mission.slug,
+					state: "active",
+					resumed: results,
+				});
+			} else if (results.length === 0) {
+				printHint("Mission state restored. No agents to resume.");
+			}
+		} finally {
+			store.close();
 		}
 	} finally {
 		missionStore.close();
@@ -2257,17 +2471,11 @@ export function createMissionCommand(): Command {
 		.option("--no-attach", "Do not attach to coordinator tmux session")
 		.option("--json", "Output as JSON")
 		.action(
-			async (opts: {
-				slug?: string;
-				objective?: string;
-				attach?: boolean;
-				json?: boolean;
-			}) => {
+			async (opts: { slug?: string; objective?: string; attach?: boolean; json?: boolean }) => {
 				const cwd = process.cwd();
 				const config = await loadConfig(cwd);
 				const overstoryDir = join(config.project.root, ".overstory");
-				const attach =
-					opts.attach ?? (opts.json ? false : process.stdout.isTTY === true);
+				const attach = opts.attach ?? (opts.json ? false : process.stdout.isTTY === true);
 				await missionStart(overstoryDir, config.project.root, { ...opts, attach });
 			},
 		);
@@ -2357,14 +2565,18 @@ export function createMissionCommand(): Command {
 
 	cmd
 		.command("resume")
-		.description("Resume a paused mission workstream after spec/brief validation")
-		.argument("<workstream-id>", "Mission workstream ID")
+		.description("Resume a suspended mission or a paused workstream")
+		.argument("[workstream-id]", "Workstream ID (omit to resume entire suspended mission)")
 		.option("--json", "Output as JSON")
-		.action(async (workstreamId: string, opts: MissionDefaultOpts) => {
+		.action(async (workstreamId: string | undefined, opts: MissionDefaultOpts) => {
 			const cwd = process.cwd();
 			const config = await loadConfig(cwd);
 			const overstoryDir = join(config.project.root, ".overstory");
-			await missionResume(overstoryDir, config.project.root, workstreamId, opts.json ?? false);
+			if (workstreamId) {
+				await missionResume(overstoryDir, config.project.root, workstreamId, opts.json ?? false);
+			} else {
+				await missionResumeAll(overstoryDir, config.project.root, opts.json ?? false);
+			}
 		});
 
 	cmd
@@ -2392,13 +2604,14 @@ export function createMissionCommand(): Command {
 
 	cmd
 		.command("stop")
-		.description("Stop and terminalize the active mission (clears pointer files)")
+		.description("Suspend the active mission (preserves state for resume)")
+		.option("--kill", "Full teardown — no resume possible")
 		.option("--json", "Output as JSON")
-		.action(async (opts: MissionDefaultOpts) => {
+		.action(async (opts: MissionDefaultOpts & { kill?: boolean }) => {
 			const cwd = process.cwd();
 			const config = await loadConfig(cwd);
 			const overstoryDir = join(config.project.root, ".overstory");
-			await missionStop(overstoryDir, config.project.root, opts.json ?? false);
+			await missionStop(overstoryDir, config.project.root, opts.json ?? false, opts.kill ?? false);
 		});
 
 	cmd
