@@ -89,6 +89,10 @@ const PROTOCOL_TYPES = new Set<string>([
 	"analyst_recommendation",
 	"execution_handoff",
 	"mission_resolution",
+	"plan_review_request",
+	"plan_critic_verdict",
+	"plan_review_consolidated",
+	"plan_revision_complete",
 ]);
 
 /**

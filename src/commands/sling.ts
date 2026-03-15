@@ -22,7 +22,11 @@ import { mkdirSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createIdentity, loadIdentity } from "../agents/identity.ts";
-import { createManifestLoader, resolveMissionCapability, resolveModel } from "../agents/manifest.ts";
+import {
+	createManifestLoader,
+	resolveMissionCapability,
+	resolveModel,
+} from "../agents/manifest.ts";
 import { writeOverlay } from "../agents/overlay.ts";
 import { loadConfig } from "../config.ts";
 import { AgentError, HierarchyError, ValidationError } from "../errors.ts";
@@ -401,7 +405,14 @@ export function allowedChildCapabilities(parentCapability: string | null): strin
 	}
 
 	if (parentCapability === "coordinator" || parentCapability === "coordinator-mission") {
-		return ["lead", "scout", "builder", "mission-analyst", "execution-director"];
+		return [
+			"lead",
+			"scout",
+			"builder",
+			"mission-analyst",
+			"execution-director",
+			"plan-review-lead",
+		];
 	}
 
 	if (parentCapability === "execution-director") {
@@ -410,6 +421,16 @@ export function allowedChildCapabilities(parentCapability: string | null): strin
 
 	if (parentCapability === "lead" || parentCapability === "lead-mission") {
 		return ["scout", "builder", "reviewer", "merger"];
+	}
+
+	if (parentCapability === "plan-review-lead") {
+		return [
+			"plan-devil-advocate",
+			"plan-security-critic",
+			"plan-performance-critic",
+			"plan-second-opinion",
+			"plan-simulator",
+		];
 	}
 
 	return [];
@@ -620,7 +641,11 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 		);
 	}
 
-	if (hasMission && (capability === "builder" || capability === "reviewer") && absoluteSpecPath === null) {
+	if (
+		hasMission &&
+		(capability === "builder" || capability === "reviewer") &&
+		absoluteSpecPath === null
+	) {
 		throw new ValidationError(
 			`Mission ${capability} agents must be launched with --spec so runtime can verify current mission metadata.`,
 			{ field: "spec", value: specPath },
@@ -636,7 +661,11 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 
 	const resolvedCapability = resolveMissionCapability(capability, hasMission);
 
-	if (hasMission && absoluteSpecPath !== null && (capability === "builder" || capability === "reviewer")) {
+	if (
+		hasMission &&
+		absoluteSpecPath !== null &&
+		(capability === "builder" || capability === "reviewer")
+	) {
 		const specValidation = await validateCurrentMissionSpec(config.project.root, absoluteSpecPath, {
 			expectedTaskId: taskId,
 		});

@@ -98,6 +98,13 @@ export function validateUnknownFields(raw: Record<string, unknown>): void {
 		assertKnownKeys(raw.rateLimit, KNOWN_FIELDS.rateLimit, "rateLimit");
 	}
 
+	if (isObj(raw.mission)) {
+		assertKnownKeys(raw.mission, KNOWN_FIELDS.mission, "mission");
+		if (isObj(raw.mission.planReview)) {
+			assertKnownKeys(raw.mission.planReview, KNOWN_FIELDS.missionPlanReview, "mission.planReview");
+		}
+	}
+
 	if (isObj(raw.runtime)) {
 		assertKnownKeys(raw.runtime, KNOWN_FIELDS.runtime, "runtime");
 		if (isObj(raw.runtime.pi)) {
