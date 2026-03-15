@@ -171,6 +171,18 @@ export interface OverstoryConfig {
 		 */
 		shellInitDelayMs?: number;
 	};
+	mission?: {
+		planReview?: {
+			/** Whether plan review is enabled. Default: true when in mission mode. */
+			enabled: boolean;
+			/** Verification depth. Default: "full". */
+			tier: PlanReviewTier;
+			/** Maximum review rounds before declaring stuck. Default: 3. */
+			maxRounds: number;
+			/** Model override for critic agents. Default: uses manifest default. */
+			criticModel?: ModelRef;
+		};
+	};
 }
 
 // === Agent Manifest ===
@@ -272,7 +284,11 @@ export type MailProtocolType =
 	| "execution_guidance"
 	| "analyst_recommendation"
 	| "execution_handoff"
-	| "mission_resolution";
+	| "mission_resolution"
+	| "plan_review_request"
+	| "plan_critic_verdict"
+	| "plan_review_consolidated"
+	| "plan_revision_complete";
 
 /** All valid mail message types. */
 export type MailMessageType = MailSemanticType | MailProtocolType;
@@ -298,6 +314,10 @@ export const MAIL_MESSAGE_TYPES: readonly MailMessageType[] = [
 	"analyst_recommendation",
 	"execution_handoff",
 	"mission_resolution",
+	"plan_review_request",
+	"plan_critic_verdict",
+	"plan_review_consolidated",
+	"plan_revision_complete",
 ] as const;
 
 export interface MailMessage {
@@ -457,6 +477,98 @@ export interface MissionResolutionPayload {
 	affectedWorkstreams: string[];
 }
 
+// === Plan Review Payloads ===
+
+/** Verdict from a plan critic agent. */
+export type PlanReviewVerdict = "APPROVE" | "APPROVE_WITH_NOTES" | "RECOMMEND_CHANGES" | "BLOCK";
+
+/** Verification tier for plan review depth. */
+export type PlanReviewTier = "simple" | "full" | "max";
+
+/** Critic types available for plan review. */
+export type PlanCriticType =
+	| "devil-advocate"
+	| "security"
+	| "performance"
+	| "second-opinion"
+	| "simulator";
+
+/** All critic types as a runtime array. */
+export const PLAN_CRITIC_TYPES: readonly PlanCriticType[] = [
+	"devil-advocate",
+	"security",
+	"performance",
+	"second-opinion",
+	"simulator",
+] as const;
+
+/** Maps verification tier to which critic types are spawned. */
+export const PLAN_REVIEW_TIER_CRITICS: Record<PlanReviewTier, readonly PlanCriticType[]> = {
+	simple: ["devil-advocate", "second-opinion"],
+	full: ["devil-advocate", "security", "performance", "second-opinion"],
+	max: ["devil-advocate", "security", "performance", "second-opinion", "simulator"],
+} as const;
+
+/** Coordinator requests plan review from plan-review-lead. */
+export interface PlanReviewRequestPayload {
+	missionId: string;
+	artifactRoot: string;
+	workstreamsJsonPath: string;
+	briefPaths: string[];
+	criticTypes: PlanCriticType[];
+	tier: PlanReviewTier;
+	round: number;
+	previousBlockConcerns: string[];
+}
+
+/** A single concern raised by a plan critic. */
+export interface PlanCriticConcern {
+	id: string;
+	severity: "low" | "medium" | "high" | "critical";
+	summary: string;
+	detail: string;
+	affectedWorkstreams: string[];
+}
+
+/** Individual critic verdict sent to plan-review-lead. */
+export interface PlanCriticVerdictPayload {
+	criticType: PlanCriticType;
+	verdict: PlanReviewVerdict;
+	concerns: PlanCriticConcern[];
+	notes: string[];
+	round: number;
+	confidence: number;
+}
+
+/** Consolidated review from plan-review-lead to coordinator. */
+export interface PlanReviewConsolidatedPayload {
+	missionId: string;
+	overallVerdict: PlanReviewVerdict;
+	round: number;
+	criticVerdicts: Array<{
+		criticType: PlanCriticType;
+		verdict: PlanReviewVerdict;
+		concernCount: number;
+	}>;
+	blockingConcerns: Array<{
+		criticType: PlanCriticType;
+		concernId: string;
+		summary: string;
+	}>;
+	notes: string[];
+	isStuck: boolean;
+	repeatedConcerns: string[];
+	confidence: number | null;
+}
+
+/** Analyst signals plan revision is complete. */
+export interface PlanRevisionCompletePayload {
+	missionId: string;
+	round: number;
+	revisedArtifacts: string[];
+	addressedConcerns: string[];
+}
+
 /** Maps protocol message types to their payload interfaces. */
 export interface MailPayloadMap {
 	worker_done: WorkerDonePayload;
@@ -474,6 +586,10 @@ export interface MailPayloadMap {
 	analyst_recommendation: AnalystRecommendationPayload;
 	execution_handoff: ExecutionHandoffPayload;
 	mission_resolution: MissionResolutionPayload;
+	plan_review_request: PlanReviewRequestPayload;
+	plan_critic_verdict: PlanCriticVerdictPayload;
+	plan_review_consolidated: PlanReviewConsolidatedPayload;
+	plan_revision_complete: PlanRevisionCompletePayload;
 }
 
 // === Overlay ===

@@ -68,6 +68,29 @@ export function resolveGroupAddress(
 		return recipients;
 	}
 
+	// Handle @critics — all active plan critic agents (multiple capabilities)
+	if (normalized === "@critics" || normalized === "@plan-critics") {
+		const criticCapabilities = new Set([
+			"plan-devil-advocate",
+			"plan-security-critic",
+			"plan-performance-critic",
+			"plan-second-opinion",
+			"plan-simulator",
+		]);
+		const recipients = activeSessions
+			.filter((s) => criticCapabilities.has(s.capability))
+			.map((s) => s.agentName)
+			.filter((name) => name !== senderName);
+
+		if (recipients.length === 0) {
+			throw new Error(
+				`Group address "${groupAddress}" resolved to zero recipients (no active plan critic agents)`,
+			);
+		}
+
+		return recipients;
+	}
+
 	// Handle capability groups
 	const capability = CAPABILITY_GROUPS[normalized];
 	if (capability !== undefined) {

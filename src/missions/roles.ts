@@ -199,6 +199,52 @@ export async function startExecutionDirector(
 }
 
 /**
+ * Start the plan-review-lead persistent root agent.
+ *
+ * Spawned during the plan phase to coordinate critic agents. Unlike other
+ * mission roles, the plan-review-lead is ephemeral — it runs only during
+ * plan review and is stopped after the review completes. It does NOT bind
+ * to a mission session column (no dedicated DB field).
+ */
+export async function startPlanReviewLead(
+	opts: StartMissionRoleOpts,
+	_deps?: MissionRoleDeps,
+): Promise<StartPersistentAgentResult> {
+	const startAgent = _deps?.startAgent ?? startPersistentAgent;
+
+	return startAgent({
+		agentName: "plan-review-lead",
+		capability: "plan-review-lead",
+		projectRoot: opts.projectRoot,
+		overstoryDir: opts.overstoryDir,
+		tmuxSession: "ov-plan-review-lead",
+		createRun: false,
+		existingRunId: opts.existingRunId,
+		appendSystemPromptFile: opts.appendSystemPromptFile,
+		appendSystemPrompt: opts.appendSystemPrompt,
+		beacon: opts.beacon,
+	});
+}
+
+/**
+ * Stop the plan-review-lead agent.
+ *
+ * Convenience wrapper around stopMissionRole for the plan-review-lead.
+ */
+export async function stopPlanReviewLead(
+	opts: StopMissionRoleOpts,
+	_deps?: MissionRoleDeps,
+): Promise<StopPersistentAgentResult> {
+	const stopAgent = _deps?.stopAgent ?? stopPersistentAgent;
+	return stopAgent("plan-review-lead", {
+		projectRoot: opts.projectRoot,
+		overstoryDir: opts.overstoryDir,
+		runStatus: opts.runStatus ?? "stopped",
+		completeRun: false,
+	});
+}
+
+/**
  * Stop a mission role agent (coordinator, mission-analyst, or execution-director).
  *
  * Calls stopPersistentAgent with the given agent name and returns the result.

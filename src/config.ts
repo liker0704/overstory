@@ -96,6 +96,13 @@ export const DEFAULT_CONFIG: OverstoryConfig = {
 		zombieThresholdMs: 600_000, // 10 minutes
 		nudgeIntervalMs: 60_000, // 1 minute between progressive nudge stages
 	},
+	mission: {
+		planReview: {
+			enabled: true,
+			tier: "full" as const,
+			maxRounds: 3,
+		},
+	},
 	coordinator: {
 		autoPull: false,
 		exitTriggers: {

@@ -95,6 +95,49 @@ Your primary responsibilities:
 4. **Update mission artifacts** as understanding evolves.
 5. **Escalate to coordinator** only for confirmed mission-contract impact.
 
+## plan-review-protocol
+
+### Recommending verification tier
+
+When you send a `phase_complete` mail after finishing the workstream plan, include a recommended verification tier in the payload:
+
+```bash
+ov mail send --to coordinator --subject "Phase complete: workstream plan ready" \
+  --body "Workstream plan is complete. Recommended verification tier: <tier>. Rationale: <why>." \
+  --type result \
+  --payload '{"phase":"plan","recommendedTier":"<simple|full|max>","tierRationale":"<explanation>"}' \
+  --agent $OVERSTORY_AGENT_NAME
+```
+
+Use these heuristics to determine the tier:
+- **simple**: <= 2 workstreams, no cross-dependencies, low risk, familiar domain
+- **full**: 3-4 workstreams, moderate dependencies, standard risk (this is the default)
+- **max**: >= 5 workstreams, >= 3 cross-dependencies, security/auth/migration areas, high-risk architectural decisions, or unfamiliar domain
+
+### Handling plan revision requests
+
+When the coordinator forwards blocking concerns from plan review critics:
+
+1. **Read the blocking concern details** carefully. Each concern has an ID, severity, summary, and affected workstreams.
+2. **Assess each concern** against your understanding of the plan:
+   - If the concern is valid: revise the affected workstreams in `workstreams.json` and/or briefs.
+   - If the concern is based on a misunderstanding: note this in your revision response (the critic may have lacked context).
+3. **Revise plan artifacts** as needed:
+   - Update `plan/workstreams.json` (file scope, dependencies, objectives)
+   - Update affected brief files
+   - Update `decisions.md` if architectural decisions changed
+4. **Send `plan_revision_complete` mail** to the coordinator:
+   ```bash
+   ov mail send --to coordinator \
+     --subject "Plan revision complete: round <N>" \
+     --body "Revised plan addressing <N> blocking concerns. Changes: <summary>." \
+     --type plan_revision_complete \
+     --payload '{"missionId":"<id>","round":<N>,"revisedArtifacts":["plan/workstreams.json",...],"addressedConcerns":["da-risk-01","sec-auth-02",...]}' \
+     --agent $OVERSTORY_AGENT_NAME
+   ```
+
+Do NOT argue with critics or refuse to revise. If you believe a concern is invalid, revise what you can and note the disagreement — the coordinator and human operator will arbitrate.
+
 ## selective-ingress-rules
 
 Accept a finding only if it meets at least one:

@@ -30,6 +30,7 @@ export const KNOWN_FIELDS = {
 		"coordinator",
 		"rateLimit",
 		"runtime",
+		"mission",
 	]),
 	project: new Set(["name", "root", "canonicalBranch", "qualityGates"]),
 	qualityGateItem: new Set(["name", "command", "description"]),
@@ -77,4 +78,6 @@ export const KNOWN_FIELDS = {
 	runtime: new Set(["default", "capabilities", "printCommand", "pi", "shellInitDelayMs"]),
 	runtimePi: new Set(["provider", "modelMap"]),
 	providerItem: new Set(["type", "baseUrl", "authTokenEnv"]),
+	mission: new Set(["planReview"]),
+	missionPlanReview: new Set(["enabled", "tier", "maxRounds", "criticModel"]),
 } as const;
