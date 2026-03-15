@@ -812,4 +812,148 @@ describe("mission command e2e", () => {
 		mailStore.close();
 		missionStore.close();
 	});
+
+	test("mission graph: currentNode is tracked through lifecycle", async () => {
+		const deps = makeRoleDeps(tempDir, overstoryDir);
+
+		// Start mission → should be at understand:active
+		await missionStart(
+			overstoryDir,
+			tempDir,
+			{ slug: "graph-test", objective: "Test graph tracking", json: true },
+			deps,
+		);
+
+		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
+		const mission = missionStore.getActive();
+		expect(mission).not.toBeNull();
+		expect(mission!.phase).toBe("understand");
+		expect(mission!.state).toBe("active");
+
+		// Manually update currentNode to verify store works
+		missionStore.updateCurrentNode(mission!.id, "understand:active");
+		const updated = missionStore.getById(mission!.id);
+		expect(updated?.currentNode).toBe("understand:active");
+
+		// Advance phase and update node
+		missionStore.updatePhase(mission!.id, "align");
+		missionStore.updateCurrentNode(mission!.id, "align:active");
+		const afterAdvance = missionStore.getById(mission!.id);
+		expect(afterAdvance?.phase).toBe("align");
+		expect(afterAdvance?.currentNode).toBe("align:active");
+
+		// Freeze and update node
+		missionStore.freeze(mission!.id, "question", null);
+		missionStore.updateCurrentNode(mission!.id, "align:frozen");
+		const afterFreeze = missionStore.getById(mission!.id);
+		expect(afterFreeze?.state).toBe("frozen");
+		expect(afterFreeze?.currentNode).toBe("align:frozen");
+
+		// Unfreeze and update node
+		missionStore.unfreeze(mission!.id);
+		missionStore.updateCurrentNode(mission!.id, "align:active");
+		const afterUnfreeze = missionStore.getById(mission!.id);
+		expect(afterUnfreeze?.state).toBe("active");
+		expect(afterUnfreeze?.currentNode).toBe("align:active");
+
+		missionStore.close();
+	});
+
+	test("mission graph: currentNode defaults to null for new missions", async () => {
+		const deps = makeRoleDeps(tempDir, overstoryDir);
+
+		await missionStart(
+			overstoryDir,
+			tempDir,
+			{ slug: "graph-null", objective: "Test null default", json: true },
+			deps,
+		);
+
+		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
+		const mission = missionStore.getActive();
+		expect(mission).not.toBeNull();
+		expect(mission!.currentNode).toBeNull();
+
+		missionStore.close();
+	});
+
+	test("mission graph: currentNode survives stop and reload", async () => {
+		const deps = makeRoleDeps(tempDir, overstoryDir);
+
+		await missionStart(
+			overstoryDir,
+			tempDir,
+			{ slug: "graph-persist", objective: "Test persistence", json: true },
+			deps,
+		);
+
+		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
+		const mission = missionStore.getActive();
+		expect(mission).not.toBeNull();
+
+		missionStore.updateCurrentNode(mission!.id, "plan:active");
+		missionStore.close();
+
+		// Reopen store and verify currentNode persisted
+		const missionStore2 = createMissionStore(join(overstoryDir, "sessions.db"));
+		const reloaded = missionStore2.getById(mission!.id);
+		expect(reloaded?.currentNode).toBe("plan:active");
+
+		missionStore2.close();
+	});
+
+	test("mission graph: validateTransition detects illegal phase skip", () => {
+		const { validateTransition, DEFAULT_MISSION_GRAPH } = require("../missions/graph.ts");
+
+		// Legal: understand → align
+		const legal = validateTransition(
+			DEFAULT_MISSION_GRAPH,
+			"understand",
+			"active",
+			"align",
+			"active",
+		);
+		expect(legal.valid).toBe(true);
+
+		// Illegal: understand → execute (skip phases)
+		const illegal = validateTransition(
+			DEFAULT_MISSION_GRAPH,
+			"understand",
+			"active",
+			"execute",
+			"active",
+		);
+		expect(illegal.valid).toBe(false);
+	});
+
+	test("mission graph: getAvailableTransitions returns correct edges", () => {
+		const { getAvailableTransitions, DEFAULT_MISSION_GRAPH } = require("../missions/graph.ts");
+
+		const edges = getAvailableTransitions(DEFAULT_MISSION_GRAPH, "execute", "active");
+		const triggers = edges.map((e: { trigger: string }) => e.trigger);
+
+		// execute:active should have: complete, freeze, suspend, stop, fail
+		expect(triggers).toContain("complete");
+		expect(triggers).toContain("freeze");
+		expect(triggers).toContain("suspend");
+		expect(triggers).toContain("stop");
+	});
+
+	test("mission graph: renderGraphPosition highlights current phase", () => {
+		const { renderGraphPosition, DEFAULT_MISSION_GRAPH } = require("../missions/graph.ts");
+
+		const output = renderGraphPosition(DEFAULT_MISSION_GRAPH, "execute", "active");
+		expect(output).toContain("[execute]");
+		expect(output).not.toContain("[understand]");
+		expect(output).not.toContain("[plan]");
+	});
+
+	test("mission graph: toMermaid produces valid output", () => {
+		const { toMermaid, DEFAULT_MISSION_GRAPH } = require("../missions/graph.ts");
+
+		const output = toMermaid(DEFAULT_MISSION_GRAPH, "plan", "frozen");
+		expect(output).toContain("graph LR");
+		expect(output).toContain("-->|freeze|");
+		expect(output).toContain("style plan_frozen");
+	});
 });
