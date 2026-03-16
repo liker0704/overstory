@@ -520,6 +520,30 @@ describe("validateHierarchy", () => {
 		).toThrow(HierarchyError);
 	});
 
+	test("allows mission-analyst to spawn scout", () => {
+		expect(() =>
+			validateHierarchy("mission-analyst", "scout", "scout-auth", 1, false, [
+				{ agentName: "mission-analyst", capability: "mission-analyst" },
+			]),
+		).not.toThrow();
+	});
+
+	test("rejects mission-analyst spawning builder directly", () => {
+		expect(() =>
+			validateHierarchy("mission-analyst", "builder", "builder-auth", 1, false, [
+				{ agentName: "mission-analyst", capability: "mission-analyst" },
+			]),
+		).toThrow(HierarchyError);
+	});
+
+	test("rejects mission-analyst spawning lead directly", () => {
+		expect(() =>
+			validateHierarchy("mission-analyst", "lead", "lead-auth", 1, false, [
+				{ agentName: "mission-analyst", capability: "mission-analyst" },
+			]),
+		).toThrow(HierarchyError);
+	});
+
 	test("rejects unknown parent session unless forceHierarchy is set", () => {
 		expect(() =>
 			validateHierarchy("missing-parent", "builder", "builder-auth", 1, false, []),

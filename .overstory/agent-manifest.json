@@ -146,7 +146,7 @@
 				"analyze",
 				"coordinate"
 			],
-			"canSpawn": false,
+			"canSpawn": true,
 			"constraints": [
 				"read-only",
 				"no-worktree"
