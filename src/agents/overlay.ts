@@ -244,6 +244,21 @@ function formatConstraints(config: OverlayConfig): string {
 }
 
 /**
+ * Resolve the example child capability for the sling example in the overlay.
+ * Maps parent capability to its most common child type so the overlay shows
+ * a realistic example rather than a generic --capability builder for all agents.
+ */
+const EXAMPLE_CHILD_CAPABILITY: Record<string, string> = {
+	lead: "builder",
+	"lead-mission": "builder",
+	coordinator: "lead",
+	"coordinator-mission": "lead",
+	"execution-director": "lead",
+	"mission-analyst": "scout",
+	"plan-review-lead": "plan-devil-advocate",
+};
+
+/**
  * Format the can-spawn section. If the agent can spawn sub-workers,
  * include an example sling command. Otherwise, state the restriction.
  */
@@ -251,11 +266,12 @@ function formatCanSpawn(config: OverlayConfig): string {
 	if (!config.canSpawn) {
 		return "You may NOT spawn sub-workers.";
 	}
+	const exampleChild = EXAMPLE_CHILD_CAPABILITY[config.capability] ?? "builder";
 	return [
 		"You may spawn sub-workers using `ov sling`. Example:",
 		"",
 		"```bash",
-		"ov sling <task-id> --capability builder --name <worker-name> \\",
+		`ov sling <task-id> --capability ${exampleChild} --name <worker-name> \\`,
 		`  --parent ${config.agentName} --depth ${config.depth + 1}`,
 		"```",
 	].join("\n");

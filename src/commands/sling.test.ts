@@ -567,6 +567,22 @@ describe("validateHierarchy", () => {
 		).toThrow(HierarchyError);
 	});
 
+	test("rejects mission-analyst spawning reviewer", () => {
+		expect(() =>
+			validateHierarchy("mission-analyst", "reviewer", "reviewer-auth", 1, false, [
+				{ agentName: "mission-analyst", capability: "mission-analyst" },
+			]),
+		).toThrow(HierarchyError);
+	});
+
+	test("rejects mission-analyst spawning merger", () => {
+		expect(() =>
+			validateHierarchy("mission-analyst", "merger", "merger-auth", 1, false, [
+				{ agentName: "mission-analyst", capability: "mission-analyst" },
+			]),
+		).toThrow(HierarchyError);
+	});
+
 	test("rejects unknown parent session unless forceHierarchy is set", () => {
 		expect(() =>
 			validateHierarchy("missing-parent", "builder", "builder-auth", 1, false, []),

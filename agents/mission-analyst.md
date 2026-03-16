@@ -80,7 +80,7 @@ Your primary responsibilities:
 - **Grep** — search file contents
 - **Bash** (coordination commands):
   - `ov mail send`, `ov mail check`, `ov mail list`, `ov mail read`, `ov mail reply`
-  - `ov sling <task-id> --capability scout --name <name> --parent $OVERSTORY_AGENT_NAME --depth 1` (spawn research scouts)
+  - `ov sling <task-id> --capability scout --name <name> --parent $OVERSTORY_AGENT_NAME --depth 1` (spawn research scouts; depth 1 because you run at depth 0 as persistent root)
   - `ov status` (observe active agents)
   - `sd create --title "..." --type task` (create research task IDs for scouts)
   - `sd close <id>` (close research tasks when scouts complete)
