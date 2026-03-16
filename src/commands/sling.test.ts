@@ -30,6 +30,7 @@ import {
 	isRunningAsRoot,
 	parentHasScouts,
 	shouldShowScoutWarning,
+	allowedChildCapabilities,
 	slingCommand,
 	validateHierarchy,
 } from "./sling.ts";
@@ -403,6 +404,28 @@ describe("generateAgentName", () => {
  * supervisor that passes --parent. This prevents the flat delegation anti-pattern
  * where the coordinator short-circuits the hierarchy.
  */
+
+describe("allowedChildCapabilities", () => {
+	test("mission-analyst can only spawn scouts", () => {
+		expect(allowedChildCapabilities("mission-analyst")).toEqual(["scout"]);
+	});
+
+	test("execution-director can only spawn leads", () => {
+		expect(allowedChildCapabilities("execution-director")).toEqual(["lead"]);
+	});
+
+	test("coordinator can spawn leads, scouts, builders, and mission roles", () => {
+		const allowed = allowedChildCapabilities("coordinator");
+		expect(allowed).toContain("lead");
+		expect(allowed).toContain("scout");
+		expect(allowed).toContain("mission-analyst");
+		expect(allowed).toContain("execution-director");
+	});
+
+	test("unknown capability returns empty array", () => {
+		expect(allowedChildCapabilities("builder")).toEqual([]);
+	});
+});
 
 describe("validateHierarchy", () => {
 	test("allows builder when parentAgent is null", () => {
