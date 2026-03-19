@@ -31,6 +31,7 @@ const EXPECTED_AGENT_DEFS = [
 	"merger.md",
 	"monitor.md",
 	"orchestrator.md",
+	"ov-co-creation.md",
 	"reviewer.md",
 	"scout.md",
 ];
@@ -82,7 +83,7 @@ describe("E2E: init→sling lifecycle on external project", () => {
 		const gitignoreFile = Bun.file(join(overstoryDir, ".gitignore"));
 		expect(await gitignoreFile.exists()).toBe(true);
 
-		// agent-defs/ contains all 8 agent definition files (supervisor deprecated)
+		// agent-defs/ contains all 9 agent definition files (supervisor deprecated)
 		const agentDefsDir = join(overstoryDir, "agent-defs");
 		const agentDefFiles = (await readdir(agentDefsDir)).filter((f) => f.endsWith(".md")).sort();
 		expect(agentDefFiles).toEqual(EXPECTED_AGENT_DEFS);

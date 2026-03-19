@@ -7,44 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-03-12
+
+### Changed
+
+#### Discover Command Rewrite
+- **`ov discover` now coordinator-driven** — replaced direct scout spawning with a coordinator session that autonomously spawns leads and scouts per category, synthesizes results, and writes mulch records
+- **`startCoordinatorSession()` extracted** from `coordinator.ts` — reusable core for commands that need coordinator-like sessions with custom names or beacons (used by `ov discover`)
+- **New flags:** `--attach` / `--no-attach` and `--watchdog` on `ov discover`; default agent name changed from `discover` to `discover-coordinator`
+- **`buildDiscoveryBeacon()` and `buildScoutArgs()` helpers** exported from `discover.ts` for testability
+
+### Fixed
+
+- **Task-lock collision in `ov discover`** — each scout now gets a unique task ID (`taskId-categoryName`) instead of sharing one, preventing `checkTaskLock()` from blocking scouts 2–6
+- **`maxAgentsPerLead` rejection in `ov discover`** — scout count now passed via `--max-agents` to avoid exceeding the default cap of 5 when all 6 categories are active
+
+### Testing
+
+- 3398 tests across 102 files (8038 `expect()` calls)
+- Added 6 unit tests for `buildScoutArgs()` covering all acceptance criteria
+
+## [0.9.0] - 2026-03-11
+
 ### Added
 
-#### Scenario-Based Eval Framework (`ov eval`)
-- **`src/eval/`** — new evaluation subsystem for orchestration regression testing
-- **`ov eval run <scenario>`** — run YAML-defined scenarios against fixture repos with configurable timeouts
-- **`ov eval show <run-id>`** — display results of a previous eval run
-- **`ov eval list`** — list all past eval runs sorted by date
-- **`ov eval compare <a> <b>`** — side-by-side comparison of two eval runs with metrics delta and assertion diff
-- **8 assertion kinds** — `minAgents`, `maxAgents`, `allComplete`, `noZombies`, `maxStallRate`, `maxCost`, `maxDuration`, `tasksCompleted`
-- **Built-in scenarios** — `evals/dispatch-smoke/`, `evals/merge-smoke/`, `evals/watchdog-recovery/`
+#### Codebase Discovery Command
+- **`ov discover`** — new top-level command that spawns parallel scout agents to explore a brownfield codebase and produce structured mulch records, with categories for architecture, conventions, testing, dependencies, and more
+- **`src/commands/discover.ts`** — implementation with `DiscoveryCategory` interface and `DISCOVERY_CATEGORIES` constant defining research areas
+- **`src/commands/discover.test.ts`** — test suite for the discover command
 
-#### Versioned Config with Migrations
-- **`src/config-schema.ts`** — config schema version constants and known field registry
-- **`src/config-migrate.ts`** — version detection and migration pipeline for config evolution
-- **`src/config-validate.ts`** — strict unknown-field validation with helpful error messages
-- **`ov doctor --category config`** — integrated config version health check
+#### Canopy Client & Prompt Versioning
+- **`src/canopy/client.ts`** — new `CanopyClient` wrapper providing programmatic access to canopy prompt rendering, listing, and emission
+- **`src/canopy/client.test.ts`** — test suite for the canopy client
+- **`promptVersion` session tracking** — `SessionStore` now records which canopy prompt version was active when a session started, enabling prompt-change auditing
 
-#### Operational Health Scoring (`ov health`, `ov next-improvement`)
-- **`src/health/`** — weighted health scoring with signal collection from existing stores
-- **`ov health`** — operational health score with per-signal breakdown (zombie count, stall rate, merge conflicts, error rate, etc.)
-- **`ov next-improvement`** — top recommendation from health scoring engine with actionable steps
+#### Profile System
+- **`--profile` flag on `ov sling` and `ov coordinator start`** — pass a named profile to customize agent behavior via canopy prompt overlays
+- **`PROFILE_INSTRUCTIONS` placeholder** in `overlay.md.tmpl` — the overlay pipeline now supports injecting profile-specific instructions into agent overlays
 
-#### Review Contour (`ov review`)
-- **`src/review/`** — deterministic quality review across 6 dimensions (clarity, actionability, completeness, signal-to-noise, correctness-confidence, coordination-fit)
-- **`ov review sessions`** — review recent completed sessions with dimension scoring
-- **`ov review session <id>`** — detailed review of a single session
-- **`ov review handoffs`** — review session handoff quality from checkpoint data
-- **`ov review specs`** — review spec file quality (structure, sections, actionability)
-- **`ov review stale`** — staleness detection via SHA-256 hashing of watched surfaces
-- **`src/review/store.ts`** — SQLite-backed ReviewStore in `.overstory/reviews.db`
+#### Co-Creation Workflow
+- **`agents/ov-co-creation.md`** — new canopy prompt extending ov-delivery for collaborative human-in-the-loop workflows
+- **`decision_gate` mail type** — new semantic mail type for human-in-the-loop decision points, enabling agents to pause and request human approval before proceeding
 
-#### GitHub Issues Tracker Backend
-- **`src/tracker/github.ts`** — GitHub Issues adapter implementing `TrackerClient` via `gh` CLI
-- **`src/tracker/github-poller.ts`** — autonomous polling loop for GitHub Issues auto-dispatch
-- **`ov coordinator start --auto-pull`** — enable autonomous issue polling for GitHub tracker
+#### Guided Workflow Setup
+- **`.claude/commands/customize.md`** — new guided workflow setup skill for interactive agent customization
+- **`.claude/commands/discover.md`** — new discover skill for brownfield codebase exploration
 
-#### tmux Session Attach Fix
-- **`ov attach`** — now uses `tmux switch-client` when already inside a tmux session, preventing nested session errors
+### Fixed
+
+- **`process.exit()` replaced with `process.exitCode`** in `watch.ts` and `dashboard.ts` — prevents abrupt termination that could skip cleanup handlers
+- **Ecosystem test CI resilience** — `ecosystem.test.ts` no longer fails in CI environments where `ov` is not globally installed
+
+### Changed
+
+- CLI command count: 35 → 36 (new `ov discover` command)
+
+### Testing
+
+- 3387 tests across 102 files (7997 `expect()` calls)
 
 ## [0.8.7] - 2026-03-10
 
@@ -1585,7 +1605,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Biome configuration for formatting and linting
 - TypeScript strict mode with `noUncheckedIndexedAccess`
 
-[Unreleased]: https://github.com/jayminwest/overstory/compare/v0.8.7...HEAD
+[Unreleased]: https://github.com/jayminwest/overstory/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/jayminwest/overstory/compare/v0.9.0...v0.9.1
+[0.9.0]: https://github.com/jayminwest/overstory/compare/v0.8.7...v0.9.0
 [0.8.7]: https://github.com/jayminwest/overstory/compare/v0.8.6...v0.8.7
 [0.8.6]: https://github.com/jayminwest/overstory/compare/v0.8.5...v0.8.6
 [0.8.5]: https://github.com/jayminwest/overstory/compare/v0.8.4...v0.8.5

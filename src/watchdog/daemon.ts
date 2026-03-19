@@ -30,7 +30,7 @@ import {
 	type TailerOptions,
 } from "../events/tailer.ts";
 import { createMailClient } from "../mail/client.ts";
-import { createMailStore } from "../mail/store.ts";
+import { createMailStore, type MailStore } from "../mail/store.ts";
 import { createMulchClient } from "../mulch/client.ts";
 import { getConnection, removeConnection } from "../runtimes/connections.ts";
 import { getRuntime } from "../runtimes/registry.ts";
@@ -480,6 +480,8 @@ export interface DaemonOptions {
 	_findLatestStdoutLog?: (overstoryDir: string, agentName: string) => Promise<string | null>;
 	/** Dependency injection for testing. Uses real capturePaneContent when omitted. */
 	_capturePaneContent?: (name: string, lines?: number) => Promise<string | null>;
+	/** Dependency injection for testing. Overrides MailStore creation for decision gate detection. */
+	_mailStore?: MailStore | null;
 }
 
 /**
@@ -592,6 +594,20 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 
 	const overstoryDir = join(root, ".overstory");
 	const { store } = openSessionStore(overstoryDir);
+
+	// Open MailStore for decision gate detection (fire-and-forget: non-fatal if unavailable)
+	let mailStore: MailStore | null = null;
+	let ownMailStore = false;
+	if (options._mailStore !== undefined) {
+		mailStore = options._mailStore;
+	} else {
+		try {
+			mailStore = createMailStore(join(overstoryDir, "mail.db"));
+			ownMailStore = true;
+		} catch {
+			// MailStore creation failure is non-fatal — decision gate detection will be skipped
+		}
+	}
 
 	// Open EventStore for recording daemon events (fire-and-forget)
 	let eventStore: EventStore | null = null;
@@ -1027,6 +1043,22 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 				// The onHealthCheck callback surfaces this to the operator.
 				// No state change — keep zombie until a human or higher-tier agent decides.
 			} else if (check.action === "escalate") {
+				// Decision gate check: if the agent sent a decision_gate message, it is
+				// intentionally paused waiting for a human decision — not a stall.
+				// Skip watchdog escalation and clear any accumulated stall state.
+				if (mailStore !== null) {
+					const recentMail = mailStore.getAll({ from: session.agentName, limit: 20 });
+					const hasPendingDecisionGate = recentMail.some((m) => m.type === "decision_gate");
+					if (hasPendingDecisionGate) {
+						if (session.stalledSince !== null) {
+							store.updateEscalation(session.agentName, 0, null);
+							session.stalledSince = null;
+							session.escalationLevel = 0;
+						}
+						continue;
+					}
+				}
+
 				// Progressive nudging: increment escalation level based on elapsed time
 				// instead of immediately delegating to AI triage.
 
@@ -1112,6 +1144,14 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 		}
 	} finally {
 		store.close();
+		// Close MailStore only if we created it (not injected)
+		if (mailStore && ownMailStore) {
+			try {
+				mailStore.close();
+			} catch {
+				// Non-fatal
+			}
+		}
 		// Close EventStore only if we created it (not injected)
 		if (eventStore && !useInjectedEventStore) {
 			try {

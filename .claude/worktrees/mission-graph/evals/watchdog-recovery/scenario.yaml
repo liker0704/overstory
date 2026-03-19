@@ -1,0 +1,11 @@
+description: "Watchdog recovery: stalled agent is detected and coordinator recovers within timeout"
+timeout_ms: 900000
+
+config_overrides:
+  watchdog:
+    stallTimeoutMs: 30000
+    tickIntervalMs: 10000
+
+startup_actions:
+  - command: sd create --title "Long-running task" --type task --priority 2
+    description: "Create a task that will be handled by a worker"

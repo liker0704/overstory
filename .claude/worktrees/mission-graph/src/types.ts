@@ -1,0 +1,1101 @@
+// === Model & Provider Types ===
+
+/** Backward-compatible model alias for Anthropic models. */
+export type ModelAlias = "sonnet" | "opus" | "haiku";
+
+/**
+ * A model reference: either a simple alias ('sonnet') or a provider-qualified
+ * string ('provider/model', e.g. 'openrouter/openai/gpt-5.3').
+ */
+export type ModelRef = ModelAlias | (string & {});
+
+/** Configuration for a model provider. */
+export interface ProviderConfig {
+	type: "native" | "gateway";
+	baseUrl?: string;
+	authTokenEnv?: string;
+}
+
+/** Resolved model with optional provider environment variables. */
+export interface ResolvedModel {
+	model: string;
+	env?: Record<string, string>;
+	/** True when the model was explicitly set via config.models[capability]. */
+	isExplicitOverride?: boolean;
+}
+
+/** Configuration for the Pi runtime's model alias expansion. */
+export interface PiRuntimeConfig {
+	/** Provider prefix for unqualified model aliases (e.g., "anthropic", "amazon-bedrock"). */
+	provider: string;
+	/** Maps short aliases (e.g., "opus") to provider-qualified model IDs. */
+	modelMap: Record<string, string>;
+}
+
+// === Task Tracker ===
+
+/** Backend for the task tracker. Defined here for use in OverstoryConfig. */
+export type TaskTrackerBackend = "auto" | "seeds" | "beads" | "github";
+
+/** Configuration for the autonomous GitHub Issues poller. */
+export interface GitHubPollerConfig {
+	/** How often to poll GitHub for new ready issues, in milliseconds. Default: 30000. */
+	pollIntervalMs: number;
+	/** GitHub owner/org (auto-detected from git remote if omitted). */
+	owner?: string;
+	/** GitHub repo name (auto-detected from git remote if omitted). */
+	repo?: string;
+	/** Label that marks issues as ready to dispatch. Default: 'ov-ready'. */
+	readyLabel: string;
+	/** Label applied when an issue is claimed for dispatch. Default: 'ov-active'. */
+	activeLabel: string;
+	/** Maximum number of concurrently dispatched issues. Default: 5. */
+	maxConcurrent: number;
+}
+
+// === Project Configuration ===
+
+/**
+ * Conditions that trigger automatic coordinator shutdown.
+ * All triggers default to false for backward compatibility.
+ */
+export interface CoordinatorExitTriggers {
+	/** Exit when all spawned agents have completed and their branches have been merged. */
+	allAgentsDone: boolean;
+	/** Exit when the task tracker reports no unblocked work (sd/bd ready returns empty). */
+	taskTrackerEmpty: boolean;
+	/** Exit when a typed shutdown mail is received from an external caller (e.g., greenhouse). */
+	onShutdownSignal: boolean;
+}
+
+/** A single quality gate command that agents must pass before reporting completion. */
+export interface QualityGate {
+	/** Display name shown in the overlay (e.g., "Tests"). */
+	name: string;
+	/** Shell command to run (e.g., "bun test"). */
+	command: string;
+	/** Human-readable description of what passing means (e.g., "all tests must pass"). */
+	description: string;
+}
+
+export interface OverstoryConfig {
+	/**
+	 * Detected config schema version. Set by the loader after reading config.yaml.
+	 * 1 = legacy (no explicit version field), 2 = current.
+	 * Absent when loadConfig falls back to all defaults (no config file).
+	 */
+	configVersion?: number;
+	project: {
+		name: string;
+		root: string; // Absolute path to target repo
+		canonicalBranch: string; // "main" | "develop"
+		qualityGates?: QualityGate[];
+	};
+	agents: {
+		manifestPath: string; // Path to agent-manifest.json
+		baseDir: string; // Path to base agent definitions
+		maxConcurrent: number; // Rate limit ceiling
+		staggerDelayMs: number; // Delay between spawns
+		maxDepth: number; // Hierarchy depth limit (default 2)
+		maxSessionsPerRun: number; // Max total sessions per run (0 = unlimited)
+		maxAgentsPerLead: number; // Max children a single lead can spawn (0 = unlimited)
+	};
+	worktrees: {
+		baseDir: string; // Where worktrees live
+	};
+	taskTracker: {
+		backend: TaskTrackerBackend; // "auto" | "seeds" | "beads" | "github"
+		enabled: boolean;
+		/** GitHub Issues poller config (used when backend is "github" or autoPull is enabled). */
+		github?: GitHubPollerConfig;
+	};
+	mulch: {
+		enabled: boolean;
+		domains: string[]; // Domains to prime (empty = auto-detect)
+		primeFormat: "markdown" | "xml" | "json";
+	};
+	merge: {
+		aiResolveEnabled: boolean;
+		reimagineEnabled: boolean;
+	};
+	providers: Record<string, ProviderConfig>;
+	watchdog: {
+		tier0Enabled: boolean; // Tier 0: Mechanical daemon (heartbeat, tmux/pid liveness)
+		tier0IntervalMs: number; // Default 30_000
+		tier1Enabled: boolean; // Tier 1: Triage agent (ephemeral AI analysis)
+		tier2Enabled: boolean; // Tier 2: Monitor agent (continuous patrol)
+		staleThresholdMs: number; // When to consider agent stale
+		zombieThresholdMs: number; // When to kill
+		nudgeIntervalMs: number; // Time between progressive nudge stages (default 60_000)
+	};
+	models: Partial<Record<string, ModelRef>>;
+	logging: {
+		verbose: boolean;
+		redactSecrets: boolean;
+	};
+	coordinator?: {
+		/** Conditions that trigger automatic coordinator shutdown. */
+		exitTriggers: CoordinatorExitTriggers;
+		/** When true, auto-start the GitHub Issues poller on coordinator start. */
+		autoPull?: boolean;
+	};
+	rateLimit?: {
+		enabled: boolean;
+		behavior: "wait" | "swap" | "kill";
+		maxWaitMs: number;
+		pollIntervalMs: number;
+		notifyCoordinator: boolean;
+		swapRuntime?: string;
+	};
+	runtime?: {
+		/** Default runtime adapter name (default: "claude"). */
+		default: string;
+		/**
+		 * Per-capability runtime overrides. Maps capability names (e.g. "coordinator", "builder")
+		 * to runtime adapter names. Lookup chain: explicit --runtime flag > capabilities[cap] > default > "claude".
+		 */
+		capabilities?: Partial<Record<string, string>>;
+		/**
+		 * Runtime adapter for headless one-shot AI calls (--print mode).
+		 * Used by merge/resolver.ts and watchdog/triage.ts.
+		 * Falls back to runtime.default when omitted.
+		 */
+		printCommand?: string;
+		/** Pi runtime configuration for model alias expansion. */
+		pi?: PiRuntimeConfig;
+		/**
+		 * Delay in milliseconds between creating a tmux session and polling
+		 * for TUI readiness. Gives slow shells (oh-my-zsh, starship, etc.)
+		 * time to finish initializing before the agent command starts.
+		 * Default: 0 (no delay).
+		 */
+		shellInitDelayMs?: number;
+	};
+}
+
+// === Agent Manifest ===
+
+export interface AgentManifest {
+	version: string;
+	agents: Record<string, AgentDefinition>;
+	capabilityIndex: Record<string, string[]>;
+}
+
+export interface AgentDefinition {
+	file: string; // Path to base agent definition (.md)
+	model: ModelRef;
+	tools: string[]; // Allowed tools
+	capabilities: string[]; // What this agent can do
+	canSpawn: boolean; // Can this agent spawn sub-workers?
+	constraints: string[]; // Machine-readable restrictions
+}
+
+/** All valid agent capability types. Used for compile-time validation. */
+export const SUPPORTED_CAPABILITIES = [
+	"scout",
+	"builder",
+	"reviewer",
+	"lead",
+	"merger",
+	"coordinator",
+	"supervisor",
+	"monitor",
+	"mission-analyst",
+	"execution-director",
+] as const;
+
+/** Union type derived from the capabilities constant. */
+export type Capability = (typeof SUPPORTED_CAPABILITIES)[number];
+
+// === Agent Session ===
+
+export type AgentState = "booting" | "working" | "completed" | "stalled" | "zombie";
+
+export interface AgentSession {
+	id: string; // Unique session ID
+	agentName: string; // Unique per-session name
+	capability: string; // Which agent definition
+	runtime: string; // Runtime adapter name (e.g. "claude", "pi")
+	worktreePath: string;
+	branchName: string;
+	taskId: string; // Task being worked
+	tmuxSession: string; // Tmux session name
+	state: AgentState;
+	pid: number | null; // Claude Code PID
+	parentAgent: string | null; // Who spawned this agent (null = orchestrator)
+	depth: number; // 0 = direct from orchestrator
+	runId: string | null; // Groups sessions in the same orchestrator run
+	startedAt: string;
+	lastActivity: string;
+	escalationLevel: number; // Progressive nudge stage: 0=warn, 1=nudge, 2=escalate, 3=terminate
+	stalledSince: string | null; // ISO timestamp when agent first entered stalled state
+	rateLimitedSince: string | null; // ISO timestamp when agent was first rate-limited
+	runtimeSessionId: string | null; // Runtime-native session ID (e.g. Claude UUID, OpenCode ses_xxx)
+	transcriptPath: string | null; // Runtime-provided transcript JSONL path (decoupled from ~/.claude/)
+	originalRuntime: string | null; // Pre-swap runtime (set by watchdog on rate-limit swap, cleared on resume)
+	statusLine: string | null; // Agent self-reported current activity (set via `ov status set`)
+}
+
+// === Agent Identity ===
+
+export interface AgentIdentity {
+	name: string;
+	capability: string;
+	created: string;
+	sessionsCompleted: number;
+	expertiseDomains: string[];
+	recentTasks: Array<{
+		taskId: string;
+		summary: string;
+		completedAt: string;
+	}>;
+}
+
+// === Mail (Custom SQLite) ===
+
+/** Semantic message types (original, human-readable). */
+export type MailSemanticType = "status" | "question" | "result" | "error";
+
+/** Protocol message types for structured agent coordination. */
+export type MailProtocolType =
+	| "worker_done"
+	| "merge_ready"
+	| "merged"
+	| "merge_failed"
+	| "escalation"
+	| "health_check"
+	| "dispatch"
+	| "assign"
+	| "rate_limited"
+	| "mission_finding"
+	| "analyst_resolution"
+	| "execution_guidance"
+	| "analyst_recommendation"
+	| "execution_handoff"
+	| "mission_resolution";
+
+/** All valid mail message types. */
+export type MailMessageType = MailSemanticType | MailProtocolType;
+
+/** All protocol type strings as a runtime array for CHECK constraint generation. */
+export const MAIL_MESSAGE_TYPES: readonly MailMessageType[] = [
+	"status",
+	"question",
+	"result",
+	"error",
+	"worker_done",
+	"merge_ready",
+	"merged",
+	"merge_failed",
+	"escalation",
+	"health_check",
+	"dispatch",
+	"assign",
+	"rate_limited",
+	"mission_finding",
+	"analyst_resolution",
+	"execution_guidance",
+	"analyst_recommendation",
+	"execution_handoff",
+	"mission_resolution",
+] as const;
+
+export interface MailMessage {
+	id: string; // "msg-" + nanoid(12)
+	from: string; // Agent name
+	to: string; // Agent name or "orchestrator"
+	subject: string;
+	body: string;
+	priority: "low" | "normal" | "high" | "urgent";
+	type: MailMessageType;
+	threadId: string | null; // Conversation threading
+	payload: string | null; // JSON-encoded structured data for protocol messages
+	read: boolean;
+	createdAt: string; // ISO timestamp
+}
+
+// === Mail Protocol Payloads ===
+
+/** Worker signals task completion to supervisor. */
+export interface WorkerDonePayload {
+	taskId: string;
+	branch: string;
+	exitCode: number;
+	filesModified: string[];
+}
+
+/** Supervisor signals branch is verified and ready for merge. */
+export interface MergeReadyPayload {
+	branch: string;
+	taskId: string;
+	agentName: string;
+	filesModified: string[];
+}
+
+/** Merger signals branch was merged successfully. */
+export interface MergedPayload {
+	branch: string;
+	taskId: string;
+	tier: ResolutionTier;
+}
+
+/** Merger signals merge failed, needs rework. */
+export interface MergeFailedPayload {
+	branch: string;
+	taskId: string;
+	conflictFiles: string[];
+	errorMessage: string;
+}
+
+/** Any agent escalates an issue to a higher-level decision-maker. */
+export interface EscalationPayload {
+	severity: "warning" | "error" | "critical";
+	taskId: string | null;
+	context: string;
+}
+
+/** Watchdog probes agent liveness. */
+export interface HealthCheckPayload {
+	agentName: string;
+	checkType: "liveness" | "readiness";
+}
+
+/** Coordinator dispatches work to a supervisor. */
+export interface DispatchPayload {
+	taskId: string;
+	specPath: string;
+	capability: Capability;
+	fileScope: string[];
+	/** Optional: skip scout phase for lead agents */
+	skipScouts?: boolean;
+	/** Optional: skip review phase for lead agents */
+	skipReview?: boolean;
+	/** Optional: per-lead max agent ceiling override */
+	maxAgents?: number;
+}
+
+/** Supervisor assigns work to a specific worker. */
+export interface AssignPayload {
+	taskId: string;
+	specPath: string;
+	workerName: string;
+	branch: string;
+}
+
+/** Agent signals it has been rate-limited by the provider. */
+export interface RateLimitedPayload {
+	agentName: string;
+	runtime: string;
+	resumesAt: string | null;
+	message: string;
+}
+
+/** Category for qualifying mission-level escalations. All shared types live in types.ts. */
+export type IngressCategory =
+	| "cross-stream"
+	| "brief-invalidating"
+	| "shared-assumption-changing"
+	| "accepted-semantics-risk";
+
+/** Lead escalates a cross-stream or brief-invalidating finding to analyst. */
+export interface MissionFindingPayload {
+	workstreamId: string;
+	category: IngressCategory;
+	summary: string;
+	affectedWorkstreams: string[];
+}
+
+/** Analyst resolves a finding (stays within mission contract). */
+export interface AnalystResolutionPayload {
+	findingThreadId: string;
+	resolution: string;
+	briefsToRefresh: string[];
+}
+
+/** Execution director sends operational guidance to leads. */
+export interface ExecutionGuidancePayload {
+	targetWorkstream: string;
+	guidance: string;
+	action: "pause" | "resume" | "adjust" | "proceed";
+}
+
+/** Analyst recommends action to coordinator (mission-contract impact). */
+export interface AnalystRecommendationPayload {
+	category: "scope_change" | "constraint_change" | "risk_escalation" | "decision_needed";
+	summary: string;
+	evidence: string;
+}
+
+/** Coordinator hands off execution to execution director. */
+export interface ExecutionHandoffItemPayload {
+	workstreamId: string;
+	taskId: string;
+	objective: string;
+	fileScope: string[];
+	briefPath: string | null;
+	dependsOn: string[];
+	status: "planned" | "active" | "paused" | "completed";
+}
+
+export interface ExecutionHandoffPayload {
+	missionId: string;
+	taskIds: string[];
+	workstreamIds: string[];
+	briefPaths: string[];
+	dispatchCommands?: Array<{
+		workstreamId: string;
+		args: string[];
+		command: string;
+	}>;
+	handoffs?: ExecutionHandoffItemPayload[];
+}
+
+/** Coordinator resolves a mission-level decision. */
+export interface MissionResolutionPayload {
+	decisionId: string;
+	resolution: string;
+	affectedWorkstreams: string[];
+}
+
+/** Maps protocol message types to their payload interfaces. */
+export interface MailPayloadMap {
+	worker_done: WorkerDonePayload;
+	merge_ready: MergeReadyPayload;
+	merged: MergedPayload;
+	merge_failed: MergeFailedPayload;
+	escalation: EscalationPayload;
+	health_check: HealthCheckPayload;
+	dispatch: DispatchPayload;
+	assign: AssignPayload;
+	rate_limited: RateLimitedPayload;
+	mission_finding: MissionFindingPayload;
+	analyst_resolution: AnalystResolutionPayload;
+	execution_guidance: ExecutionGuidancePayload;
+	analyst_recommendation: AnalystRecommendationPayload;
+	execution_handoff: ExecutionHandoffPayload;
+	mission_resolution: MissionResolutionPayload;
+}
+
+// === Overlay ===
+
+export interface OverlayConfig {
+	agentName: string;
+	taskId: string;
+	specPath: string | null;
+	branchName: string;
+	worktreePath: string;
+	fileScope: string[];
+	mulchDomains: string[];
+	parentAgent: string | null;
+	depth: number;
+	canSpawn: boolean;
+	capability: string;
+	/** Full content of the base agent definition file (Layer 1: role-specific HOW). */
+	baseDefinition: string;
+	/** Pre-fetched mulch expertise output to embed directly in the overlay. */
+	mulchExpertise?: string;
+	/** When true, lead agents should skip Phase 1 (scout) and go straight to Phase 2 (build). */
+	skipScout?: boolean;
+	/** When true, lead agents should skip Phase 3 review and self-verify instead. */
+	skipReview?: boolean;
+	/** Per-lead max agents ceiling override from dispatch. Injected into overlay for lead visibility. */
+	maxAgentsOverride?: number;
+	trackerCli?: string; // "sd" or "bd"
+	trackerName?: string; // "seeds" or "beads"
+	/** Quality gate commands for the agent overlay. Falls back to defaults if undefined. */
+	qualityGates?: QualityGate[];
+	/** Relative path to the instruction file within the worktree (runtime-specific). Defaults to .claude/CLAUDE.md. */
+	instructionPath?: string;
+}
+
+// === Merge Queue ===
+
+export type ResolutionTier = "clean-merge" | "auto-resolve" | "ai-resolve" | "reimagine";
+
+export interface MergeEntry {
+	branchName: string;
+	taskId: string;
+	agentName: string;
+	filesModified: string[];
+	enqueuedAt: string;
+	status: "pending" | "merging" | "merged" | "conflict" | "failed";
+	resolvedTier: ResolutionTier | null;
+}
+
+export interface MergeResult {
+	entry: MergeEntry;
+	success: boolean;
+	tier: ResolutionTier;
+	conflictFiles: string[];
+	errorMessage: string | null;
+	/** Warnings about files where auto-resolve was skipped to prevent content loss. */
+	warnings: string[];
+}
+
+/** Parsed conflict pattern from a single mulch record. */
+export interface ParsedConflictPattern {
+	tier: ResolutionTier;
+	success: boolean;
+	files: string[];
+	agent: string;
+	branch: string;
+}
+
+/** Historical conflict data assembled from mulch search results. */
+export interface ConflictHistory {
+	/** Tiers to skip based on historical failure rates for these files. */
+	skipTiers: ResolutionTier[];
+	/** Descriptions of past successful resolutions for AI prompt enrichment. */
+	pastResolutions: string[];
+	/** Files predicted to conflict based on historical patterns. */
+	predictedConflictFiles: string[];
+}
+
+// === Watchdog ===
+
+export interface HealthCheck {
+	agentName: string;
+	timestamp: string;
+	processAlive: boolean;
+	tmuxAlive: boolean;
+	pidAlive: boolean | null; // null when pid is unavailable
+	lastActivity: string;
+	state: AgentState;
+	action: "none" | "escalate" | "terminate" | "investigate";
+	/** Describes any conflict between observable state and recorded state. */
+	reconciliationNote: string | null;
+}
+
+// === Logging ===
+
+export interface LogEvent {
+	timestamp: string;
+	level: "debug" | "info" | "warn" | "error";
+	event: string;
+	agentName: string | null;
+	data: Record<string, unknown>;
+}
+
+// === Metrics ===
+
+export interface SessionMetrics {
+	agentName: string;
+	taskId: string;
+	capability: string;
+	startedAt: string;
+	completedAt: string | null;
+	durationMs: number;
+	exitCode: number | null;
+	mergeResult: ResolutionTier | null;
+	parentAgent: string | null;
+	inputTokens: number;
+	outputTokens: number;
+	cacheReadTokens: number;
+	cacheCreationTokens: number;
+	estimatedCostUsd: number | null;
+	modelUsed: string | null;
+	runId: string | null;
+}
+
+/** A point-in-time token usage snapshot for a running agent session. */
+export interface TokenSnapshot {
+	agentName: string;
+	inputTokens: number;
+	outputTokens: number;
+	cacheReadTokens: number;
+	cacheCreationTokens: number;
+	estimatedCostUsd: number | null;
+	modelUsed: string | null;
+	createdAt: string;
+	runId: string | null;
+}
+
+// === Task Groups (Batch Coordination) ===
+
+export interface TaskGroup {
+	id: string; // "group-" + nanoid(8)
+	name: string;
+	memberIssueIds: string[]; // beads issue IDs tracked by this group
+	status: "active" | "completed";
+	createdAt: string; // ISO timestamp
+	completedAt: string | null; // ISO timestamp when all members closed
+}
+
+export interface TaskGroupProgress {
+	group: TaskGroup;
+	total: number;
+	completed: number;
+	inProgress: number;
+	blocked: number;
+	open: number;
+}
+
+// === Event Store (Observability) ===
+
+/** Event types for agent activity tracking. */
+export type EventType =
+	| "tool_start"
+	| "tool_end"
+	| "session_start"
+	| "session_end"
+	| "mail_sent"
+	| "mail_received"
+	| "spawn"
+	| "error"
+	| "custom"
+	| "turn_start"
+	| "turn_end"
+	| "progress"
+	| "result"
+	| "mission";
+
+/** Severity levels for events. */
+export type EventLevel = "debug" | "info" | "warn" | "error";
+
+/** All valid event level strings as a runtime array for CHECK constraint generation. */
+export const EVENT_LEVELS: readonly EventLevel[] = ["debug", "info", "warn", "error"] as const;
+
+/** An event as stored in the SQLite events table. */
+export interface StoredEvent {
+	id: number;
+	runId: string | null;
+	agentName: string;
+	sessionId: string | null;
+	eventType: EventType;
+	toolName: string | null;
+	toolArgs: string | null;
+	toolDurationMs: number | null;
+	level: EventLevel;
+	data: string | null;
+	createdAt: string;
+}
+
+/** Input for inserting a new event (id and createdAt are auto-generated). */
+export type InsertEvent = Omit<StoredEvent, "id" | "createdAt">;
+
+/** Options for filtering event queries. */
+export interface EventQueryOptions {
+	limit?: number;
+	since?: string; // ISO timestamp
+	until?: string; // ISO timestamp
+	level?: EventLevel;
+}
+
+/** Tool usage statistics returned by getToolStats. */
+export interface ToolStats {
+	toolName: string;
+	count: number;
+	avgDurationMs: number;
+	maxDurationMs: number;
+}
+
+/** Interface for the SQLite-backed event store. */
+export interface EventStore {
+	/** Insert a new event. Returns the auto-generated row ID. */
+	insert(event: InsertEvent): number;
+	/** Find the most recent unmatched tool_start for correlation. Returns start ID and duration. */
+	correlateToolEnd(
+		agentName: string,
+		toolName: string,
+	): { startId: number; durationMs: number } | null;
+	/** Get events for a specific agent. */
+	getByAgent(agentName: string, opts?: EventQueryOptions): StoredEvent[];
+	/** Get events for a specific run. */
+	getByRun(runId: string, opts?: EventQueryOptions): StoredEvent[];
+	/** Get error-level events. */
+	getErrors(opts?: EventQueryOptions): StoredEvent[];
+	/** Get a timeline of events with required options. */
+	getTimeline(opts: EventQueryOptions & { since: string }): StoredEvent[];
+	/** Get aggregated tool usage statistics. */
+	getToolStats(opts?: { agentName?: string; since?: string }): ToolStats[];
+	/** Delete events matching criteria. Returns number of rows deleted. */
+	purge(opts: { all?: boolean; olderThanMs?: number; agentName?: string }): number;
+	/** Close the database connection. */
+	close(): void;
+}
+
+// === Run (Coordinator Session Grouping) ===
+
+/** Status of a run (coordinator session grouping agents). */
+export type RunStatus = "active" | "completed" | "failed" | "stopped";
+
+/** A run groups all agents spawned from one coordinator session. */
+export interface Run {
+	id: string; // Format: run-{ISO timestamp}
+	startedAt: string;
+	completedAt: string | null;
+	agentCount: number;
+	coordinatorSessionId: string | null;
+	coordinatorName: string | null; // which coordinator owns this run
+	status: RunStatus;
+}
+
+/** Input for creating a new run. */
+export type InsertRun = Omit<Run, "completedAt" | "agentCount" | "coordinatorName"> & {
+	agentCount?: number;
+	/** Which coordinator owns this run. Defaults to null when not provided. */
+	coordinatorName?: string | null;
+};
+
+/** Interface for run management operations. */
+export interface RunStore {
+	/** Create a new run. */
+	createRun(run: InsertRun): void;
+	/** Get a run by ID, or null if not found. */
+	getRun(id: string): Run | null;
+	/** Get the most recently started active run. */
+	getActiveRun(): Run | null;
+	/** Get the most recently started active run for a specific coordinator. */
+	getActiveRunForCoordinator(coordinatorName: string): Run | null;
+	/** List runs, optionally limited. */
+	listRuns(opts?: { limit?: number; status?: RunStatus }): Run[];
+	/** Increment agent count for a run. */
+	incrementAgentCount(runId: string): void;
+	/** Complete a run (set status and completedAt). */
+	completeRun(runId: string, status: "completed" | "failed" | "stopped"): void;
+	/** Close the store (if standalone — in practice may share DB with SessionStore). */
+	close(): void;
+}
+
+// === Mulch CLI Results ===
+
+/** Mulch status result (domain statistics). */
+export interface MulchStatus {
+	domains: Array<{ name: string; recordCount: number; lastUpdated: string }>;
+}
+
+/** Result from mulch diff command. */
+export interface MulchDiffResult {
+	success: boolean;
+	command: string;
+	since: string;
+	domains: string[];
+	message: string;
+}
+
+/** Result from mulch learn command. */
+export interface MulchLearnResult {
+	success: boolean;
+	command: string;
+	changedFiles: string[];
+	suggestedDomains: string[];
+	unmatchedFiles: string[];
+}
+
+/** Result from mulch prune command. */
+export interface MulchPruneResult {
+	success: boolean;
+	command: string;
+	dryRun: boolean;
+	totalPruned: number;
+	results: Array<{
+		domain: string;
+		pruned: number;
+		records: string[];
+	}>;
+}
+
+/** Health check result from mulch doctor. */
+export interface MulchDoctorResult {
+	success: boolean;
+	command: string;
+	checks: Array<{
+		name: string;
+		status: "pass" | "warn" | "fail";
+		message: string;
+		fixable: boolean;
+		details: string[];
+	}>;
+	summary: {
+		pass: number;
+		warn: number;
+		fail: number;
+	};
+}
+
+/** Ready records result from mulch ready. */
+export interface MulchReadyResult {
+	success: boolean;
+	command: string;
+	count: number;
+	entries: Array<{
+		domain: string;
+		id: string;
+		type: string;
+		recorded_at: string;
+		summary: string;
+		record: Record<string, unknown>;
+	}>;
+}
+
+/** Result from mulch compact command. */
+export interface MulchCompactResult {
+	success: boolean;
+	command: string;
+	action: string;
+	candidates?: Array<{
+		domain: string;
+		type: string;
+		records: Array<{
+			id: string;
+			summary: string;
+			recorded_at: string;
+		}>;
+	}>;
+	compacted?: Array<{
+		domain: string;
+		type: string;
+		before: number;
+		after: number;
+		recordIds: string[];
+	}>;
+	message?: string;
+}
+
+// === Session Lifecycle (Checkpoint / Handoff / Continuity) ===
+
+/**
+ * Snapshot of agent progress, saved before compaction or handoff.
+ * Stored as JSON in .overstory/agents/{name}/checkpoint.json.
+ */
+export interface SessionCheckpoint {
+	agentName: string;
+	taskId: string;
+	sessionId: string; // The AgentSession.id that created this checkpoint
+	timestamp: string; // ISO
+	progressSummary: string; // Human-readable summary of work done so far
+	filesModified: string[]; // Paths modified since session start
+	currentBranch: string;
+	pendingWork: string; // What remains to be done
+	mulchDomains: string[]; // Domains the agent has been working in
+}
+
+/**
+ * Record of a session handoff — when one session ends and another picks up.
+ */
+export interface SessionHandoff {
+	fromSessionId: string;
+	toSessionId: string | null; // null until the new session starts
+	checkpoint: SessionCheckpoint;
+	reason: "compaction" | "crash" | "manual" | "timeout" | "rate_limit_swap";
+	handoffAt: string; // ISO timestamp
+}
+
+/**
+ * Three-layer model for agent persistence.
+ * Session = ephemeral Claude runtime
+ * Sandbox = git worktree (persists across sessions)
+ * Identity = permanent agent record (persists across assignments)
+ */
+export interface AgentLayers {
+	identity: AgentIdentity;
+	sandbox: {
+		worktreePath: string;
+		branchName: string;
+		taskId: string;
+	};
+	session: {
+		id: string;
+		pid: number | null;
+		tmuxSession: string;
+		startedAt: string;
+		checkpoint: SessionCheckpoint | null;
+	} | null; // null when sandbox exists but no active session
+}
+
+// === Session Insight Analysis ===
+
+/** A single structured insight extracted from a completed session. */
+export interface SessionInsight {
+	/** Mulch record type for this insight. */
+	type: "pattern" | "convention" | "failure";
+	/** Mulch domain this insight belongs to. */
+	domain: string;
+	/** Human-readable description of the insight. */
+	description: string;
+	/** Tags for mulch record categorization. */
+	tags: string[];
+}
+
+/** Aggregated tool usage profile for a session. */
+export interface ToolProfile {
+	topTools: Array<{ name: string; count: number; avgMs: number }>;
+	totalToolCalls: number;
+	errorCount: number;
+}
+
+/** File edit frequency profile for a session. */
+export interface FileProfile {
+	/** Files edited more than once, sorted by edit count descending. */
+	hotFiles: Array<{ path: string; editCount: number }>;
+	totalEdits: number;
+}
+
+/** Complete insight analysis result for a completed session. */
+export interface InsightAnalysis {
+	insights: SessionInsight[];
+	toolProfile: ToolProfile;
+	fileProfile: FileProfile;
+}
+
+// === Mission Workflow Graph ===
+
+/** A node in the mission workflow graph. */
+export interface MissionGraphNode {
+	/** Unique node ID, conventionally "phase:state" (e.g., "understand:active"). */
+	id: string;
+	/** The mission phase this node represents. */
+	phase: MissionPhase;
+	/** The mission state this node represents. */
+	state: MissionState;
+	/** Human-readable label for display. */
+	label?: string;
+	/** Whether this node blocks on input (human gate). */
+	gate?: "human" | "auto";
+	/** Whether this is a terminal (sink) node. */
+	terminal?: boolean;
+}
+
+/** An edge in the mission workflow graph. */
+export interface MissionGraphEdge {
+	/** Source node ID. */
+	from: string;
+	/** Target node ID. */
+	to: string;
+	/** What triggers this transition (e.g. "freeze", "answer", "handoff"). */
+	trigger: string;
+	/** Human-readable condition description. */
+	condition?: string;
+	/** Weight for preferred-path rendering (higher = preferred). */
+	weight?: number;
+}
+
+/** The complete mission workflow graph. */
+export interface MissionGraph {
+	/** Graph format version. */
+	version: 1;
+	/** All nodes. */
+	nodes: MissionGraphNode[];
+	/** All edges. */
+	edges: MissionGraphEdge[];
+}
+
+/** Result of validating a transition against the graph. */
+export interface GraphTransitionResult {
+	/** Whether the transition is legal per the graph. */
+	valid: boolean;
+	/** The edge that permits this transition, if any. */
+	edge: MissionGraphEdge | null;
+	/** Human-readable explanation. */
+	reason: string;
+}
+
+// === Mission (Long-Running Objective Tracking) ===
+
+export type MissionState = "active" | "frozen" | "completed" | "failed" | "stopped" | "suspended";
+export const MISSION_STATES: readonly MissionState[] = [
+	"active",
+	"frozen",
+	"completed",
+	"failed",
+	"stopped",
+	"suspended",
+] as const;
+
+export type MissionPhase = "understand" | "align" | "decide" | "plan" | "execute" | "done";
+export const MISSION_PHASES: readonly MissionPhase[] = [
+	"understand",
+	"align",
+	"decide",
+	"plan",
+	"execute",
+	"done",
+] as const;
+
+export type PendingInputKind = "question" | "approval" | "decision" | "clarification";
+export const PENDING_INPUT_KINDS: readonly PendingInputKind[] = [
+	"question",
+	"approval",
+	"decision",
+	"clarification",
+] as const;
+
+export interface Mission {
+	id: string;
+	slug: string;
+	objective: string;
+	runId: string | null;
+	state: MissionState;
+	phase: MissionPhase;
+	firstFreezeAt: string | null;
+	pendingUserInput: boolean;
+	pendingInputKind: PendingInputKind | null;
+	pendingInputThreadId: string | null;
+	reopenCount: number;
+	artifactRoot: string | null;
+	pausedWorkstreamIds: string[];
+	analystSessionId: string | null;
+	executionDirectorSessionId: string | null;
+	coordinatorSessionId: string | null;
+	pausedLeadNames: string[];
+	pauseReason: string | null;
+	currentNode: string | null;
+	startedAt: string | null;
+	completedAt: string | null;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export type InsertMission = Pick<Mission, "id" | "slug" | "objective"> & {
+	runId?: string | null;
+	artifactRoot?: string | null;
+	startedAt?: string | null;
+};
+
+export interface MissionSummary {
+	id: string;
+	slug: string;
+	objective: string;
+	state: MissionState;
+	phase: MissionPhase;
+	pendingUserInput: boolean;
+	pendingInputKind: PendingInputKind | null;
+	firstFreezeAt: string | null;
+	reopenCount: number;
+	pausedWorkstreamCount: number;
+	pauseReason: string | null;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export interface MissionStore {
+	create(mission: InsertMission): Mission;
+	getById(id: string): Mission | null;
+	getBySlug(slug: string): Mission | null;
+	getActive(): Mission | null;
+	list(opts?: { state?: MissionState; limit?: number }): Mission[];
+	delete(id: string): void;
+	updateState(id: string, state: MissionState): void;
+	updatePhase(id: string, phase: MissionPhase): void;
+	freeze(id: string, kind: PendingInputKind, threadId: string | null): void;
+	unfreeze(id: string): void;
+	updatePausedWorkstreams(id: string, ids: string[]): void;
+	updateArtifactRoot(id: string, path: string): void;
+	bindSessions(
+		id: string,
+		sessions: {
+			analystSessionId?: string;
+			executionDirectorSessionId?: string;
+			coordinatorSessionId?: string;
+		},
+	): void;
+	bindCoordinatorSession(id: string, sessionId: string): void;
+	updatePausedLeads(id: string, names: string[]): void;
+	updatePauseReason(id: string, reason: string | null): void;
+	start(id: string): void;
+	completeMission(id: string): void;
+	updateSlug(id: string, slug: string): void;
+	updateObjective(id: string, objective: string): void;
+	updateCurrentNode(id: string, nodeId: string): void;
+	close(): void;
+}

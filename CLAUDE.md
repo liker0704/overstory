@@ -97,7 +97,10 @@ overstory/                        # This repo (the overstory tool itself)
       ecosystem.ts                # ov ecosystem (os-eco tool dashboard)
       update.ts                   # ov update (refresh managed files)
       upgrade.ts                  # ov upgrade (npm version upgrades)
+      discover.ts                 # ov discover (brownfield codebase discovery)
       completions.ts              # ov --completions (shell completions)
+    canopy/
+      client.ts                   # Canopy client (prompt rendering, listing, emission)
     agents/                       # Agent lifecycle management
       manifest.ts                 # Agent registry (load + query capabilities)
       overlay.ts                  # Dynamic CLAUDE.md overlay generator
@@ -326,6 +329,15 @@ ov sling <task-id>              Spawn a worker agent
   --force-hierarchy                      Bypass hierarchy validation (debugging only)
   --runtime <name>                       Runtime adapter (default: config or claude)
   --base-branch <branch>                 Base branch for worktree creation (default: current HEAD)
+  --profile <name>                       Named profile for canopy prompt overlay
+  --json                                 JSON output
+
+ov discover                      Discover a brownfield codebase via coordinator-driven scout swarm
+  --skip <categories>                    Skip categories (comma-separated: architecture,dependencies,testing,apis,config,implicit)
+  --name <name>                          Coordinator agent name (default: discover-coordinator)
+  --task-id <id>                         Task ID (unused — kept for backward compatibility)
+  --attach / --no-attach                 Control tmux attach (default: attach on TTY)
+  --watchdog                             Auto-start watchdog daemon with coordinator
   --json                                 JSON output
 
 ov stop <agent-name>            Terminate a running agent
@@ -375,6 +387,7 @@ ov coordinator <sub>            Persistent coordinator agent
     --attach / --no-attach               Control tmux attach (default: attach on TTY)
     --watchdog                           Auto-start watchdog daemon
     --monitor                            Auto-start Tier 2 monitor agent
+    --profile <name>                     Named profile for canopy prompt overlay
   stop                                   Stop coordinator (kills tmux session)
   status                                 Show coordinator state
   send <body>                            Fire-and-forget message to coordinator (mail + auto-nudge)

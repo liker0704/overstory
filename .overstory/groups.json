@@ -900,8 +900,46 @@
 			"overstory-608c",
 			"overstory-5dc7"
 		],
-		"status": "active",
+		"status": "completed",
 		"createdAt": "2026-03-10T14:11:29.988Z",
+		"completedAt": "2026-03-11T22:43:44.327Z"
+	},
+	{
+		"id": "group-86f4df03",
+		"name": "phase-1-profiles",
+		"memberIssueIds": [
+			"overstory-bdbe",
+			"overstory-b31b",
+			"overstory-05ce",
+			"overstory-3a08",
+			"overstory-1736",
+			"overstory-562e"
+		],
+		"status": "completed",
+		"createdAt": "2026-03-11T22:51:30.506Z",
+		"completedAt": "2026-03-11T23:32:11.734Z"
+	},
+	{
+		"id": "group-8923fa2a",
+		"name": "phase-2-3-profiles",
+		"memberIssueIds": [
+			"overstory-45c5",
+			"overstory-2ad0",
+			"overstory-d831"
+		],
+		"status": "completed",
+		"createdAt": "2026-03-11T23:47:45.777Z",
+		"completedAt": "2026-03-12T00:18:47.169Z"
+	},
+	{
+		"id": "group-2363f740",
+		"name": "discover-rework",
+		"memberIssueIds": [
+			"overstory-4203",
+			"overstory-1d17"
+		],
+		"status": "active",
+		"createdAt": "2026-03-12T01:16:06.710Z",
 		"completedAt": null
 	},
 	{

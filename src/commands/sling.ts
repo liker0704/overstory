@@ -28,6 +28,7 @@ import {
 	resolveModel,
 } from "../agents/manifest.ts";
 import { writeOverlay } from "../agents/overlay.ts";
+import { createCanopyClient } from "../canopy/client.ts";
 import { loadConfig } from "../config.ts";
 import { AgentError, HierarchyError, ValidationError } from "../errors.ts";
 import { inferDomain } from "../insights/analyzer.ts";
@@ -159,6 +160,7 @@ export interface SlingOptions {
 	runtime?: string;
 	noScoutCheck?: boolean;
 	baseBranch?: string;
+	profile?: string;
 }
 
 export interface AutoDispatchOptions {
@@ -885,6 +887,23 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 				}
 			}
 
+			// 8b. Resolve canopy profile if specified
+			const profileName =
+				opts.profile ?? process.env.OVERSTORY_PROFILE ?? config.project.defaultProfile;
+			let profileContent: string | undefined;
+			if (profileName) {
+				try {
+					const canopy = createCanopyClient(config.project.root);
+					const rendered = await canopy.render(profileName);
+					if (rendered.success && rendered.sections.length > 0) {
+						profileContent = rendered.sections.map((s) => s.body).join("\n\n");
+					}
+				} catch {
+					// Non-fatal: canopy may not be installed or profile may not exist
+					profileContent = undefined;
+				}
+			}
+
 			// Resolve runtime before overlayConfig so we can pass runtime.instructionPath
 			const runtime = getRuntime(opts.runtime, config, capability);
 
@@ -903,6 +922,7 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 				canSpawn: agentDef.canSpawn,
 				capability,
 				baseDefinition,
+				profileContent,
 				mulchExpertise,
 				skipScout: skipScout && capability === "lead",
 				skipReview: opts.skipReview === true && capability === "lead",

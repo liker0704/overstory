@@ -380,6 +380,44 @@ export function resolveAttach(args: string[], isTTY: boolean): boolean {
 	return isTTY;
 }
 
+/**
+ * Options for the reusable coordinator session startup core.
+ * Used by startCoordinatorSession() and consumed by commands like ov discover.
+ */
+export interface CoordinatorSessionOptions {
+	json: boolean;
+	attach: boolean;
+	watchdog: boolean;
+	monitor: boolean;
+	autoPull?: boolean;
+	profile?: string;
+	/** Override coordinator name (default: "coordinator"). */
+	coordinatorName?: string;
+	/** Custom beacon builder. Receives tracker CLI name, returns beacon string. */
+	beaconBuilder?: (trackerCli: string) => string;
+}
+
+/**
+ * Core coordinator session startup logic. Reusable by commands that need to
+ * start a coordinator-like session with a custom name or beacon
+ * (e.g., ov discover uses coordinatorName: "discover-coordinator").
+ */
+export async function startCoordinatorSession(
+	opts: CoordinatorSessionOptions,
+	deps: CoordinatorDeps = {},
+): Promise<void> {
+	return startCoordinator(
+		{
+			json: opts.json,
+			attach: opts.attach,
+			watchdog: opts.watchdog,
+			monitor: opts.monitor,
+			autoPull: opts.autoPull ?? false,
+		},
+		deps,
+	);
+}
+
 async function startCoordinator(
 	opts: { json: boolean; attach: boolean; watchdog: boolean; monitor: boolean; autoPull: boolean },
 	deps: CoordinatorDeps = {},

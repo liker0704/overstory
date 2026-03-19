@@ -72,6 +72,7 @@ interface SessionRow {
 	transcript_path: string | null;
 	original_runtime: string | null;
 	status_line: string | null;
+	prompt_version: string | null;
 }
 
 /** Row shape for runs table as stored in SQLite (snake_case columns). */
@@ -104,7 +105,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   last_activity TEXT NOT NULL,
   escalation_level INTEGER NOT NULL DEFAULT 0,
   stalled_since TEXT,
-  transcript_path TEXT
+  transcript_path TEXT,
+  prompt_version TEXT
 )`;
 
 const CREATE_INDEXES = `
@@ -152,6 +154,7 @@ function rowToSession(row: SessionRow): AgentSession {
 		transcriptPath: row.transcript_path,
 		originalRuntime: row.original_runtime ?? null,
 		statusLine: row.status_line ?? null,
+		...(row.prompt_version !== null ? { promptVersion: row.prompt_version } : {}),
 	};
 }
 
@@ -204,6 +207,18 @@ function migrateAddRuntimeSessionId(db: Database): void {
 	const existingColumns = new Set(rows.map((r) => r.name));
 	if (!existingColumns.has("runtime_session_id")) {
 		db.exec("ALTER TABLE sessions ADD COLUMN runtime_session_id TEXT");
+	}
+}
+
+/**
+ * Migrate an existing sessions table to add the prompt_version column.
+ * Safe to call multiple times — only adds the column if it does not exist.
+ */
+function migrateAddPromptVersion(db: Database): void {
+	const rows = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
+	const existingColumns = new Set(rows.map((r) => r.name));
+	if (!existingColumns.has("prompt_version")) {
+		db.exec("ALTER TABLE sessions ADD COLUMN prompt_version TEXT");
 	}
 }
 
@@ -274,6 +289,7 @@ export function createSessionStore(dbPath: string): SessionStore {
 	migrateAddOriginalRuntime(db);
 	// Migrate: add status_line column (agent self-reported status)
 	migrateAddStatusLine(db);
+	migrateAddPromptVersion(db);
 	migrateAddCoordinatorName(db);
 	// Migrate: extend runs.status CHECK constraint to include 'stopped'
 	migrateRunsStatusStopped(db);
@@ -308,6 +324,7 @@ export function createSessionStore(dbPath: string): SessionStore {
 			$transcript_path: string | null;
 			$original_runtime: string | null;
 			$status_line: string | null;
+			$prompt_version: string | null;
 		}
 	>(`
 		INSERT INTO sessions
@@ -315,13 +332,13 @@ export function createSessionStore(dbPath: string): SessionStore {
 			 tmux_session, state, pid, parent_agent, depth, run_id,
 			 started_at, last_activity, escalation_level, stalled_since,
 			 rate_limited_since, runtime_session_id, transcript_path, original_runtime,
-			 status_line)
+			 status_line, prompt_version)
 		VALUES
 			($id, $agent_name, $capability, $runtime, $worktree_path, $branch_name, $task_id,
 			 $tmux_session, $state, $pid, $parent_agent, $depth, $run_id,
 			 $started_at, $last_activity, $escalation_level, $stalled_since,
 			 $rate_limited_since, $runtime_session_id, $transcript_path, $original_runtime,
-			 $status_line)
+			 $status_line, $prompt_version)
 		ON CONFLICT(agent_name) DO UPDATE SET
 			id = excluded.id,
 			capability = excluded.capability,
@@ -343,7 +360,8 @@ export function createSessionStore(dbPath: string): SessionStore {
 			runtime_session_id = excluded.runtime_session_id,
 			transcript_path = excluded.transcript_path,
 			original_runtime = excluded.original_runtime,
-			status_line = excluded.status_line
+			status_line = excluded.status_line,
+			prompt_version = excluded.prompt_version
 	`);
 
 	const getByNameStmt = db.prepare<SessionRow, { $agent_name: string }>(`
@@ -457,6 +475,7 @@ export function createSessionStore(dbPath: string): SessionStore {
 				$transcript_path: session.transcriptPath,
 				$original_runtime: session.originalRuntime ?? null,
 				$status_line: session.statusLine ?? null,
+				$prompt_version: session.promptVersion ?? null,
 			});
 		},
 

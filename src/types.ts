@@ -90,6 +90,8 @@ export interface OverstoryConfig {
 		root: string; // Absolute path to target repo
 		canonicalBranch: string; // "main" | "develop"
 		qualityGates?: QualityGate[];
+		/** Default canopy profile name. Used when --profile is not explicitly passed to sling/coordinator. */
+		defaultProfile?: string;
 	};
 	agents: {
 		manifestPath: string; // Path to agent-manifest.json
@@ -246,6 +248,7 @@ export interface AgentSession {
 	transcriptPath: string | null; // Runtime-provided transcript JSONL path (decoupled from ~/.claude/)
 	originalRuntime: string | null; // Pre-swap runtime (set by watchdog on rate-limit swap, cleared on resume)
 	statusLine: string | null; // Agent self-reported current activity (set via `ov status set`)
+	promptVersion?: string | null; // Canopy prompt version used at sling time (e.g. "builder@17")
 }
 
 // === Agent Identity ===
@@ -288,7 +291,8 @@ export type MailProtocolType =
 	| "plan_review_request"
 	| "plan_critic_verdict"
 	| "plan_review_consolidated"
-	| "plan_revision_complete";
+	| "plan_revision_complete"
+	| "decision_gate";
 
 /** All valid mail message types. */
 export type MailMessageType = MailSemanticType | MailProtocolType;
@@ -318,6 +322,7 @@ export const MAIL_MESSAGE_TYPES: readonly MailMessageType[] = [
 	"plan_critic_verdict",
 	"plan_review_consolidated",
 	"plan_revision_complete",
+	"decision_gate",
 ] as const;
 
 export interface MailMessage {
@@ -569,6 +574,16 @@ export interface PlanRevisionCompletePayload {
 	addressedConcerns: string[];
 }
 
+/** Agent pauses for a human-in-the-loop decision before proceeding. */
+export interface DecisionGatePayload {
+	/** Options for the human decision-maker to choose from. */
+	options: string[];
+	/** Context explaining why the decision is needed. */
+	context: string;
+	/** Optional deadline for the decision (ISO timestamp). */
+	deadline?: string;
+}
+
 /** Maps protocol message types to their payload interfaces. */
 export interface MailPayloadMap {
 	worker_done: WorkerDonePayload;
@@ -590,6 +605,7 @@ export interface MailPayloadMap {
 	plan_critic_verdict: PlanCriticVerdictPayload;
 	plan_review_consolidated: PlanReviewConsolidatedPayload;
 	plan_revision_complete: PlanRevisionCompletePayload;
+	decision_gate: DecisionGatePayload;
 }
 
 // === Overlay ===
@@ -608,6 +624,8 @@ export interface OverlayConfig {
 	capability: string;
 	/** Full content of the base agent definition file (Layer 1: role-specific HOW). */
 	baseDefinition: string;
+	/** Rendered profile content from canopy (Layer 2: deployment-specific WHAT KIND). Inserted between base definition and assignment. */
+	profileContent?: string;
 	/** Pre-fetched mulch expertise output to embed directly in the overlay. */
 	mulchExpertise?: string;
 	/** When true, lead agents should skip Phase 1 (scout) and go straight to Phase 2 (build). */
@@ -966,6 +984,48 @@ export interface MulchCompactResult {
 		recordIds: string[];
 	}>;
 	message?: string;
+}
+
+// === Canopy CLI Results ===
+
+/** A single section within a rendered canopy prompt. */
+export interface CanopyPromptSection {
+	name: string;
+	body: string;
+}
+
+/** Summary of a canopy prompt as returned by list/show. */
+export interface CanopyPromptSummary {
+	id: string;
+	name: string;
+	version: number;
+	sections: CanopyPromptSection[];
+}
+
+/** Result from cn render — resolved prompt with all inheritance applied. */
+export interface CanopyRenderResult {
+	success: boolean;
+	name: string;
+	version: number;
+	sections: CanopyPromptSection[];
+}
+
+/** Result from cn validate — validation status and errors. */
+export interface CanopyValidateResult {
+	success: boolean;
+	errors: string[];
+}
+
+/** Result from cn list — list of all prompts. */
+export interface CanopyListResult {
+	success: boolean;
+	prompts: CanopyPromptSummary[];
+}
+
+/** Result from cn show — single prompt record. */
+export interface CanopyShowResult {
+	success: boolean;
+	prompt: CanopyPromptSummary;
 }
 
 // === Session Lifecycle (Checkpoint / Handoff / Continuity) ===

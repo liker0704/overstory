@@ -84,17 +84,18 @@ Every command supports `--json` where noted. Global flags: `-q`/`--quiet`, `--ti
 | Command | Description |
 |---------|-------------|
 | `ov init` | Initialize `.overstory/` and bootstrap os-eco tools (`--yes`, `--name`, `--tools`, `--skip-mulch`, `--skip-seeds`, `--skip-canopy`, `--skip-onboard`, `--json`) |
-| `ov sling <task-id>` | Spawn a worker agent (`--capability`, `--name`, `--spec`, `--files`, `--parent`, `--depth`, `--skip-scout`, `--skip-review`, `--max-agents`, `--dispatch-max-agents`, `--skip-task-check`, `--no-scout-check`, `--runtime`, `--base-branch`, `--json`) |
+| `ov sling <task-id>` | Spawn a worker agent (`--capability`, `--name`, `--spec`, `--files`, `--parent`, `--depth`, `--skip-scout`, `--skip-review`, `--max-agents`, `--dispatch-max-agents`, `--skip-task-check`, `--no-scout-check`, `--runtime`, `--base-branch`, `--profile`, `--json`) |
 | `ov stop <agent-name>` | Terminate a running agent (`--clean-worktree`, `--json`) |
 | `ov prime` | Load context for orchestrator/agent (`--agent`, `--compact`) |
 | `ov spec write <task-id>` | Write a task specification (`--body`) |
+| `ov discover` | Discover a brownfield codebase via coordinator-driven scout swarm (`--skip`, `--name`, `--attach`, `--watchdog`, `--json`) |
 | `ov update` | Refresh `.overstory/` managed files from installed package (`--agents`, `--manifest`, `--hooks`, `--dry-run`, `--json`) |
 
 ### Coordination
 
 | Command | Description |
 |---------|-------------|
-| `ov coordinator start` | Start persistent coordinator agent (`--attach`/`--no-attach`, `--watchdog`, `--monitor`) |
+| `ov coordinator start` | Start persistent coordinator agent (`--attach`/`--no-attach`, `--watchdog`, `--monitor`, `--profile`) |
 | `ov coordinator stop` | Stop coordinator |
 | `ov coordinator status` | Show coordinator state |
 | `ov coordinator send` | Fire-and-forget message to coordinator (`--subject`) |
@@ -148,22 +149,6 @@ Every command supports `--json` where noted. Global flags: `-q`/`--quiet`, `--ti
 | `ov run list` | List orchestration runs (`--last`, `--json`) |
 | `ov run show <id>` | Show run details |
 | `ov run complete` | Mark current run as completed |
-
-### Evaluation & Quality
-
-| Command | Description |
-|---------|-------------|
-| `ov eval run <scenario>` | Run an eval scenario against a fixture repo (`--timeout`, `--json`) |
-| `ov eval show <run-id>` | Show results of a previous eval run (`--json`) |
-| `ov eval list` | List all past eval runs (`--json`) |
-| `ov eval compare <a> <b>` | Compare two eval runs side-by-side (`--json`) |
-| `ov health` | Operational health score with weighted signals (`--json`) |
-| `ov next-improvement` | Top recommendation from health scoring (`--json`) |
-| `ov review sessions` | Review recent completed sessions (`--recent`, `--json`) |
-| `ov review session <id>` | Review a single session by agent name or ID (`--json`) |
-| `ov review handoffs` | Review recent session handoffs (`--recent`, `--json`) |
-| `ov review specs` | Review all spec files in `.overstory/specs/` (`--json`) |
-| `ov review stale` | Check and mark stale reviews based on changed surfaces (`--json`) |
 
 ### Infrastructure
 
@@ -241,10 +226,6 @@ Orchestrator (multi-repo coordinator of coordinators)
 - **Task Groups**: Batch coordination with auto-close when all member issues complete
 - **Session Lifecycle**: Checkpoint save/restore for compaction survivability, handoff orchestration for crash recovery
 - **Token Instrumentation**: Session metrics extracted from runtime transcript files (JSONL)
-- **Eval Framework**: Scenario-based orchestration regression testing with YAML scenarios, 8 assertion kinds, and side-by-side run comparison
-- **Health Scoring**: Weighted operational health score with signal collection, recommendation engine, and `ov next-improvement` workflow
-- **Review Contour**: Deterministic quality review of sessions, handoffs, and specs across 6 dimensions with staleness detection
-- **Versioned Config**: Schema versioning with migration pipeline and strict unknown-field validation
 
 ## Project Structure
 
@@ -256,7 +237,7 @@ overstory/
     config.ts                     Config loader + validation
     errors.ts                     Custom error types
     json.ts                       Standardized JSON envelope helpers
-    commands/                     One file per CLI subcommand (39 commands)
+    commands/                     One file per CLI subcommand (36 commands)
       agents.ts                   Agent discovery and querying
       coordinator.ts              Persistent orchestrator lifecycle
       supervisor.ts               Team lead management [DEPRECATED]
@@ -290,7 +271,10 @@ overstory/
       ecosystem.ts                os-eco tool dashboard
       update.ts                   Refresh managed files
       upgrade.ts                  npm version upgrades
+      discover.ts                 Brownfield codebase discovery via coordinator-driven scout swarm
       completions.ts              Shell completion generation (bash/zsh/fish)
+    canopy/
+      client.ts                   Canopy client (prompt rendering, listing, emission)
     agents/                       Agent lifecycle management
       manifest.ts                 Agent registry (load + query)
       overlay.ts                  Dynamic CLAUDE.md overlay generator
@@ -308,10 +292,7 @@ overstory/
     doctor/                       Health check modules (11 checks)
     insights/                     Session insight analyzer for auto-expertise
     runtimes/                     AgentRuntime abstraction (registry + adapters: Claude, Pi, Copilot, Codex, Gemini, Sapling, OpenCode, Cursor)
-    eval/                         Scenario-based orchestration evaluation
-    health/                       Operational health scoring + recommendations
-    review/                       Coordination quality review contour
-    tracker/                      Pluggable task tracker (beads + seeds + GitHub backends)
+    tracker/                      Pluggable task tracker (beads + seeds backends)
     mulch/                        mulch client (programmatic API + CLI wrapper)
     e2e/                          End-to-end lifecycle tests
   agents/                         Base agent definitions (.md, 9 roles) + skill definitions

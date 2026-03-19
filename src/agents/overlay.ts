@@ -36,6 +36,18 @@ function formatMulchDomains(domains: readonly string[]): string {
 }
 
 /**
+ * Format profile content (Layer 2: deployment-specific WHAT KIND) for embedding in the overlay.
+ * Returns empty string if no profile was provided (omits the section entirely).
+ * When profile IS provided, renders it as-is — the caller (canopy) owns the formatting.
+ */
+function formatProfile(profileContent: string | undefined): string {
+	if (!profileContent || profileContent.trim().length === 0) {
+		return "";
+	}
+	return profileContent;
+}
+
+/**
  * Format pre-fetched mulch expertise for embedding in the overlay.
  * Returns empty string if no expertise was provided (omits the section entirely).
  * When expertise IS provided, renders it under a 'Pre-loaded Expertise' heading
@@ -330,6 +342,7 @@ export async function generateOverlay(config: OverlayConfig): Promise<string> {
 		"{{SKIP_SCOUT}}": config.skipScout ? SKIP_SCOUT_SECTION : "",
 		"{{DISPATCH_OVERRIDES}}": formatDispatchOverrides(config),
 		"{{BASE_DEFINITION}}": config.baseDefinition,
+		"{{PROFILE_INSTRUCTIONS}}": formatProfile(config.profileContent),
 		"{{QUALITY_GATE_INLINE}}": formatQualityGatesInline(config.qualityGates),
 		"{{QUALITY_GATE_STEPS}}": formatQualityGatesSteps(config.qualityGates),
 		"{{QUALITY_GATE_BASH}}": formatQualityGatesBash(config.qualityGates),

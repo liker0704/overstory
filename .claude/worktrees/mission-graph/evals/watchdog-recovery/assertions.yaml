@@ -1,0 +1,13 @@
+assertions:
+  - kind: min_workers_spawned
+    label: "At least 1 worker spawned"
+    expected: 1
+  - kind: no_zombies
+    label: "No zombie agents at end"
+    expected: true
+  - kind: max_stall_rate
+    label: "Stall rate does not exceed 50%"
+    expected: 0.5
+  - kind: max_duration_ms
+    label: "Completes within 15 minutes"
+    expected: 900000

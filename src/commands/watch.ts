@@ -215,17 +215,17 @@ async function runWatch(opts: {
 	});
 
 	// Keep running until interrupted
-	process.on("SIGINT", () => {
-		stop();
-		// Clean up PID file on graceful shutdown
-		removePidFile(pidFilePath).finally(() => {
-			printSuccess("Watchdog stopped.");
-			process.exit(0);
+	await new Promise<void>((resolve) => {
+		process.on("SIGINT", () => {
+			stop();
+			// Clean up PID file on graceful shutdown
+			removePidFile(pidFilePath).finally(() => {
+				printSuccess("Watchdog stopped.");
+				process.exitCode = 0;
+				resolve();
+			});
 		});
 	});
-
-	// Block forever
-	await new Promise(() => {});
 }
 
 export function createWatchCommand(): Command {
