@@ -5,6 +5,7 @@ import {
 	capturePaneContent,
 	checkSessionState,
 	createSession,
+	detectAgentState,
 	ensureTmuxAvailable,
 	getDescendantPids,
 	getPanePid,
@@ -991,14 +992,7 @@ describe("sendKeys", () => {
 		expect(spawnSpy).toHaveBeenCalledTimes(1);
 		const callArgs = spawnSpy.mock.calls[0] as unknown[];
 		const cmd = callArgs[0] as string[];
-		expect(cmd).toEqual([
-			"tmux",
-			"send-keys",
-			"-t",
-			"overstory-agent:^.{top-left}",
-			"",
-			"Enter",
-		]);
+		expect(cmd).toEqual(["tmux", "send-keys", "-t", "overstory-agent:^.{top-left}", "", "Enter"]);
 	});
 
 	test("throws descriptive error when tmux server is not running", async () => {
@@ -1527,5 +1521,89 @@ describe("ensureTmuxAvailable", () => {
 			const agentErr = err as AgentError;
 			expect(agentErr.message).toContain("tmux is not installed");
 		}
+	});
+});
+
+describe("detectAgentState", () => {
+	test("returns 'working' when status bar contains 'esc to interrupt'", () => {
+		const content = [
+			"Some output here",
+			"More output",
+			"───────────────────────────────────────────────────────────────────── ▪▪▪ ─",
+			"❯ ",
+			"───────────────────────────────────────────────────────────────────────────",
+			"  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt",
+		].join("\n");
+		expect(detectAgentState(content)).toBe("working");
+	});
+
+	test("returns 'idle' when status bar has bypass permissions but no working indicator", () => {
+		const content = [
+			"Some output here",
+			"More output",
+			"───────────────────────────────────────────────────────────────────── ▪▪▪ ─",
+			"❯ ",
+			"───────────────────────────────────────────────────────────────────────────",
+			"  ⏵⏵ bypass permissions on (shift+tab to cycle)",
+		].join("\n");
+		expect(detectAgentState(content)).toBe("idle");
+	});
+
+	test("returns 'idle' with plan mode status bar", () => {
+		const content = [
+			"Some output",
+			"───────────────────────────────────────────────────────────────────── ▪▪▪ ─",
+			"❯ ",
+			"───────────────────────────────────────────────────────────────────────────",
+			"  plan mode (shift+tab to cycle)",
+		].join("\n");
+		expect(detectAgentState(content)).toBe("idle");
+	});
+
+	test("returns 'working' on narrow screen with spinner char", () => {
+		const lines = Array.from({ length: 10 }, (_, i) => `line ${i}`);
+		lines.push("\u2736 Processing\u2026");
+		lines.push("───────────────────────────────────────────────────────────────────────────");
+		lines.push("  bypass permissions on");
+		const content = lines.join("\n");
+		expect(detectAgentState(content)).toBe("working");
+	});
+
+	test("returns 'unknown' when no status bar found", () => {
+		const content = ["random output", "no status bar here", "just text"].join("\n");
+		expect(detectAgentState(content)).toBe("unknown");
+	});
+
+	test("handles ANSI escape codes in pane content", () => {
+		const content = [
+			"\x1b[32mSome colored output\x1b[0m",
+			"───────────────────────────────────────────────────────────────────── ▪▪▪ ─",
+			"❯ ",
+			"───────────────────────────────────────────────────────────────────────────",
+			"\x1b[90m  ⏵⏵ bypass permissions on (shift+tab to cycle)\x1b[0m",
+		].join("\n");
+		expect(detectAgentState(content)).toBe("idle");
+	});
+
+	test("detects all spinner char variants as working", () => {
+		const spinnerChars = ["\xB7", "\u2722", "\u2733", "\u2736", "\u273B", "\u273D"];
+		for (const char of spinnerChars) {
+			const content = [`${char} Thinking\u2026`, "───────────────", "  bypass permissions on"].join(
+				"\n",
+			);
+			expect(detectAgentState(content)).toBe("working");
+		}
+	});
+
+	test("handles auto-compact line below status bar", () => {
+		const content = [
+			"Some output",
+			"───────────────────────────────────────────────────────────────────── ▪▪▪ ─",
+			"❯ ",
+			"───────────────────────────────────────────────────────────────────────────",
+			"  ⏵⏵ bypass permissions on (shift+tab to cycle)",
+			"  Context left until auto-compact: 7%",
+		].join("\n");
+		expect(detectAgentState(content)).toBe("idle");
 	});
 });

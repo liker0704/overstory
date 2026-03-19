@@ -202,13 +202,10 @@ function parseMissionFindingPayload(rawPayload: string | undefined): MissionFind
 		!Array.isArray(payload["affectedWorkstreams"]) ||
 		!payload["affectedWorkstreams"].every((value) => typeof value === "string")
 	) {
-		throw new ValidationError(
-			"mission_finding payload.affectedWorkstreams must be a string[]",
-			{
-				field: "payload.affectedWorkstreams",
-				value: payload["affectedWorkstreams"],
-			},
-		);
+		throw new ValidationError("mission_finding payload.affectedWorkstreams must be a string[]", {
+			field: "payload.affectedWorkstreams",
+			value: payload["affectedWorkstreams"],
+		});
 	}
 
 	return {
@@ -273,6 +270,34 @@ async function readAndClearPendingNudge(
 			// Already gone
 		}
 		return null;
+	}
+}
+
+/**
+ * Nudge an agent via tmux send-keys if it is currently idle at the prompt.
+ *
+ * File-based pending nudge markers only surface on the next `UserPromptSubmit`
+ * hook cycle — but idle agents never fire that hook. This function detects
+ * idle state via pane content and sends a direct tmux nudge when appropriate.
+ * Non-fatal: all errors are silently swallowed.
+ */
+async function nudgeIfIdle(cwd: string, agentName: string, message: string): Promise<void> {
+	try {
+		const { resolveTargetSession } = await import("./nudge.ts");
+		const tmuxSession = await resolveTargetSession(cwd, agentName);
+		if (!tmuxSession) return;
+
+		const { capturePaneContent, detectAgentState } = await import("../worktree/tmux.ts");
+		const paneContent = await capturePaneContent(tmuxSession);
+		if (!paneContent) return;
+
+		const state = detectAgentState(paneContent);
+		if (state === "idle") {
+			const { nudgeAgent } = await import("./nudge.ts");
+			await nudgeAgent(cwd, agentName, message, true);
+		}
+	} catch {
+		// Non-fatal: file-based nudge is the primary mechanism
 	}
 }
 
@@ -470,17 +495,17 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 			try {
 				// Fan out: send individual message to each recipient
 				for (const recipient of recipients) {
-						const id = client.send({ from, to: recipient, subject, body, type, priority, payload });
-						messageIds.push(id);
-						await syncMissionPendingInputFromMail(cwd, {
-							id,
-							from,
-							to: recipient,
-							type,
-							subject,
-						});
+					const id = client.send({ from, to: recipient, subject, body, type, priority, payload });
+					messageIds.push(id);
+					await syncMissionPendingInputFromMail(cwd, {
+						id,
+						from,
+						to: recipient,
+						type,
+						subject,
+					});
 
-						// Record mail_sent event for each individual message (fire-and-forget)
+					// Record mail_sent event for each individual message (fire-and-forget)
 					try {
 						const eventsDbPath = join(cwd, ".overstory", "events.db");
 						const eventStore = createEventStore(eventsDbPath);
@@ -531,6 +556,7 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 							subject,
 							messageId: id,
 						});
+						await nudgeIfIdle(cwd, recipient, `[MAIL] ${subject}`);
 					}
 				}
 			} finally {
@@ -561,11 +587,11 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 
 	// Single-recipient message (existing logic)
 	const client = openClient(cwd);
-		try {
-			const id = client.send({ from, to, subject, body, type, priority, payload });
-			await syncMissionPendingInputFromMail(cwd, { id, from, to, type, subject });
+	try {
+		const id = client.send({ from, to, subject, body, type, priority, payload });
+		await syncMissionPendingInputFromMail(cwd, { id, from, to, type, subject });
 
-			// Record mail_sent event to EventStore (fire-and-forget)
+		// Record mail_sent event to EventStore (fire-and-forget)
 		try {
 			const eventsDbPath = join(cwd, ".overstory", "events.db");
 			const eventStore = createEventStore(eventsDbPath);
@@ -624,6 +650,9 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 					`Queued nudge for "${to}" (${nudgeReason}, delivered on next prompt)\n`,
 				);
 			}
+			// File markers only surface on the next UserPromptSubmit hook cycle.
+			// If the recipient is idle at the prompt, send a direct tmux nudge.
+			await nudgeIfIdle(cwd, to, `[MAIL] ${subject}`);
 		}
 
 		// For dispatch messages, also send an immediate tmux nudge.
@@ -795,21 +824,53 @@ function handleRead(id: string, cwd: string): void {
 }
 
 /** overstory mail reply */
-function handleReply(id: string, opts: ReplyOpts, cwd: string): void {
+async function handleReply(id: string, opts: ReplyOpts, cwd: string): Promise<void> {
 	const body = opts.body;
 	const from = opts.agent ?? opts.from ?? "orchestrator";
 
 	const client = openClient(cwd);
+	let reply: MailMessage;
 	try {
-		const replyId = client.reply(id, body, from);
+		reply = client.reply(id, body, from);
 
 		if (opts.json) {
-			jsonOutput("mail reply", { id: replyId });
+			jsonOutput("mail reply", { id: reply.id });
 		} else {
-			printSuccess("Reply sent", replyId);
+			printSuccess("Reply sent", reply.id);
 		}
 	} finally {
 		client.close();
+	}
+
+	// Auto-nudge: replies inherit type/priority from original message.
+	// Apply the same nudge logic as handleSend.
+	if (shouldAutoNudge(reply.type, reply.priority)) {
+		const nudgeReason = AUTO_NUDGE_TYPES.has(reply.type)
+			? reply.type
+			: `${reply.priority} priority`;
+		await writePendingNudge(cwd, reply.to, {
+			from,
+			reason: nudgeReason,
+			subject: reply.subject,
+			messageId: reply.id,
+		});
+		if (!opts.json) {
+			process.stdout.write(
+				`Queued nudge for "${reply.to}" (${nudgeReason}, delivered on next prompt)\n`,
+			);
+		}
+		await nudgeIfIdle(cwd, reply.to, `[MAIL] ${reply.subject}`);
+	}
+
+	if (isDispatchNudge(reply.type)) {
+		try {
+			const { nudgeAgent } = await import("./nudge.ts");
+			const nudgeMessage = `[DISPATCH] ${reply.subject}: ${body.slice(0, 500)}`;
+			await Bun.sleep(3_000);
+			await nudgeAgent(cwd, reply.to, nudgeMessage, true);
+		} catch {
+			// Non-fatal: the file-based nudge is the fallback
+		}
 	}
 }
 
@@ -928,8 +989,8 @@ export async function mailCommand(args: string[]): Promise<void> {
 		.option("--agent <name>", "Alias for --from")
 		.option("--json", "Output as JSON")
 		.exitOverride()
-		.action((id: string, opts: ReplyOpts) => {
-			handleReply(id, opts, root);
+		.action(async (id: string, opts: ReplyOpts) => {
+			await handleReply(id, opts, root);
 		});
 
 	program

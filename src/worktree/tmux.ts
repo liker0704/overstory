@@ -553,6 +553,39 @@ export async function capturePaneContent(name: string, lines = 50): Promise<stri
 	return content.length > 0 ? content : null;
 }
 
+// biome-ignore lint/suspicious/noControlCharactersInRegex: ESC (0x1b) is the ANSI escape introducer
+const ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]/g;
+
+// Claude Code spinner: one of 6 animated star chars (·✢✳✶✻✽) + word ending in "ing…"
+const SPINNER_RE = /[\xB7\u2722\u2733\u2736\u273B\u273D]\s+\S+ing\u2026/;
+
+/**
+ * Detect whether a Claude Code agent is working, idle, or in an unknown state
+ * by inspecting the tmux pane content for status bar indicators.
+ *
+ * Pure function — no I/O. Pass the output of `capturePaneContent()`.
+ */
+export function detectAgentState(paneContent: string): "working" | "idle" | "unknown" {
+	const clean = paneContent.replace(ANSI_RE, "");
+	const lines = clean.split("\n");
+	// Check last ~6 lines for status bar indicators.
+	// "bypass permissions"/"plan mode" may not be on the very last line —
+	// e.g. "Context left until auto-compact: 7%" can appear below it.
+	const bottom = lines.slice(-6).join("\n");
+	// Working: "esc to interrupt" visible in status bar (wide screen)
+	if (bottom.includes("esc to interrupt")) {
+		return "working";
+	}
+	const hasStatusBar = bottom.includes("bypass permissions") || bottom.includes("plan mode");
+	if (hasStatusBar) {
+		// On narrow screens "esc to interrupt" is truncated from the status bar.
+		// Detect working by checking for spinner text in the last ~15 lines.
+		const tail = lines.slice(-15).join("\n");
+		return SPINNER_RE.test(tail) ? "working" : "idle";
+	}
+	return "unknown";
+}
+
 /**
  * Wait for a tmux session's TUI to become ready for input.
  *

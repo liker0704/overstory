@@ -1231,7 +1231,7 @@ export async function missionAnswer(
 		const pendingThreadId = mission.pendingInputThreadId;
 		const pendingSender = await pendingMissionQuestionSender(overstoryDir, pendingThreadId);
 		try {
-			replyId = client.reply(pendingThreadId, body, "operator");
+			replyId = client.reply(pendingThreadId, body, "operator").id;
 		} finally {
 			client.close();
 		}

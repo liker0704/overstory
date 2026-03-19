@@ -53,7 +53,7 @@ async function loadOrchestratorTmuxSession(projectRoot: string): Promise<string 
  * For "orchestrator", falls back to the orchestrator-tmux.json registration
  * file written by `overstory prime`.
  */
-async function resolveTargetSession(
+export async function resolveTargetSession(
 	projectRoot: string,
 	agentName: string,
 ): Promise<string | null> {

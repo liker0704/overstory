@@ -47,8 +47,8 @@ export interface MailClient {
 	/** Mark a message as read by ID. Returns whether the message was already read. */
 	markRead(id: string): { alreadyRead: boolean };
 
-	/** Reply to a message. Returns the new message ID. */
-	reply(messageId: string, body: string, from: string): string;
+	/** Reply to a message. Returns the full reply message. */
+	reply(messageId: string, body: string, from: string): MailMessage;
 
 	/** Close the underlying store. */
 	close(): void;
@@ -198,7 +198,7 @@ export function createMailClient(store: MailStore): MailClient {
 			return { alreadyRead: false };
 		},
 
-		reply(messageId, body, from): string {
+		reply(messageId, body, from): MailMessage {
 			const original = store.getById(messageId);
 			if (!original) {
 				throw new MailError(`Message not found: ${messageId}`, {
@@ -213,7 +213,7 @@ export function createMailClient(store: MailStore): MailClient {
 			// If the replier is the original recipient (or anyone else), reply goes to the original sender.
 			const to = from === original.from ? original.to : original.from;
 
-			const reply = store.insert({
+			return store.insert({
 				id: "",
 				from,
 				to,
@@ -224,7 +224,6 @@ export function createMailClient(store: MailStore): MailClient {
 				threadId,
 				payload: null,
 			});
-			return reply.id;
 		},
 
 		close(): void {

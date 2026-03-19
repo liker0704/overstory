@@ -445,9 +445,11 @@ describe("createMailClient", () => {
 				priority: "normal",
 			});
 
-			const replyId = client.reply(originalId, "Use POST /merge with branch param", "orchestrator");
-
-			const replyMsg = store.getById(replyId);
+			const replyMsg = client.reply(
+				originalId,
+				"Use POST /merge with branch param",
+				"orchestrator",
+			);
 			expect(replyMsg).not.toBeNull();
 			expect(replyMsg?.from).toBe("orchestrator");
 			expect(replyMsg?.to).toBe("agent-a");
@@ -461,9 +463,7 @@ describe("createMailClient", () => {
 				body: "Tests failing",
 			});
 
-			const replyId = client.reply(originalId, "Looking into it", "orchestrator");
-
-			const replyMsg = store.getById(replyId);
+			const replyMsg = client.reply(originalId, "Looking into it", "orchestrator");
 			expect(replyMsg).not.toBeNull();
 			expect(replyMsg?.subject).toBe("Re: Build Status");
 		});
@@ -476,9 +476,7 @@ describe("createMailClient", () => {
 				body: "Starting conversation",
 			});
 
-			const replyId = client.reply(originalId, "Reply here", "orchestrator");
-
-			const replyMsg = store.getById(replyId);
+			const replyMsg = client.reply(originalId, "Reply here", "orchestrator");
 			expect(replyMsg).not.toBeNull();
 			expect(replyMsg?.threadId).toBe(originalId);
 		});
@@ -492,9 +490,7 @@ describe("createMailClient", () => {
 				threadId: "thread-root-123",
 			});
 
-			const replyId = client.reply(originalId, "Continuing thread", "orchestrator");
-
-			const replyMsg = store.getById(replyId);
+			const replyMsg = client.reply(originalId, "Continuing thread", "orchestrator");
 			expect(replyMsg).not.toBeNull();
 			expect(replyMsg?.threadId).toBe("thread-root-123");
 		});
@@ -508,9 +504,7 @@ describe("createMailClient", () => {
 				type: "error",
 			});
 
-			const replyId = client.reply(originalId, "Fixed", "orchestrator");
-
-			const replyMsg = store.getById(replyId);
+			const replyMsg = client.reply(originalId, "Fixed", "orchestrator");
 			expect(replyMsg).not.toBeNull();
 			expect(replyMsg?.type).toBe("error");
 		});
@@ -524,14 +518,12 @@ describe("createMailClient", () => {
 				priority: "urgent",
 			});
 
-			const replyId = client.reply(originalId, "On it", "orchestrator");
-
-			const replyMsg = store.getById(replyId);
+			const replyMsg = client.reply(originalId, "On it", "orchestrator");
 			expect(replyMsg).not.toBeNull();
 			expect(replyMsg?.priority).toBe("urgent");
 		});
 
-		test("returns the reply message ID", () => {
+		test("returns the full reply message", () => {
 			const originalId = client.send({
 				from: "agent-a",
 				to: "orchestrator",
@@ -539,8 +531,10 @@ describe("createMailClient", () => {
 				body: "Test body",
 			});
 
-			const replyId = client.reply(originalId, "Reply body", "orchestrator");
-			expect(replyId).toMatch(/^msg-[a-z0-9]{12}$/);
+			const replyMsg = client.reply(originalId, "Reply body", "orchestrator");
+			expect(replyMsg.id).toMatch(/^msg-[a-z0-9]{12}$/);
+			expect(replyMsg.from).toBe("orchestrator");
+			expect(replyMsg.to).toBe("agent-a");
 		});
 
 		test("throws MailError when original message not found", () => {
@@ -567,9 +561,7 @@ describe("createMailClient", () => {
 			});
 
 			// Orchestrator replies to their own sent message
-			const replyId = client.reply(originalId, "Actually, also do Y", "orchestrator");
-
-			const replyMsg = store.getById(replyId);
+			const replyMsg = client.reply(originalId, "Actually, also do Y", "orchestrator");
 			expect(replyMsg).not.toBeNull();
 			expect(replyMsg?.from).toBe("orchestrator");
 			// Reply should go to status-builder (original.to), not orchestrator (original.from)
@@ -586,9 +578,7 @@ describe("createMailClient", () => {
 			});
 
 			// agent-c is neither sender nor recipient of original
-			const replyId = client.reply(originalId, "I can help", "agent-c");
-
-			const replyMsg = store.getById(replyId);
+			const replyMsg = client.reply(originalId, "I can help", "agent-c");
 			expect(replyMsg).not.toBeNull();
 			expect(replyMsg?.from).toBe("agent-c");
 			// Third-party reply goes to original sender
