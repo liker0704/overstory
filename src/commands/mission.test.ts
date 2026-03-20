@@ -43,7 +43,9 @@ describe("createMissionCommand", () => {
 		expect(names).toContain("list");
 		expect(names).toContain("show");
 		expect(names).toContain("bundle");
-		expect(names).toHaveLength(14);
+		expect(names).toContain("graph");
+		expect(names).toContain("update");
+		expect(names).toHaveLength(16);
 	});
 
 	test("answer subcommand supports --body and --file", () => {

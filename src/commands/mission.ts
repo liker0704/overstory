@@ -730,6 +730,23 @@ export async function missionStart(
 			return;
 		}
 
+		// Check for suspended missions that should be resumed instead
+		const suspended = missionStore.list({ state: "suspended", limit: 1 });
+		if (suspended[0]) {
+			if (opts.json) {
+				jsonError(
+					"mission start",
+					`Suspended mission exists: ${suspended[0].slug}. Use 'ov mission resume' instead.`,
+				);
+			} else {
+				printError("A suspended mission exists", suspended[0].slug);
+				printHint("Resume it with: ov mission resume");
+				printHint("Or kill it first with: ov mission stop --kill");
+			}
+			process.exitCode = 1;
+			return;
+		}
+
 		const runStore = createRunStore(dbPath);
 		try {
 			runStore.createRun({
@@ -2171,6 +2188,122 @@ export async function missionStop(
 	}
 }
 
+/**
+ * Restart coordinator and mission-analyst from scratch against an existing mission.
+ * Used by resume when prior sessions are gone (e.g. after --kill).
+ */
+async function restartMissionRoles(
+	overstoryDir: string,
+	projectRoot: string,
+	mission: Mission,
+): Promise<void> {
+	if (!mission.runId) {
+		throw new Error(`Mission ${mission.id} has no runId — cannot restart roles`);
+	}
+	const runId = mission.runId;
+
+	const coordPrompt = await materializeMissionRolePrompt({
+		overstoryDir,
+		agentName: "coordinator",
+		capability: "coordinator-mission",
+		roleLabel: "Mission Coordinator",
+		mission,
+	});
+	drainAgentInbox(overstoryDir, "coordinator");
+
+	const coordResult = await startMissionCoordinator({
+		missionId: mission.id,
+		projectRoot,
+		overstoryDir,
+		existingRunId: runId,
+		appendSystemPromptFile: coordPrompt.promptPath,
+		beacon: buildMissionRoleBeacon({
+			agentName: "coordinator",
+			missionId: mission.id,
+			contextPath: coordPrompt.contextPath,
+		}),
+	});
+
+	const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
+	try {
+		missionStore.bindCoordinatorSession(mission.id, coordResult.session.id);
+	} finally {
+		missionStore.close();
+	}
+
+	const analystPrompt = await materializeMissionRolePrompt({
+		overstoryDir,
+		agentName: "mission-analyst",
+		capability: "mission-analyst",
+		roleLabel: "Mission Analyst",
+		mission,
+	});
+	drainAgentInbox(overstoryDir, "mission-analyst");
+
+	const analystResult = await startMissionAnalyst({
+		missionId: mission.id,
+		projectRoot,
+		overstoryDir,
+		existingRunId: runId,
+		appendSystemPromptFile: analystPrompt.promptPath,
+		beacon: buildMissionRoleBeacon({
+			agentName: "mission-analyst",
+			missionId: mission.id,
+			contextPath: analystPrompt.contextPath,
+		}),
+	});
+
+	const missionStore2 = createMissionStore(join(overstoryDir, "sessions.db"));
+	try {
+		missionStore2.bindSessions(mission.id, { analystSessionId: analystResult.session.id });
+	} finally {
+		missionStore2.close();
+	}
+
+	// Notify coordinator of resumed mission
+	await sendMissionDispatchMail({
+		overstoryDir,
+		to: "coordinator",
+		subject: `Mission resumed: ${mission.slug}`,
+		body: [
+			`Mission ID: ${mission.id}`,
+			`Objective: ${mission.objective}`,
+			`Artifact root: ${mission.artifactRoot ?? "none"}`,
+			`Context file: ${coordPrompt.contextPath}`,
+			"",
+			"This mission is being RESUMED (not started fresh).",
+			"Check the mission artifacts directory for prior work.",
+			"Mission Analyst is running and available for research queries via mail.",
+		].join("\n"),
+	});
+	await nudgeMissionRoleBestEffort(
+		projectRoot,
+		"coordinator",
+		`Mission resumed: ${mission.slug}. Check mail and review prior artifacts.`,
+	);
+
+	await sendMissionControlMail({
+		overstoryDir,
+		to: "mission-analyst",
+		subject: `Mission resumed: ${mission.slug}`,
+		body: [
+			`Mission ID: ${mission.id}`,
+			`Objective: ${mission.objective}`,
+			`Artifact root: ${mission.artifactRoot ?? "none"}`,
+			`Context file: ${analystPrompt.contextPath}`,
+			"",
+			"This mission is being RESUMED. Check artifacts for prior analysis.",
+			"Report findings to coordinator via mail.",
+		].join("\n"),
+		type: "dispatch",
+	});
+	await nudgeMissionRoleBestEffort(
+		projectRoot,
+		"mission-analyst",
+		`Mission resumed: ${mission.slug}. Check mail and review prior work.`,
+	);
+}
+
 export async function missionResumeAll(
 	overstoryDir: string,
 	projectRoot: string,
@@ -2233,18 +2366,29 @@ export async function missionResumeAll(
 			const ordered = [...roles, ...workers];
 
 			const results: Array<{ agentName: string; success: boolean; error?: string }> = [];
-			for (const session of ordered) {
-				try {
-					await resumeAgent(session, config, projectRoot);
-					results.push({ agentName: session.agentName, success: true });
-					if (!json) {
-						printSuccess(`Resumed ${session.agentName}`);
-					}
-				} catch (err) {
-					const msg = err instanceof Error ? err.message : String(err);
-					results.push({ agentName: session.agentName, success: false, error: msg });
-					if (!json) {
-						printWarning(`Failed to resume ${session.agentName}: ${msg}`);
+
+			if (ordered.length === 0) {
+				// No resumable sessions — restart roles fresh against existing mission
+				await restartMissionRoles(overstoryDir, projectRoot, mission);
+				results.push({ agentName: "coordinator", success: true });
+				results.push({ agentName: "mission-analyst", success: true });
+				if (!json) {
+					printSuccess("Restarted coordinator and mission-analyst (no prior sessions to resume)");
+				}
+			} else {
+				for (const session of ordered) {
+					try {
+						await resumeAgent(session, config, projectRoot);
+						results.push({ agentName: session.agentName, success: true });
+						if (!json) {
+							printSuccess(`Resumed ${session.agentName}`);
+						}
+					} catch (err) {
+						const msg = err instanceof Error ? err.message : String(err);
+						results.push({ agentName: session.agentName, success: false, error: msg });
+						if (!json) {
+							printWarning(`Failed to resume ${session.agentName}: ${msg}`);
+						}
 					}
 				}
 			}
@@ -2256,8 +2400,6 @@ export async function missionResumeAll(
 					state: "active",
 					resumed: results,
 				});
-			} else if (results.length === 0) {
-				printHint("Mission state restored. No agents to resume.");
 			}
 		} finally {
 			store.close();
