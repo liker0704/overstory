@@ -287,12 +287,30 @@ async function nudgeIfIdle(cwd: string, agentName: string, message: string): Pro
 		const tmuxSession = await resolveTargetSession(cwd, agentName);
 		if (!tmuxSession) return;
 
-		const { capturePaneContent, detectAgentState } = await import("../worktree/tmux.ts");
+		const { capturePaneContent, detectAgentState, getPaneWidth, getPaneActivity } =
+			await import("../worktree/tmux.ts");
 		const paneContent = await capturePaneContent(tmuxSession);
 		if (!paneContent) return;
 
 		const state = detectAgentState(paneContent);
-		if (state === "idle") {
+
+		let shouldNudge = state === "idle";
+
+		// Fallback for small panes (phone access): content detection returns
+		// "unknown" because status bar text is truncated. Use pane_activity
+		// timestamp instead — if no output for 30s, treat as idle.
+		if (state === "unknown") {
+			const width = await getPaneWidth(tmuxSession);
+			if (width !== null && width <= 80) {
+				const activity = await getPaneActivity(tmuxSession);
+				if (activity !== null) {
+					const idleSeconds = Math.floor(Date.now() / 1000) - activity;
+					shouldNudge = idleSeconds >= 5;
+				}
+			}
+		}
+
+		if (shouldNudge) {
 			const { nudgeAgent } = await import("./nudge.ts");
 			await nudgeAgent(cwd, agentName, message, true);
 		}

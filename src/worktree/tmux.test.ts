@@ -8,7 +8,9 @@ import {
 	detectAgentState,
 	ensureTmuxAvailable,
 	getDescendantPids,
+	getPaneActivity,
 	getPanePid,
+	getPaneWidth,
 	isProcessAlive,
 	isSessionAlive,
 	killProcessTree,
@@ -1631,5 +1633,92 @@ describe("detectAgentState", () => {
 			"  Context left until auto-compact: 7%",
 		].join("\n");
 		expect(detectAgentState(content)).toBe("idle");
+	});
+});
+
+describe("getPaneWidth", () => {
+	let spawnSpy: ReturnType<typeof spyOn>;
+
+	beforeEach(() => {
+		spawnSpy = spyOn(Bun, "spawn");
+	});
+
+	afterEach(() => {
+		spawnSpy.mockRestore();
+	});
+
+	test("returns pane width as number", async () => {
+		spawnSpy.mockImplementation(() => mockSpawnResult("170\n", "", 0));
+		expect(await getPaneWidth("overstory-agent")).toBe(170);
+	});
+
+	test("passes correct tmux args", async () => {
+		spawnSpy.mockImplementation(() => mockSpawnResult("80\n", "", 0));
+		await getPaneWidth("my-session");
+		const cmd = (spawnSpy.mock.calls[0] as unknown[])[0] as string[];
+		expect(cmd).toEqual([
+			"tmux",
+			"display-message",
+			"-t",
+			"my-session:^.{top-left}",
+			"-p",
+			"#{pane_width}",
+		]);
+	});
+
+	test("returns null on tmux failure", async () => {
+		spawnSpy.mockImplementation(() => mockSpawnResult("", "no session", 1));
+		expect(await getPaneWidth("dead-session")).toBeNull();
+	});
+
+	test("returns null on non-numeric output", async () => {
+		spawnSpy.mockImplementation(() => mockSpawnResult("abc\n", "", 0));
+		expect(await getPaneWidth("overstory-agent")).toBeNull();
+	});
+
+	test("returns small width for phone-sized pane", async () => {
+		spawnSpy.mockImplementation(() => mockSpawnResult("40\n", "", 0));
+		expect(await getPaneWidth("overstory-agent")).toBe(40);
+	});
+});
+
+describe("getPaneActivity", () => {
+	let spawnSpy: ReturnType<typeof spyOn>;
+
+	beforeEach(() => {
+		spawnSpy = spyOn(Bun, "spawn");
+	});
+
+	afterEach(() => {
+		spawnSpy.mockRestore();
+	});
+
+	test("returns epoch timestamp", async () => {
+		spawnSpy.mockImplementation(() => mockSpawnResult("1711000000\n", "", 0));
+		expect(await getPaneActivity("overstory-agent")).toBe(1711000000);
+	});
+
+	test("passes correct tmux args with window_activity", async () => {
+		spawnSpy.mockImplementation(() => mockSpawnResult("1711000000\n", "", 0));
+		await getPaneActivity("my-session");
+		const cmd = (spawnSpy.mock.calls[0] as unknown[])[0] as string[];
+		expect(cmd).toEqual([
+			"tmux",
+			"display-message",
+			"-t",
+			"my-session:^.{top-left}",
+			"-p",
+			"#{window_activity}",
+		]);
+	});
+
+	test("returns null on tmux failure", async () => {
+		spawnSpy.mockImplementation(() => mockSpawnResult("", "no session", 1));
+		expect(await getPaneActivity("dead-session")).toBeNull();
+	});
+
+	test("returns null on non-numeric output", async () => {
+		spawnSpy.mockImplementation(() => mockSpawnResult("not-a-number\n", "", 0));
+		expect(await getPaneActivity("overstory-agent")).toBeNull();
 	});
 });

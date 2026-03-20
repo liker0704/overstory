@@ -557,6 +557,44 @@ export async function capturePaneContent(name: string, lines = 50): Promise<stri
 	return content.length > 0 ? content : null;
 }
 
+/**
+ * Query the width (columns) of an agent's primary tmux pane.
+ * Returns null if the session doesn't exist or tmux is unavailable.
+ */
+export async function getPaneWidth(name: string): Promise<number | null> {
+	const { exitCode, stdout } = await runCommand([
+		"tmux",
+		"display-message",
+		"-t",
+		primaryPaneTarget(name),
+		"-p",
+		"#{pane_width}",
+	]);
+	if (exitCode !== 0) return null;
+	const w = Number.parseInt(stdout.trim(), 10);
+	return Number.isNaN(w) ? null : w;
+}
+
+/**
+ * Query the last activity epoch timestamp of an agent's tmux window.
+ * Uses `window_activity` (available in tmux 2.1+, including 3.5a where
+ * `pane_activity` is absent). Since overstory agents run in single-window
+ * sessions, window activity equals pane activity.
+ */
+export async function getPaneActivity(name: string): Promise<number | null> {
+	const { exitCode, stdout } = await runCommand([
+		"tmux",
+		"display-message",
+		"-t",
+		primaryPaneTarget(name),
+		"-p",
+		"#{window_activity}",
+	]);
+	if (exitCode !== 0) return null;
+	const ts = Number.parseInt(stdout.trim(), 10);
+	return Number.isNaN(ts) ? null : ts;
+}
+
 // biome-ignore lint/suspicious/noControlCharactersInRegex: ESC (0x1b) is the ANSI escape introducer
 const ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]/g;
 
