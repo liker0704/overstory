@@ -2176,8 +2176,44 @@ export async function missionStop(
 	kill: boolean,
 	deps: MissionCommandDeps = {},
 ): Promise<void> {
-	const missionId = await resolveCurrentMissionId(overstoryDir);
+	let missionId = await resolveCurrentMissionId(overstoryDir);
+
+	// When --kill is used and no active/frozen mission is found, also check for
+	// suspended missions. Without this, users get stuck: `start` says "suspended
+	// mission exists", but `stop` says "no active mission" — a deadlock.
+	if (!missionId && kill) {
+		const store = createMissionStore(join(overstoryDir, "sessions.db"));
+		try {
+			const suspended = store.list({ state: "suspended", limit: 1 });
+			if (suspended[0]) {
+				missionId = suspended[0].id;
+			}
+		} finally {
+			store.close();
+		}
+	}
+
 	if (!missionId) {
+		// Check if there's a suspended mission the user might be trying to kill
+		if (!kill) {
+			const store = createMissionStore(join(overstoryDir, "sessions.db"));
+			try {
+				const suspended = store.list({ state: "suspended", limit: 1 });
+				if (suspended[0]) {
+					if (json) {
+						jsonError("mission stop", "Mission is already suspended");
+					} else {
+						printError("Mission is already suspended", suspended[0].slug);
+						printHint("Kill it with: ov mission stop --kill");
+						printHint("Or resume it with: ov mission resume");
+					}
+					process.exitCode = 1;
+					return;
+				}
+			} finally {
+				store.close();
+			}
+		}
 		if (json) {
 			jsonError("mission stop", "No active mission to stop");
 		} else {

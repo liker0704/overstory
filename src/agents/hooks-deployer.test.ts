@@ -1097,9 +1097,9 @@ describe("getCapabilityGuards", () => {
 		expect(taskGuard?.hooks[0]?.command).toContain('[ -z "$OVERSTORY_AGENT_NAME" ] && exit 0;');
 	});
 
-	test("coordinator gets 17 guards (10 team + 3 interactive + 3 tool blocks + 1 bash file guard)", () => {
+	test("coordinator gets 13 guards (10 team + 3 interactive, no file blocks)", () => {
 		const guards = getCapabilityGuards("coordinator", "test-coordinator");
-		expect(guards.length).toBe(NATIVE_TEAM_TOOL_COUNT + INTERACTIVE_TOOL_COUNT + 4);
+		expect(guards.length).toBe(NATIVE_TEAM_TOOL_COUNT + INTERACTIVE_TOOL_COUNT);
 	});
 
 	test("supervisor gets 17 guards (10 team + 3 interactive + 3 tool blocks + 1 bash file guard)", () => {
@@ -1628,7 +1628,7 @@ describe("structural enforcement integration", () => {
 		}
 	});
 
-	test("coordinator bash guard whitelists git add and git commit", async () => {
+	test("coordinator has no bash file guard (can create files/dirs)", async () => {
 		const worktreePath = join(tempDir, "coord-wt");
 
 		await deployHooks(worktreePath, "coordinator-agent", "coordinator");
@@ -1638,14 +1638,16 @@ describe("structural enforcement integration", () => {
 		const parsed = JSON.parse(content);
 		const preToolUse = parsed.hooks.PreToolUse;
 
-		// Find the bash file guard (the second Bash entry, after the danger guard)
+		// Coordinator: 1 template Bash + 1 danger guard + 1 tracker guard (no file guard)
 		const bashGuards = preToolUse.filter((h: { matcher: string }) => h.matcher === "Bash");
-		expect(bashGuards.length).toBe(4);
+		expect(bashGuards.length).toBe(3);
 
-		// The file guard (second Bash guard) should whitelist git add/commit
-		const fileGuard = bashGuards[1];
-		expect(fileGuard.hooks[0].command).toContain("git add");
-		expect(fileGuard.hooks[0].command).toContain("git commit");
+		// No Write/Edit/NotebookEdit blocks for coordinator
+		const writeGuard = preToolUse.find(
+			(h: { matcher: string; hooks: Array<{ command: string }> }) =>
+				h.matcher === "Write" && h.hooks[0]?.command.includes("cannot modify files"),
+		);
+		expect(writeGuard).toBeUndefined();
 	});
 
 	test("scout bash guard does NOT whitelist git add/commit", async () => {
@@ -1668,7 +1670,7 @@ describe("structural enforcement integration", () => {
 		expect(safePrefixSection).not.toContain("'^\\s*git commit'");
 	});
 
-	test("coordinator and supervisor have same guard structure", async () => {
+	test("coordinator has fewer guards than supervisor (no file blocks)", async () => {
 		const coordPath = join(tempDir, "coord-wt");
 		const supPath = join(tempDir, "sup-wt");
 
@@ -1681,13 +1683,8 @@ describe("structural enforcement integration", () => {
 		const coordPreToolUse = JSON.parse(coordContent).hooks.PreToolUse;
 		const supPreToolUse = JSON.parse(supContent).hooks.PreToolUse;
 
-		// Same number of guards
-		expect(coordPreToolUse.length).toBe(supPreToolUse.length);
-
-		// Same matchers
-		const coordMatchers = coordPreToolUse.map((h: { matcher: string }) => h.matcher);
-		const supMatchers = supPreToolUse.map((h: { matcher: string }) => h.matcher);
-		expect(coordMatchers).toEqual(supMatchers);
+		// Coordinator has fewer guards (no Write/Edit/NotebookEdit blocks, no bash file guard)
+		expect(coordPreToolUse.length).toBeLessThan(supPreToolUse.length);
 	});
 
 	test("all template hooks include ENV_GUARD for project root isolation", async () => {

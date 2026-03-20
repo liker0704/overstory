@@ -14,13 +14,13 @@ import {
 /**
  * Capabilities that must never modify project files.
  * Includes read-only roles (scout, reviewer) and coordination roles (lead).
- * Only "builder" and "merger" are allowed to modify files.
+ * Coordinator is excluded — it needs to create files/dirs at the project root
+ * (specs, overlays, config). It still gets danger guards (no push, no reset --hard).
  */
 const NON_IMPLEMENTATION_CAPABILITIES = new Set([
 	"scout",
 	"reviewer",
 	"lead",
-	"coordinator",
 	"supervisor",
 	"monitor",
 	"mission-analyst",
