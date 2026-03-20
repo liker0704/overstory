@@ -543,6 +543,7 @@ async function terminalizeMission(opts: {
 	const stopAgent = deps?.stopAgentCommand ?? stopCommand;
 
 	try {
+		const roleStopFailures: string[] = [];
 		for (const roleName of ["coordinator", "mission-analyst", "execution-director"]) {
 			try {
 				await stopRole(roleName, {
@@ -558,8 +559,36 @@ async function terminalizeMission(opts: {
 					data: { kind: "role_stopped", detail: `${roleName} stopped` },
 				});
 			} catch {
-				// Role may not be running.
+				roleStopFailures.push(roleName);
 			}
+		}
+
+		// Fallback: directly kill tmux sessions for roles that failed graceful stop
+		const roleTmuxNames: Record<string, string> = {
+			coordinator: "ov-mission-coordinator",
+			"mission-analyst": "ov-mission-analyst",
+			"execution-director": "ov-execution-director",
+		};
+		for (const roleName of roleStopFailures) {
+			const tmuxName = roleTmuxNames[roleName];
+			if (tmuxName) {
+				try {
+					if (await isSessionAlive(tmuxName)) {
+						await killSession(tmuxName);
+					}
+				} catch {
+					// Best effort — session may already be gone
+				}
+			}
+			recordMissionEvent({
+				overstoryDir,
+				mission,
+				agentName: "operator",
+				data: {
+					kind: "role_stopped",
+					detail: `${roleName} force-killed (graceful stop failed)`,
+				},
+			});
 		}
 
 		const descendantStops = await stopMissionRunDescendants({
@@ -628,6 +657,24 @@ async function terminalizeMission(opts: {
 				runStore.completeRun(mission.runId, targetState === "completed" ? "completed" : "stopped");
 			} finally {
 				runStore.close();
+			}
+		}
+
+		// Final verification: kill any surviving tmux sessions before clearing pointers
+		if (mission.runId) {
+			const { store: verifyStore } = openSessionStore(overstoryDir);
+			try {
+				for (const session of verifyStore.getByRun(mission.runId)) {
+					if (session.tmuxSession && (await isSessionAlive(session.tmuxSession))) {
+						try {
+							await killSession(session.tmuxSession);
+						} catch {
+							// Best effort
+						}
+					}
+				}
+			} finally {
+				verifyStore.close();
 			}
 		}
 
@@ -2341,6 +2388,19 @@ export async function missionResumeAll(
 			agentName: "operator",
 			data: { kind: "state_change", from: "suspended", to: "active" },
 		});
+
+		// Reactivate the run if it was stopped/completed by a prior kill
+		if (mission.runId) {
+			const runStore = createRunStore(join(overstoryDir, "sessions.db"));
+			try {
+				const run = runStore.getRun(mission.runId);
+				if (run && run.status !== "active") {
+					runStore.reactivateRun(mission.runId);
+				}
+			} finally {
+				runStore.close();
+			}
+		}
 
 		// Ensure runtime pointers are written
 		await writeMissionRuntimePointers(overstoryDir, mission.id, mission.runId ?? null);

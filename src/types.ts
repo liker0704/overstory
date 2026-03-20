@@ -887,6 +887,8 @@ export interface RunStore {
 	incrementAgentCount(runId: string): void;
 	/** Complete a run (set status and completedAt). */
 	completeRun(runId: string, status: "completed" | "failed" | "stopped"): void;
+	/** Reactivate a stopped/failed run (set status back to 'active', clear completedAt). */
+	reactivateRun(runId: string): void;
 	/** Close the store (if standalone — in practice may share DB with SessionStore). */
 	close(): void;
 }

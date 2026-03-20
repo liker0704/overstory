@@ -382,8 +382,12 @@ export async function killProcessTree(
 	const descendants = await getDescendantPids(rootPid);
 
 	if (descendants.length === 0) {
-		// No descendants — just try to kill the root process
+		// No descendants — SIGTERM then SIGKILL if it survives
 		sendSignal(rootPid, "SIGTERM");
+		await Bun.sleep(gracePeriodMs);
+		if (isProcessAlive(rootPid)) {
+			sendSignal(rootPid, "SIGKILL");
+		}
 		return;
 	}
 

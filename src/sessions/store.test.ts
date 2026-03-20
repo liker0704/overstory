@@ -972,6 +972,44 @@ describe("RunStore", () => {
 		});
 	});
 
+	describe("reactivateRun", () => {
+		test("reactivates a stopped run", () => {
+			runStore.createRun(makeRun());
+			runStore.completeRun("run-2026-02-13T10:00:00.000Z", "stopped");
+
+			runStore.reactivateRun("run-2026-02-13T10:00:00.000Z");
+
+			const result = runStore.getRun("run-2026-02-13T10:00:00.000Z");
+			expect(result?.status).toBe("active");
+			expect(result?.completedAt).toBeNull();
+		});
+
+		test("reactivates a completed run", () => {
+			runStore.createRun(makeRun());
+			runStore.completeRun("run-2026-02-13T10:00:00.000Z", "completed");
+
+			runStore.reactivateRun("run-2026-02-13T10:00:00.000Z");
+
+			const result = runStore.getRun("run-2026-02-13T10:00:00.000Z");
+			expect(result?.status).toBe("active");
+			expect(result?.completedAt).toBeNull();
+		});
+
+		test("is a no-op for already-active run", () => {
+			runStore.createRun(makeRun());
+
+			runStore.reactivateRun("run-2026-02-13T10:00:00.000Z");
+
+			const result = runStore.getRun("run-2026-02-13T10:00:00.000Z");
+			expect(result?.status).toBe("active");
+			expect(result?.completedAt).toBeNull();
+		});
+
+		test("does not throw for nonexistent run", () => {
+			runStore.reactivateRun("nonexistent-run");
+		});
+	});
+
 	// === shared database ===
 
 	describe("shared database with SessionStore", () => {

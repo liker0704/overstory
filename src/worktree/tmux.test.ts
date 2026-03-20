@@ -572,14 +572,40 @@ describe("killProcessTree", () => {
 		killSpy.mockRestore();
 	});
 
-	test("sends SIGTERM to root when no descendants", async () => {
+	test("sends SIGTERM then SIGKILL to root when no descendants and process survives", async () => {
 		// pgrep -P 100 → no children
 		spawnSpy.mockImplementation(() => mockSpawnResult("", "", 1));
+		// process.kill with signal 0 (isProcessAlive check) returns true = still alive
 		killSpy.mockImplementation(() => true);
 
 		await killProcessTree(100, 0);
 
 		expect(killSpy).toHaveBeenCalledWith(100, "SIGTERM");
+		expect(killSpy).toHaveBeenCalledWith(100, 0); // isProcessAlive check
+		expect(killSpy).toHaveBeenCalledWith(100, "SIGKILL");
+	});
+
+	test("sends only SIGTERM to root when no descendants and process dies", async () => {
+		// pgrep -P 100 → no children
+		spawnSpy.mockImplementation(() => mockSpawnResult("", "", 1));
+		let termSent = false;
+		killSpy.mockImplementation((_pid: number, signal?: string | number) => {
+			if (signal === "SIGTERM") {
+				termSent = true;
+				return true;
+			}
+			if (signal === 0 && termSent) {
+				// isProcessAlive check — process is dead after SIGTERM
+				throw new Error("ESRCH");
+			}
+			return true;
+		});
+
+		await killProcessTree(100, 0);
+
+		expect(killSpy).toHaveBeenCalledWith(100, "SIGTERM");
+		// SIGKILL should NOT have been called since process died
+		expect(killSpy).not.toHaveBeenCalledWith(100, "SIGKILL");
 	});
 
 	test("sends SIGTERM deepest-first then SIGKILL survivors", async () => {

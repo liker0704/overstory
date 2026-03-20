@@ -730,6 +730,10 @@ export function createRunStore(dbPath: string): RunStore {
 		UPDATE runs SET status = $status, completed_at = $completed_at WHERE id = $id
 	`);
 
+	const reactivateRunStmt = db.prepare<void, { $id: string }>(`
+		UPDATE runs SET status = 'active', completed_at = NULL WHERE id = $id
+	`);
+
 	return {
 		createRun(run: InsertRun): void {
 			insertRunStmt.run({
@@ -785,6 +789,10 @@ export function createRunStore(dbPath: string): RunStore {
 				$status: status,
 				$completed_at: new Date().toISOString(),
 			});
+		},
+
+		reactivateRun(runId: string): void {
+			reactivateRunStmt.run({ $id: runId });
 		},
 
 		close(): void {
