@@ -325,6 +325,18 @@ export const MAIL_MESSAGE_TYPES: readonly MailMessageType[] = [
 	"decision_gate",
 ] as const;
 
+/** Delivery state for mail reliability v2 (claim/ack semantics). */
+export type MailDeliveryState = "queued" | "claimed" | "acked" | "failed" | "dead_letter";
+
+/** All valid delivery states as a runtime array for CHECK constraint generation. */
+export const MAIL_DELIVERY_STATES: readonly MailDeliveryState[] = [
+	"queued",
+	"claimed",
+	"acked",
+	"failed",
+	"dead_letter",
+] as const;
+
 export interface MailMessage {
 	id: string; // "msg-" + nanoid(12)
 	from: string; // Agent name
@@ -337,6 +349,11 @@ export interface MailMessage {
 	payload: string | null; // JSON-encoded structured data for protocol messages
 	read: boolean;
 	createdAt: string; // ISO timestamp
+	state: MailDeliveryState;
+	claimedAt: string | null; // ISO timestamp when claimed
+	attempt: number; // Retry attempt count
+	nextRetryAt: string | null; // ISO timestamp for next retry
+	failReason: string | null; // Why the message was nack'd or dead-lettered
 }
 
 // === Mail Protocol Payloads ===

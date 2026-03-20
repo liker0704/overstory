@@ -206,13 +206,18 @@ describe("SQL schema consistency", () => {
 
 			// Columns from MessageRow interface in src/mail/store.ts
 			const expected = [
+				"attempt",
 				"body",
+				"claimed_at",
 				"created_at",
+				"fail_reason",
 				"from_agent",
 				"id",
+				"next_retry_at",
 				"payload",
 				"priority",
 				"read",
+				"state",
 				"subject",
 				"thread_id",
 				"to_agent",
