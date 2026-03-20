@@ -296,8 +296,10 @@ async function nudgeIfIdle(cwd: string, agentName: string, message: string): Pro
 			const { nudgeAgent } = await import("./nudge.ts");
 			await nudgeAgent(cwd, agentName, message, true);
 		}
-	} catch {
-		// Non-fatal: file-based nudge is the primary mechanism
+	} catch (err) {
+		// Non-fatal: file-based nudge is the primary mechanism.
+		// Log to stderr so failures are diagnosable.
+		process.stderr.write(`[nudge] nudgeIfIdle failed for ${agentName}: ${err}\n`);
 	}
 }
 

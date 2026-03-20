@@ -87,6 +87,19 @@ const ENV_GUARD =
 	"fi;";
 
 /**
+ * Agent-specific guard prefix for capability-scoped hooks.
+ *
+ * Unlike ENV_GUARD (which activates for ANY overstory agent), this guard
+ * only activates when $OVERSTORY_AGENT_NAME matches the intended agent.
+ * Used for capability-specific blocks (e.g. Write/Edit blocks for mission-analyst)
+ * so they don't accidentally restrict other agents sharing the same
+ * settings.local.json (e.g. coordinator at the project root).
+ */
+function agentGuard(agentName: string): string {
+	return `${ENV_GUARD} [ "$OVERSTORY_AGENT_NAME" != "${agentName}" ] && exit 0;`;
+}
+
+/**
  * PATH setup prefix for hook commands.
  *
  * Claude Code executes hook commands via /bin/sh with a minimal PATH
@@ -193,6 +206,27 @@ function blockGuard(toolName: string, reason: string): HookEntry {
 }
 
 /**
+ * Build a PreToolUse guard that blocks a specific tool for a SPECIFIC agent only.
+ *
+ * Unlike blockGuard() which fires for all overstory agents, this variant
+ * uses agentGuard() so it only blocks when $OVERSTORY_AGENT_NAME matches.
+ * Used for capability-specific restrictions that shouldn't leak to other
+ * agents sharing the same settings.local.json.
+ */
+function blockGuardForAgent(toolName: string, reason: string, agentName: string): HookEntry {
+	const response = JSON.stringify({ decision: "block", reason });
+	return {
+		matcher: toolName,
+		hooks: [
+			{
+				type: "command",
+				command: `${agentGuard(agentName)} echo '${escapeForSingleQuotedShell(response)}'`,
+			},
+		],
+	};
+}
+
+/**
  * Build a Bash guard script that inspects the command from stdin JSON.
  *
  * Claude Code PreToolUse hooks receive `{"tool_name": "Bash", "tool_input": {"command": "..."}, ...}` on stdin.
@@ -265,6 +299,7 @@ export function getDangerGuards(agentName: string): HookEntry[] {
  */
 export function buildBashFileGuardScript(
 	capability: string,
+	agentName: string,
 	extraSafePrefixes: string[] = [],
 ): string {
 	// Build the safe prefix check: if command starts with any safe prefix, allow it
@@ -277,8 +312,8 @@ export function buildBashFileGuardScript(
 	const dangerPattern = DANGEROUS_BASH_PATTERNS.join("|");
 
 	const script = [
-		// Only enforce for overstory agent sessions (skip for user's own Claude Code)
-		ENV_GUARD,
+		// Only enforce for this specific agent (skip for other agents and user sessions)
+		agentGuard(agentName),
 		"read -r INPUT;",
 		// Extract command value from JSON (with optional space after colon)
 		'CMD=$(echo "$INPUT" | sed \'s/.*"command": *"\\([^"]*\\)".*/\\1/\');',
@@ -462,7 +497,11 @@ export function getBashPathBoundaryGuards(): HookEntry[] {
  *
  * Note: All capabilities also receive Bash danger guards via getDangerGuards().
  */
-export function getCapabilityGuards(capability: string, qualityGates?: QualityGate[]): HookEntry[] {
+export function getCapabilityGuards(
+	capability: string,
+	agentName: string,
+	qualityGates?: QualityGate[],
+): HookEntry[] {
 	const guards: HookEntry[] = [];
 	const gates = qualityGates ?? DEFAULT_QUALITY_GATES;
 	const gatePrefixes = extractQualityGatePrefixes(gates);
@@ -489,8 +528,15 @@ export function getCapabilityGuards(capability: string, qualityGates?: QualityGa
 	guards.push(...interactiveGuards);
 
 	if (NON_IMPLEMENTATION_CAPABILITIES.has(capability)) {
+		// Use agent-scoped guards so these restrictions only apply to THIS agent,
+		// not other agents sharing the same settings.local.json (e.g. coordinator
+		// and mission-analyst both deploy to project root).
 		const toolGuards = WRITE_TOOLS.map((tool) =>
-			blockGuard(tool, `${capability} agents cannot modify files — ${tool} is not allowed`),
+			blockGuardForAgent(
+				tool,
+				`${capability} agents cannot modify files — ${tool} is not allowed`,
+				agentName,
+			),
 		);
 		guards.push(...toolGuards);
 
@@ -503,7 +549,7 @@ export function getCapabilityGuards(capability: string, qualityGates?: QualityGa
 			hooks: [
 				{
 					type: "command",
-					command: buildBashFileGuardScript(capability, extraSafe),
+					command: buildBashFileGuardScript(capability, agentName, extraSafe),
 				},
 			],
 		};
@@ -603,7 +649,7 @@ export async function deployHooks(
 	// and do not require PATH extension.
 	const pathGuards = getPathBoundaryGuards();
 	const dangerGuards = getDangerGuards(agentName);
-	const capabilityGuards = getCapabilityGuards(capability, qualityGates);
+	const capabilityGuards = getCapabilityGuards(capability, agentName, qualityGates);
 	const trackerCloseGuards = getTrackerCloseGuards();
 	const allGuards = [...pathGuards, ...dangerGuards, ...capabilityGuards, ...trackerCloseGuards];
 

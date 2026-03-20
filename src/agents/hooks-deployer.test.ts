@@ -954,37 +954,37 @@ describe("getCapabilityGuards", () => {
 	const INTERACTIVE_TOOL_COUNT = 3;
 
 	test("returns 17 guards for scout (10 team + 3 interactive + 3 tool blocks + 1 bash file guard)", () => {
-		const guards = getCapabilityGuards("scout");
+		const guards = getCapabilityGuards("scout", "test-scout");
 		expect(guards.length).toBe(NATIVE_TEAM_TOOL_COUNT + INTERACTIVE_TOOL_COUNT + 4);
 	});
 
 	test("returns 17 guards for reviewer (10 team + 3 interactive + 3 tool blocks + 1 bash file guard)", () => {
-		const guards = getCapabilityGuards("reviewer");
+		const guards = getCapabilityGuards("reviewer", "test-reviewer");
 		expect(guards.length).toBe(NATIVE_TEAM_TOOL_COUNT + INTERACTIVE_TOOL_COUNT + 4);
 	});
 
 	test("returns 17 guards for lead (10 team + 3 interactive + 3 tool blocks + 1 bash file guard)", () => {
-		const guards = getCapabilityGuards("lead");
+		const guards = getCapabilityGuards("lead", "test-lead");
 		expect(guards.length).toBe(NATIVE_TEAM_TOOL_COUNT + INTERACTIVE_TOOL_COUNT + 4);
 	});
 
 	test("returns 14 guards for builder (10 team + 3 interactive + 1 bash path boundary)", () => {
-		const guards = getCapabilityGuards("builder");
+		const guards = getCapabilityGuards("builder", "test-builder");
 		expect(guards.length).toBe(NATIVE_TEAM_TOOL_COUNT + INTERACTIVE_TOOL_COUNT + 1);
 	});
 
 	test("returns 14 guards for merger (10 team + 3 interactive + 1 bash path boundary)", () => {
-		const guards = getCapabilityGuards("merger");
+		const guards = getCapabilityGuards("merger", "test-merger");
 		expect(guards.length).toBe(NATIVE_TEAM_TOOL_COUNT + INTERACTIVE_TOOL_COUNT + 1);
 	});
 
 	test("returns 13 guards for unknown capability (10 team + 3 interactive tool blocks)", () => {
-		const guards = getCapabilityGuards("unknown");
+		const guards = getCapabilityGuards("unknown", "test-unknown");
 		expect(guards.length).toBe(NATIVE_TEAM_TOOL_COUNT + INTERACTIVE_TOOL_COUNT);
 	});
 
 	test("builder gets Bash path boundary guard", () => {
-		const guards = getCapabilityGuards("builder");
+		const guards = getCapabilityGuards("builder", "test-builder");
 		const bashGuard = guards.find((g) => g.matcher === "Bash");
 		expect(bashGuard).toBeDefined();
 		expect(bashGuard?.hooks[0]?.command).toContain("OVERSTORY_WORKTREE_PATH");
@@ -992,7 +992,7 @@ describe("getCapabilityGuards", () => {
 	});
 
 	test("merger gets Bash path boundary guard", () => {
-		const guards = getCapabilityGuards("merger");
+		const guards = getCapabilityGuards("merger", "test-merger");
 		const bashGuard = guards.find((g) => g.matcher === "Bash");
 		expect(bashGuard).toBeDefined();
 		expect(bashGuard?.hooks[0]?.command).toContain("OVERSTORY_WORKTREE_PATH");
@@ -1000,7 +1000,7 @@ describe("getCapabilityGuards", () => {
 	});
 
 	test("scout guards include Write, Edit, NotebookEdit, and Bash matchers", () => {
-		const guards = getCapabilityGuards("scout");
+		const guards = getCapabilityGuards("scout", "test-scout");
 		const matchers = guards.map((g) => g.matcher);
 		expect(matchers).toContain("Write");
 		expect(matchers).toContain("Edit");
@@ -1009,7 +1009,7 @@ describe("getCapabilityGuards", () => {
 	});
 
 	test("lead guards include Write, Edit, NotebookEdit, and Bash matchers", () => {
-		const guards = getCapabilityGuards("lead");
+		const guards = getCapabilityGuards("lead", "test-lead");
 		const matchers = guards.map((g) => g.matcher);
 		expect(matchers).toContain("Write");
 		expect(matchers).toContain("Edit");
@@ -1018,7 +1018,7 @@ describe("getCapabilityGuards", () => {
 	});
 
 	test("tool block guards include capability name in reason", () => {
-		const guards = getCapabilityGuards("scout");
+		const guards = getCapabilityGuards("scout", "test-scout");
 		const writeGuard = guards.find((g) => g.matcher === "Write");
 		expect(writeGuard).toBeDefined();
 		expect(writeGuard?.hooks[0]?.command).toContain("scout");
@@ -1026,7 +1026,7 @@ describe("getCapabilityGuards", () => {
 	});
 
 	test("lead tool block guards include lead in reason", () => {
-		const guards = getCapabilityGuards("lead");
+		const guards = getCapabilityGuards("lead", "test-lead");
 		const editGuard = guards.find((g) => g.matcher === "Edit");
 		expect(editGuard).toBeDefined();
 		expect(editGuard?.hooks[0]?.command).toContain("lead");
@@ -1034,14 +1034,14 @@ describe("getCapabilityGuards", () => {
 	});
 
 	test("bash file guard for scout includes capability in block message", () => {
-		const guards = getCapabilityGuards("scout");
+		const guards = getCapabilityGuards("scout", "test-scout");
 		const bashGuard = guards.find((g) => g.matcher === "Bash");
 		expect(bashGuard).toBeDefined();
 		expect(bashGuard?.hooks[0]?.command).toContain("scout agents cannot modify files");
 	});
 
 	test("bash file guard for lead includes capability in block message", () => {
-		const guards = getCapabilityGuards("lead");
+		const guards = getCapabilityGuards("lead", "test-lead");
 		const bashGuard = guards.find((g) => g.matcher === "Bash");
 		expect(bashGuard).toBeDefined();
 		expect(bashGuard?.hooks[0]?.command).toContain("lead agents cannot modify files");
@@ -1057,7 +1057,7 @@ describe("getCapabilityGuards", () => {
 			"builder",
 			"merger",
 		]) {
-			const guards = getCapabilityGuards(cap);
+			const guards = getCapabilityGuards(cap, `test-${cap}`);
 			const taskGuard = guards.find((g) => g.matcher === "Task");
 			expect(taskGuard).toBeDefined();
 			expect(taskGuard?.hooks[0]?.command).toContain("ov sling");
@@ -1074,7 +1074,7 @@ describe("getCapabilityGuards", () => {
 			"builder",
 			"merger",
 		]) {
-			const guards = getCapabilityGuards(cap);
+			const guards = getCapabilityGuards(cap, `test-${cap}`);
 			const matchers = guards.map((g) => g.matcher);
 			expect(matchers).toContain("TeamCreate");
 			expect(matchers).toContain("SendMessage");
@@ -1082,7 +1082,7 @@ describe("getCapabilityGuards", () => {
 	});
 
 	test("block guard commands include env var guard prefix", () => {
-		const guards = getCapabilityGuards("scout");
+		const guards = getCapabilityGuards("scout", "test-scout");
 		for (const tool of ["Write", "Edit", "NotebookEdit"]) {
 			const guard = guards.find((g) => g.matcher === tool);
 			expect(guard).toBeDefined();
@@ -1091,19 +1091,19 @@ describe("getCapabilityGuards", () => {
 	});
 
 	test("native team tool block guards include env var guard prefix", () => {
-		const guards = getCapabilityGuards("builder");
+		const guards = getCapabilityGuards("builder", "test-builder");
 		const taskGuard = guards.find((g) => g.matcher === "Task");
 		expect(taskGuard).toBeDefined();
 		expect(taskGuard?.hooks[0]?.command).toContain('[ -z "$OVERSTORY_AGENT_NAME" ] && exit 0;');
 	});
 
 	test("coordinator gets 17 guards (10 team + 3 interactive + 3 tool blocks + 1 bash file guard)", () => {
-		const guards = getCapabilityGuards("coordinator");
+		const guards = getCapabilityGuards("coordinator", "test-coordinator");
 		expect(guards.length).toBe(NATIVE_TEAM_TOOL_COUNT + INTERACTIVE_TOOL_COUNT + 4);
 	});
 
 	test("supervisor gets 17 guards (10 team + 3 interactive + 3 tool blocks + 1 bash file guard)", () => {
-		const guards = getCapabilityGuards("supervisor");
+		const guards = getCapabilityGuards("supervisor", "test-supervisor");
 		expect(guards.length).toBe(NATIVE_TEAM_TOOL_COUNT + INTERACTIVE_TOOL_COUNT + 4);
 	});
 
@@ -1118,7 +1118,7 @@ describe("getCapabilityGuards", () => {
 			"merger",
 			"unknown",
 		]) {
-			const guards = getCapabilityGuards(cap);
+			const guards = getCapabilityGuards(cap, `test-${cap}`);
 			const guard = guards.find((g) => g.matcher === "AskUserQuestion");
 			expect(guard).toBeDefined();
 			expect(guard?.hooks[0]?.command).toContain("human interaction");
@@ -1137,7 +1137,7 @@ describe("getCapabilityGuards", () => {
 			"merger",
 			"unknown",
 		]) {
-			const guards = getCapabilityGuards(cap);
+			const guards = getCapabilityGuards(cap, `test-${cap}`);
 			const guard = guards.find((g) => g.matcher === "EnterPlanMode");
 			expect(guard).toBeDefined();
 			expect(guard?.hooks[0]?.command).toContain("human interaction");
@@ -1156,7 +1156,7 @@ describe("getCapabilityGuards", () => {
 			"merger",
 			"unknown",
 		]) {
-			const guards = getCapabilityGuards(cap);
+			const guards = getCapabilityGuards(cap, `test-${cap}`);
 			const guard = guards.find((g) => g.matcher === "EnterWorktree");
 			expect(guard).toBeDefined();
 			expect(guard?.hooks[0]?.command).toContain("human interaction");
@@ -1165,7 +1165,7 @@ describe("getCapabilityGuards", () => {
 	});
 
 	test("interactive guards include env var guard prefix", () => {
-		const guards = getCapabilityGuards("builder");
+		const guards = getCapabilityGuards("builder", "test-builder");
 		for (const tool of ["AskUserQuestion", "EnterPlanMode", "EnterWorktree"]) {
 			const guard = guards.find((g) => g.matcher === tool);
 			expect(guard).toBeDefined();
@@ -1174,13 +1174,41 @@ describe("getCapabilityGuards", () => {
 	});
 
 	test("interactive guard block reason mentions tool name", () => {
-		const guards = getCapabilityGuards("scout");
+		const guards = getCapabilityGuards("scout", "test-scout");
 		const askGuard = guards.find((g) => g.matcher === "AskUserQuestion");
 		expect(askGuard?.hooks[0]?.command).toContain("AskUserQuestion");
 		const planGuard = guards.find((g) => g.matcher === "EnterPlanMode");
 		expect(planGuard?.hooks[0]?.command).toContain("EnterPlanMode");
 		const worktreeGuard = guards.find((g) => g.matcher === "EnterWorktree");
 		expect(worktreeGuard?.hooks[0]?.command).toContain("EnterWorktree");
+	});
+
+	test("capability-specific guards are scoped to the agent name", () => {
+		const guards = getCapabilityGuards("mission-analyst", "my-analyst");
+		const writeGuard = guards.find((g) => g.matcher === "Write");
+		expect(writeGuard).toBeDefined();
+		// Should check for the specific agent name, not just any agent
+		expect(writeGuard?.hooks[0]?.command).toContain('"my-analyst"');
+	});
+
+	test("capability-specific guards do not fire for other agents", () => {
+		const guards = getCapabilityGuards("scout", "scout-alpha");
+		const bashFileGuard = guards
+			.filter((g) => g.matcher === "Bash")
+			.find((g) => g.hooks[0]?.command.includes("cannot modify files"));
+		expect(bashFileGuard).toBeDefined();
+		// Guard should skip when agent name doesn't match
+		expect(bashFileGuard?.hooks[0]?.command).toContain(
+			'[ "$OVERSTORY_AGENT_NAME" != "scout-alpha" ] && exit 0',
+		);
+	});
+
+	test("universal guards (team tools, interactive) do NOT check agent name", () => {
+		const guards = getCapabilityGuards("scout", "scout-alpha");
+		const taskGuard = guards.find((g) => g.matcher === "Task");
+		expect(taskGuard).toBeDefined();
+		// Universal guard should use ENV_GUARD but NOT agent-specific check
+		expect(taskGuard?.hooks[0]?.command).not.toContain("scout-alpha");
 	});
 });
 
@@ -1293,7 +1321,7 @@ describe("getDangerGuards", () => {
 	});
 
 	test("custom quality gates appear in safe prefix list for non-implementation capabilities", () => {
-		const guards = getCapabilityGuards("scout", [
+		const guards = getCapabilityGuards("scout", "test-scout", [
 			{ name: "Test", command: "pytest", description: "all tests pass" },
 			{ name: "Lint", command: "ruff check .", description: "no lint errors" },
 		]);
@@ -1338,22 +1366,22 @@ describe("extractQualityGatePrefixes", () => {
 
 describe("buildBashFileGuardScript", () => {
 	test("returns a string containing the capability name", () => {
-		const script = buildBashFileGuardScript("scout");
+		const script = buildBashFileGuardScript("scout", "test-scout");
 		expect(script).toContain("scout agents cannot modify files");
 	});
 
 	test("reads stdin input", () => {
-		const script = buildBashFileGuardScript("scout");
+		const script = buildBashFileGuardScript("scout", "test-scout");
 		expect(script).toContain("read -r INPUT");
 	});
 
 	test("extracts command from JSON input", () => {
-		const script = buildBashFileGuardScript("reviewer");
+		const script = buildBashFileGuardScript("reviewer", "test-reviewer");
 		expect(script).toContain("CMD=$(");
 	});
 
 	test("includes safe prefix whitelist checks", () => {
-		const script = buildBashFileGuardScript("scout");
+		const script = buildBashFileGuardScript("scout", "test-scout");
 		expect(script).toContain("overstory ");
 		expect(script).toContain("bd ");
 		expect(script).toContain("sd ");
@@ -1368,18 +1396,18 @@ describe("buildBashFileGuardScript", () => {
 	});
 
 	test("includes quality gate prefixes when passed as extraSafePrefixes", () => {
-		const script = buildBashFileGuardScript("scout", ["bun test", "bun run lint"]);
+		const script = buildBashFileGuardScript("scout", "test-scout", ["bun test", "bun run lint"]);
 		expect(script).toContain("bun test");
 		expect(script).toContain("bun run lint");
 	});
 
 	test("sd commands pass bash file guard for non-implementation agents", () => {
-		const script = buildBashFileGuardScript("scout");
+		const script = buildBashFileGuardScript("scout", "test-scout");
 		expect(script).toContain("sd ");
 	});
 
 	test("includes dangerous command pattern checks", () => {
-		const script = buildBashFileGuardScript("lead");
+		const script = buildBashFileGuardScript("lead", "test-lead");
 		// File modification commands
 		expect(script).toContain("sed");
 		expect(script).toContain("tee");
@@ -1398,45 +1426,45 @@ describe("buildBashFileGuardScript", () => {
 
 	test("blocks sed -i for all non-implementation capabilities", () => {
 		for (const cap of ["scout", "reviewer", "lead"]) {
-			const script = buildBashFileGuardScript(cap);
+			const script = buildBashFileGuardScript(cap, `test-${cap}`);
 			expect(script).toContain("sed\\s+-i");
 		}
 	});
 
 	test("blocks bun install and bun add", () => {
-		const script = buildBashFileGuardScript("scout");
+		const script = buildBashFileGuardScript("scout", "test-scout");
 		expect(script).toContain("bun\\s+install");
 		expect(script).toContain("bun\\s+add");
 	});
 
 	test("blocks npm install", () => {
-		const script = buildBashFileGuardScript("scout");
+		const script = buildBashFileGuardScript("scout", "test-scout");
 		expect(script).toContain("npm\\s+install");
 	});
 
 	test("blocks file permission commands", () => {
-		const script = buildBashFileGuardScript("reviewer");
+		const script = buildBashFileGuardScript("reviewer", "test-reviewer");
 		expect(script).toContain("chmod");
 		expect(script).toContain("chown");
 	});
 
 	test("blocks append redirect operator", () => {
-		const script = buildBashFileGuardScript("lead");
+		const script = buildBashFileGuardScript("lead", "test-lead");
 		expect(script).toContain(">>");
 	});
 
 	test("blocks bun -e eval execution", () => {
-		const script = buildBashFileGuardScript("scout");
+		const script = buildBashFileGuardScript("scout", "test-scout");
 		expect(script).toContain("bun\\s+-e");
 	});
 
 	test("blocks node -e eval execution", () => {
-		const script = buildBashFileGuardScript("scout");
+		const script = buildBashFileGuardScript("scout", "test-scout");
 		expect(script).toContain("node\\s+-e");
 	});
 
 	test("blocks runtime eval flags (bun --eval, deno eval, python -c, perl -e, ruby -e)", () => {
-		const script = buildBashFileGuardScript("scout");
+		const script = buildBashFileGuardScript("scout", "test-scout");
 		expect(script).toContain("bun\\s+--eval");
 		expect(script).toContain("deno\\s+eval");
 		expect(script).toContain("python3?\\s+-c");
@@ -1445,18 +1473,21 @@ describe("buildBashFileGuardScript", () => {
 	});
 
 	test("includes env var guard prefix", () => {
-		const script = buildBashFileGuardScript("scout");
+		const script = buildBashFileGuardScript("scout", "test-scout");
 		expect(script).toMatch(/^if \[ -z "\$OVERSTORY_AGENT_NAME" \]/);
 	});
 
 	test("accepts extra safe prefixes for coordinator", () => {
-		const script = buildBashFileGuardScript("coordinator", ["git add", "git commit"]);
+		const script = buildBashFileGuardScript("coordinator", "test-coordinator", [
+			"git add",
+			"git commit",
+		]);
 		expect(script).toContain("git add");
 		expect(script).toContain("git commit");
 	});
 
 	test("default script does not whitelist git add/commit", () => {
-		const script = buildBashFileGuardScript("scout");
+		const script = buildBashFileGuardScript("scout", "test-scout");
 		// git add/commit should NOT be in the safe prefix checks (only in danger patterns)
 		// The safe prefixes use exit 0, danger patterns use decision:block
 		const safeSection = script.split("grep -qE '")[0] ?? "";
@@ -1465,13 +1496,13 @@ describe("buildBashFileGuardScript", () => {
 	});
 
 	test("safe prefix checks use exit 0 to allow", () => {
-		const script = buildBashFileGuardScript("scout");
+		const script = buildBashFileGuardScript("scout", "test-scout");
 		// Each safe prefix should have an exit 0 to allow the command
 		expect(script).toContain("exit 0; fi;");
 	});
 
 	test("dangerous pattern check outputs block decision JSON", () => {
-		const script = buildBashFileGuardScript("reviewer");
+		const script = buildBashFileGuardScript("reviewer", "test-reviewer");
 		expect(script).toContain('"decision":"block"');
 		expect(script).toContain("reviewer agents cannot modify files");
 	});
@@ -2592,7 +2623,7 @@ describe("escapeForSingleQuotedShell", () => {
 	});
 
 	test("blockGuard shell command outputs valid JSON when executed", async () => {
-		const guards = getCapabilityGuards("builder");
+		const guards = getCapabilityGuards("builder", "test-builder");
 		const taskGuard = guards.find((g) => g.matcher === "Task");
 		expect(taskGuard).toBeDefined();
 		const cmd = taskGuard?.hooks[0]?.command ?? "";

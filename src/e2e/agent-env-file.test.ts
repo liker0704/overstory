@@ -110,13 +110,13 @@ describe("E2E: agent env file lifecycle", () => {
 		test("guard sources .agent-env and activates when file exists", async () => {
 			// Write env file simulating an agent session
 			await writeAgentEnvFile(tempDir, {
-				OVERSTORY_AGENT_NAME: "coordinator",
+				OVERSTORY_AGENT_NAME: "test-scout",
 				OVERSTORY_WORKTREE_PATH: tempDir,
 			});
 
 			// Use buildBashFileGuardScript which includes ENV_GUARD
 			// It should block dangerous commands when agent context is recovered from file
-			const script = buildBashFileGuardScript("scout");
+			const script = buildBashFileGuardScript("scout", "test-scout");
 			const input = JSON.stringify({ command: "rm -rf /tmp/something" });
 
 			const result = await runGuardScript(script, tempDir, input);
@@ -127,7 +127,7 @@ describe("E2E: agent env file lifecycle", () => {
 		test("guard exits silently when no env file and no env var", async () => {
 			// No .agent-env file, no OVERSTORY_AGENT_NAME env var
 			// Guard should exit 0 (no-op for user's own session)
-			const script = buildBashFileGuardScript("scout");
+			const script = buildBashFileGuardScript("scout", "test-scout");
 			const input = JSON.stringify({ command: "rm -rf /tmp/something" });
 
 			const result = await runGuardScript(script, tempDir, input);
@@ -206,7 +206,7 @@ describe("E2E: agent env file lifecycle", () => {
 
 	describe("full lifecycle: write → guard → cleanup → guard", () => {
 		test("guards activate with env file, deactivate after cleanup", async () => {
-			const script = buildBashFileGuardScript("scout");
+			const script = buildBashFileGuardScript("scout", "test-scout");
 			const input = JSON.stringify({ command: "touch /tmp/file" });
 
 			// Phase 1: No env file — guard is no-op
@@ -214,7 +214,7 @@ describe("E2E: agent env file lifecycle", () => {
 			expect(before.stdout).not.toContain("block");
 
 			// Phase 2: Write env file — guard activates
-			await writeAgentEnvFile(tempDir, { OVERSTORY_AGENT_NAME: "scout-agent" });
+			await writeAgentEnvFile(tempDir, { OVERSTORY_AGENT_NAME: "test-scout" });
 			const during = await runGuardInDir(script, tempDir, input);
 			expect(during.stdout).toContain('"decision":"block"');
 
