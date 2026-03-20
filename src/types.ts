@@ -1222,6 +1222,7 @@ export interface Mission {
 	completedAt: string | null;
 	createdAt: string;
 	updatedAt: string;
+	learningsExtracted: boolean;
 }
 
 export type InsertMission = Pick<Mission, "id" | "slug" | "objective"> & {
@@ -1275,5 +1276,6 @@ export interface MissionStore {
 	updateSlug(id: string, slug: string): void;
 	updateObjective(id: string, objective: string): void;
 	updateCurrentNode(id: string, nodeId: string): void;
+	markLearningsExtracted(id: string): void;
 	close(): void;
 }

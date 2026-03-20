@@ -726,6 +726,34 @@ async function terminalizeMission(opts: {
 			}
 		}
 
+		// Step 11: Extract learnings into mulch
+		if (bundlePath) {
+			try {
+				const { extractMissionLearnings } = await import("../missions/learnings.ts");
+				const artifactRoot =
+					refreshedMission.artifactRoot ?? join(overstoryDir, "missions", mission.id);
+				const learningsResult = await extractMissionLearnings({
+					bundlePath,
+					artifactRoot,
+					projectRoot,
+					missionSlug: refreshedMission.slug,
+				});
+				missionStore.markLearningsExtracted(mission.id);
+				if (!json && learningsResult.recordsSucceeded > 0) {
+					printSuccess("Learnings extracted", `${learningsResult.recordsSucceeded} mulch records`);
+				}
+				if (learningsResult.errors.length > 0) {
+					for (const err of learningsResult.errors) {
+						if (!json) printWarning("Learnings extraction warning", err);
+					}
+				}
+			} catch (err) {
+				if (!json) {
+					printWarning("Learnings extraction failed", String(err));
+				}
+			}
+		}
+
 		return { bundlePath, reviewId: review.record.id };
 	} finally {
 		missionStore.close();
@@ -2730,6 +2758,100 @@ export async function missionBundle(overstoryDir: string, opts: BundleOpts): Pro
 	}
 }
 
+// === ov mission extract-learnings ===
+
+async function missionExtractLearnings(
+	overstoryDir: string,
+	projectRoot: string,
+	idOrSlug: string | undefined,
+	opts: { force?: boolean; json?: boolean },
+): Promise<void> {
+	const dbPath = join(overstoryDir, "sessions.db");
+	const missionStore = createMissionStore(dbPath);
+
+	try {
+		let mission: ReturnType<typeof missionStore.getById>;
+
+		if (idOrSlug) {
+			mission = missionStore.getById(idOrSlug) ?? missionStore.getBySlug(idOrSlug);
+		} else {
+			const completed = missionStore.list({ state: "completed", limit: 1 });
+			const stopped = missionStore.list({ state: "stopped", limit: 1 });
+			const candidates = [...completed, ...stopped].sort((a, b) =>
+				b.updatedAt > a.updatedAt ? 1 : -1,
+			);
+			mission = candidates[0] ?? null;
+		}
+
+		if (!mission) {
+			if (opts.json) {
+				jsonError("extract-learnings", "No matching mission found");
+			} else {
+				printError("No matching mission found");
+			}
+			process.exitCode = 1;
+			return;
+		}
+
+		if (mission.learningsExtracted && !opts.force) {
+			if (opts.json) {
+				jsonOutput("extract-learnings", {
+					missionId: mission.id,
+					slug: mission.slug,
+					skipped: true,
+					reason: "already extracted",
+				});
+			} else {
+				printHint(`Learnings already extracted for ${mission.slug}. Use --force to re-extract.`);
+			}
+			return;
+		}
+
+		const bundlePath = join(overstoryDir, "missions", mission.id, "results");
+		const summaryFile = Bun.file(join(bundlePath, "summary.json"));
+		if (!(await summaryFile.exists())) {
+			if (opts.json) {
+				jsonError(
+					"extract-learnings",
+					`No bundle found at ${bundlePath}. Run 'ov mission bundle' first.`,
+				);
+			} else {
+				printError(`No bundle found at ${bundlePath}. Run 'ov mission bundle' first.`);
+			}
+			process.exitCode = 1;
+			return;
+		}
+
+		const { extractMissionLearnings } = await import("../missions/learnings.ts");
+		const artifactRoot = mission.artifactRoot ?? join(overstoryDir, "missions", mission.id);
+		const result = await extractMissionLearnings({
+			bundlePath,
+			artifactRoot,
+			projectRoot,
+			missionSlug: mission.slug,
+		});
+		missionStore.markLearningsExtracted(mission.id);
+
+		if (opts.json) {
+			jsonOutput("extract-learnings", {
+				missionId: mission.id,
+				slug: mission.slug,
+				...result,
+			});
+		} else {
+			printSuccess(
+				`Learnings extracted for ${mission.slug}`,
+				`${result.recordsSucceeded}/${result.recordsAttempted} records`,
+			);
+			for (const err of result.errors) {
+				printWarning("Warning", err);
+			}
+		}
+	} finally {
+		missionStore.close();
+	}
+}
+
 // === Command factory ===
 
 async function missionGraph(
@@ -2992,6 +3114,19 @@ export function createMissionCommand(): Command {
 			const config = await loadConfig(cwd);
 			const overstoryDir = join(config.project.root, ".overstory");
 			await missionBundle(overstoryDir, opts);
+		});
+
+	cmd
+		.command("extract-learnings")
+		.description("Extract mulch learnings from a completed mission bundle")
+		.argument("[id-or-slug]", "Mission ID or slug (defaults to most recent completed)")
+		.option("--force", "Re-extract even if already extracted")
+		.option("--json", "Output as JSON")
+		.action(async (idOrSlug: string | undefined, opts: { force?: boolean; json?: boolean }) => {
+			const cwd = process.cwd();
+			const config = await loadConfig(cwd);
+			const overstoryDir = join(config.project.root, ".overstory");
+			await missionExtractLearnings(overstoryDir, config.project.root, idOrSlug, opts);
 		});
 
 	cmd

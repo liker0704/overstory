@@ -269,6 +269,7 @@ describe("SQL schema consistency", () => {
 				"execution_director_session_id",
 				"first_freeze_at",
 				"id",
+				"learnings_extracted",
 				"objective",
 				"pause_reason",
 				"paused_lead_names",

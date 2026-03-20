@@ -40,6 +40,7 @@ interface MissionRow {
 	completed_at: string | null;
 	created_at: string;
 	updated_at: string;
+	learnings_extracted: number;
 }
 
 const CREATE_TABLE = `
@@ -67,7 +68,8 @@ CREATE TABLE IF NOT EXISTS missions (
   started_at TEXT,
   completed_at TEXT,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  learnings_extracted INTEGER NOT NULL DEFAULT 0
 )`;
 
 const CREATE_INDEXES = `
@@ -99,6 +101,7 @@ const REQUIRED_MISSION_COLUMNS = [
 	"completed_at",
 	"created_at",
 	"updated_at",
+	"learnings_extracted",
 ] as const;
 
 function getMissionColumns(db: Database): Set<string> {
@@ -200,14 +203,16 @@ function migrateMissionSchema(db: Database): void {
 			started_at TEXT,
 			completed_at TEXT,
 			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL
+			updated_at TEXT NOT NULL,
+			learnings_extracted INTEGER NOT NULL DEFAULT 0
 		);
 		INSERT INTO missions_new (
 			id, slug, objective, run_id, state, phase, first_freeze_at,
 			pending_user_input, pending_input_kind, pending_input_thread_id,
 			reopen_count, artifact_root, paused_workstream_ids, analyst_session_id,
 			execution_director_session_id, coordinator_session_id, paused_lead_names,
-			pause_reason, current_node, started_at, completed_at, created_at, updated_at
+			pause_reason, current_node, started_at, completed_at, created_at, updated_at,
+			learnings_extracted
 		)
 		SELECT
 			${missionColumnExpr(existingColumns, "id", "NULL")},
@@ -232,7 +237,8 @@ function migrateMissionSchema(db: Database): void {
 			${missionColumnExpr(existingColumns, "started_at", createdAtExpr)},
 			${missionColumnExpr(existingColumns, "completed_at", "NULL")},
 			${createdAtExpr},
-			${updatedAtExpr}
+			${updatedAtExpr},
+			COALESCE(${missionColumnExpr(existingColumns, "learnings_extracted", "0")}, 0)
 		FROM missions;
 		DROP TABLE missions;
 		ALTER TABLE missions_new RENAME TO missions;
@@ -266,6 +272,7 @@ function rowToMission(row: MissionRow): Mission {
 		completedAt: row.completed_at,
 		createdAt: row.created_at,
 		updatedAt: row.updated_at,
+		learningsExtracted: row.learnings_extracted === 1,
 	};
 }
 
@@ -291,6 +298,9 @@ export function createMissionStore(dbPath: string): MissionStore {
 		const cols = getMissionColumns(db);
 		if (!cols.has("current_node")) {
 			db.exec("ALTER TABLE missions ADD COLUMN current_node TEXT");
+		}
+		if (!cols.has("learnings_extracted")) {
+			db.exec("ALTER TABLE missions ADD COLUMN learnings_extracted INTEGER NOT NULL DEFAULT 0");
 		}
 	}
 
@@ -472,6 +482,10 @@ export function createMissionStore(dbPath: string): MissionStore {
 		WHERE id = $id
 	`);
 
+	const markLearningsExtractedStmt = db.prepare<void, { $id: string; $updated_at: string }>(`
+		UPDATE missions SET learnings_extracted = 1, updated_at = $updated_at WHERE id = $id
+	`);
+
 	return {
 		create(mission: InsertMission): Mission {
 			const now = new Date().toISOString();
@@ -647,6 +661,13 @@ export function createMissionStore(dbPath: string): MissionStore {
 			updateCurrentNodeStmt.run({
 				$id: id,
 				$current_node: nodeId,
+				$updated_at: new Date().toISOString(),
+			});
+		},
+
+		markLearningsExtracted(id: string): void {
+			markLearningsExtractedStmt.run({
+				$id: id,
 				$updated_at: new Date().toISOString(),
 			});
 		},

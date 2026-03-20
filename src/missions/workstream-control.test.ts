@@ -42,6 +42,7 @@ function makeMission(): Mission {
 		completedAt: null,
 		createdAt: "2026-03-13T00:00:00.000Z",
 		updatedAt: "2026-03-13T00:00:00.000Z",
+		learningsExtracted: false,
 	};
 }
 

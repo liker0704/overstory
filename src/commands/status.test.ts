@@ -97,6 +97,7 @@ function makeMission(overrides: Partial<Mission> = {}): Mission {
 		completedAt: null,
 		createdAt: "2026-03-13T10:00:00.000Z",
 		updatedAt: "2026-03-13T12:00:00.000Z",
+		learningsExtracted: false,
 		...overrides,
 	};
 }
