@@ -26,12 +26,22 @@ const noopSpawner: Spawner = async () => ({ exitCode: 1, stdout: "", stderr: "no
 
 const EXPECTED_AGENT_DEFS = [
 	"builder.md",
+	"coordinator-mission.md",
 	"coordinator.md",
+	"execution-director.md",
+	"lead-mission.md",
 	"lead.md",
 	"merger.md",
+	"mission-analyst.md",
 	"monitor.md",
 	"orchestrator.md",
 	"ov-co-creation.md",
+	"plan-devil-advocate.md",
+	"plan-performance-critic.md",
+	"plan-review-lead.md",
+	"plan-second-opinion.md",
+	"plan-security-critic.md",
+	"plan-simulator.md",
 	"reviewer.md",
 	"scout.md",
 ];
