@@ -65,7 +65,10 @@ export interface MailStore {
 	claim(agentName: string, leaseTimeoutSec?: number): MailMessage[];
 
 	/** Acknowledge successful processing. Sets state='acked', read=1. */
-	ack(id: string): void;
+	ack(id: string, agentName?: string): void;
+
+	/** Acknowledge multiple messages in a single transaction. */
+	ackBatch(ids: string[]): void;
 
 	/**
 	 * Negative-acknowledge a claimed message. Increments attempt count,
@@ -180,12 +183,6 @@ function migrateSchema(db: Database): void {
 		return;
 	}
 
-	// If only missing the payload column (has correct CHECK constraints, no state needed yet)
-	if (hasCheckConstraints && hasCurrentTypeSet && !hasPayloadColumn && !hasStateColumn) {
-		db.exec("ALTER TABLE messages ADD COLUMN payload TEXT");
-		// Fall through to recreate for state columns
-	}
-
 	// Need to recreate the table for state columns, missing CHECK constraints, or type update
 	const validTypes = MAIL_MESSAGE_TYPES.map((t) => `'${t}'`).join(",");
 	const validStates = MAIL_DELIVERY_STATES.map((s) => `'${s}'`).join(",");
@@ -249,7 +246,6 @@ FROM messages_old`);
 }
 
 const CREATE_INDEXES = `
-CREATE INDEX IF NOT EXISTS idx_inbox ON messages(to_agent, read);
 CREATE INDEX IF NOT EXISTS idx_thread ON messages(thread_id);
 CREATE INDEX IF NOT EXISTS idx_state ON messages(to_agent, state, next_retry_at)`;
 
@@ -367,11 +363,12 @@ export function createMailStore(dbPath: string): MailStore {
 		UPDATE messages SET read = 1, state = 'acked' WHERE id = $id
 	`);
 
-	// Claim: expire stale claims, then atomically claim available messages
-	const expireClaimsStmt = db.prepare<void, { $timeout_sec: number }>(`
+	// Claim: expire stale claims (scoped to agent), then atomically claim
+	const expireClaimsStmt = db.prepare<void, { $timeout_sec: number; $to_agent: string }>(`
 		UPDATE messages
 		SET state = 'queued', claimed_at = NULL
 		WHERE state = 'claimed'
+		  AND to_agent = $to_agent
 		  AND claimed_at < datetime('now', '-' || $timeout_sec || ' seconds')
 	`);
 
@@ -400,14 +397,44 @@ export function createMailStore(dbPath: string): MailStore {
 		UPDATE messages SET state = 'acked', read = 1 WHERE id = $id
 	`);
 
-	const getDlqStmt = db.prepare<MessageRow, []>(`
-		SELECT * FROM messages WHERE state = 'dead_letter' ORDER BY created_at DESC
+	const nackDeadLetterStmt = db.prepare<
+		void,
+		{ $id: string; $reason: string | null; $attempt: number }
+	>(`
+		UPDATE messages
+		SET state = 'dead_letter', attempt = $attempt, fail_reason = $reason,
+		    claimed_at = NULL, next_retry_at = NULL
+		WHERE id = $id
 	`);
 
-	const getDlqByAgentStmt = db.prepare<MessageRow, { $agent: string }>(`
+	const nackRetryStmt = db.prepare<
+		void,
+		{
+			$id: string;
+			$reason: string | null;
+			$attempt: number;
+			$delay_sec: number;
+		}
+	>(`
+		UPDATE messages
+		SET state = 'failed', attempt = $attempt, fail_reason = $reason,
+		    claimed_at = NULL,
+		    next_retry_at = datetime('now', '+' || $delay_sec || ' seconds')
+		WHERE id = $id
+	`);
+
+	const getDlqStmt = db.prepare<MessageRow, { $limit: number }>(`
+		SELECT * FROM messages
+		WHERE state = 'dead_letter'
+		ORDER BY created_at DESC
+		LIMIT $limit
+	`);
+
+	const getDlqByAgentStmt = db.prepare<MessageRow, { $agent: string; $limit: number }>(`
 		SELECT * FROM messages
 		WHERE state = 'dead_letter' AND to_agent = $agent
 		ORDER BY created_at DESC
+		LIMIT $limit
 	`);
 
 	const replayDlqStmt = db.prepare<void, { $id: string }>(`
@@ -415,6 +442,28 @@ export function createMailStore(dbPath: string): MailStore {
 		SET state = 'queued', attempt = 0, fail_reason = NULL, next_retry_at = NULL, claimed_at = NULL, read = 0
 		WHERE id = $id AND state = 'dead_letter'
 	`);
+
+	// Wrap multiple acks in a transaction for batch processing
+	const ackBatchTransaction = db.transaction((ids: string[]) => {
+		for (const id of ids) {
+			ackStmt.run({ $id: id });
+		}
+	});
+
+	// Wrap claim steps in a transaction for atomicity
+	const claimTransaction = db.transaction((agentName: string, timeoutSec: number): MessageRow[] => {
+		// Step 1: Expire stale claims for this agent's messages
+		expireClaimsStmt.run({
+			$timeout_sec: timeoutSec,
+			$to_agent: agentName,
+		});
+
+		// Step 2: Promote retryable failed messages
+		promoteRetryableStmt.run();
+
+		// Step 3: Atomically claim all available messages
+		return claimStmt.all({ $to_agent: agentName });
+	});
 
 	// Wrap multiple inserts in a transaction for atomicity
 	const insertBatchTransaction = db.transaction(
@@ -590,29 +639,30 @@ export function createMailStore(dbPath: string): MailStore {
 
 		claim(agentName: string, leaseTimeoutSec?: number): MailMessage[] {
 			const timeout = leaseTimeoutSec ?? DEFAULT_LEASE_TIMEOUT_SEC;
-
-			// Step 1: Expire stale claims — messages claimed too long ago return to queue
-			expireClaimsStmt.run({ $timeout_sec: timeout });
-
-			// Step 2: Promote retryable failed messages whose timer has elapsed
-			promoteRetryableStmt.run();
-
-			// Step 3: Atomically claim all available messages for this agent
-			const rows = claimStmt.all({ $to_agent: agentName });
+			const rows = claimTransaction(agentName, timeout);
 			return rows.map(rowToMessage);
 		},
 
-		ack(id: string): void {
+		ack(id: string, agentName?: string): void {
 			const msg = getByIdStmt.get({ $id: id });
 			if (!msg) {
 				throw new MailError(`Message not found: ${id}`, { messageId: id });
 			}
 			if (msg.state !== "claimed") {
-				throw new MailError(`Cannot ack message in state '${msg.state}': ${id}`, {
-					messageId: id,
-				});
+				throw new MailError(`Cannot ack message in state '${msg.state}': ${id}`, { messageId: id });
+			}
+			if (agentName !== undefined && msg.to_agent !== agentName) {
+				throw new MailError(
+					`Agent '${agentName}' cannot ack message owned by '${msg.to_agent}': ${id}`,
+					{ messageId: id },
+				);
 			}
 			ackStmt.run({ $id: id });
+		},
+
+		ackBatch(ids: string[]): void {
+			if (ids.length === 0) return;
+			ackBatchTransaction(ids);
 		},
 
 		nack(id, options): { deadLettered: boolean } {
@@ -633,40 +683,36 @@ export function createMailStore(dbPath: string): MailStore {
 			const newAttempt = msg.attempt + 1;
 
 			if (newAttempt >= maxAttempts) {
-				// Dead-letter: exhausted retries
-				db.prepare<void, { $id: string; $reason: string | null; $attempt: number }>(`
-					UPDATE messages
-					SET state = 'dead_letter', attempt = $attempt, fail_reason = $reason,
-					    claimed_at = NULL, next_retry_at = NULL
-					WHERE id = $id
-				`).run({ $id: id, $reason: reason, $attempt: newAttempt });
+				nackDeadLetterStmt.run({
+					$id: id,
+					$reason: reason,
+					$attempt: newAttempt,
+				});
 				return { deadLettered: true };
 			}
 
 			// Compute exponential backoff: base * 2^attempt, capped at max
 			const delaySec = Math.min(backoffBaseSec * 2 ** msg.attempt, backoffMaxSec);
-			db.prepare<
-				void,
-				{ $id: string; $reason: string | null; $attempt: number; $delay_sec: number }
-			>(`
-				UPDATE messages
-				SET state = 'failed', attempt = $attempt, fail_reason = $reason,
-				    claimed_at = NULL,
-				    next_retry_at = datetime('now', '+' || $delay_sec || ' seconds')
-				WHERE id = $id
-			`).run({ $id: id, $reason: reason, $attempt: newAttempt, $delay_sec: delaySec });
+			nackRetryStmt.run({
+				$id: id,
+				$reason: reason,
+				$attempt: newAttempt,
+				$delay_sec: delaySec,
+			});
 			return { deadLettered: false };
 		},
 
 		getDlq(filters): MailMessage[] {
+			const limit = filters?.limit ?? -1;
 			if (filters?.agent) {
-				const rows = getDlqByAgentStmt.all({ $agent: filters.agent });
-				const limited = filters.limit ? rows.slice(0, filters.limit) : rows;
-				return limited.map(rowToMessage);
+				const rows = getDlqByAgentStmt.all({
+					$agent: filters.agent,
+					$limit: limit,
+				});
+				return rows.map(rowToMessage);
 			}
-			const rows = getDlqStmt.all();
-			const limited = filters?.limit ? rows.slice(0, filters.limit) : rows;
-			return limited.map(rowToMessage);
+			const rows = getDlqStmt.all({ $limit: limit });
+			return rows.map(rowToMessage);
 		},
 
 		replayDlq(id: string): void {
@@ -697,28 +743,18 @@ export function createMailStore(dbPath: string): MailStore {
 			}
 
 			const whereClause = conditions.join(" AND ");
-			const countRow = db
-				.prepare<{ cnt: number }, Record<string, string>>(
-					`SELECT COUNT(*) as cnt FROM messages WHERE ${whereClause}`,
+			const deleted = db
+				.prepare<{ id: string }, Record<string, string>>(
+					`DELETE FROM messages WHERE ${whereClause} RETURNING id`,
 				)
-				.get(params);
-			const count = countRow?.cnt ?? 0;
-
-			db.prepare<void, Record<string, string>>(`DELETE FROM messages WHERE ${whereClause}`).run(
-				params,
-			);
-			return count;
+				.all(params);
+			return deleted.length;
 		},
 
 		purge(options: { all?: boolean; olderThanMs?: number; agent?: string }): number {
-			// Count matching rows before deletion so we can report accurate numbers
 			if (options.all) {
-				const countRow = db
-					.prepare<{ cnt: number }, []>("SELECT COUNT(*) as cnt FROM messages")
-					.get();
-				const count = countRow?.cnt ?? 0;
-				db.prepare("DELETE FROM messages").run();
-				return count;
+				const deleted = db.prepare<{ id: string }, []>("DELETE FROM messages RETURNING id").all();
+				return deleted.length;
 			}
 
 			const conditions: string[] = [];
@@ -740,14 +776,12 @@ export function createMailStore(dbPath: string): MailStore {
 			}
 
 			const whereClause = conditions.join(" AND ");
-			const countQuery = `SELECT COUNT(*) as cnt FROM messages WHERE ${whereClause}`;
-			const countRow = db.prepare<{ cnt: number }, Record<string, string>>(countQuery).get(params);
-			const count = countRow?.cnt ?? 0;
-
-			const deleteQuery = `DELETE FROM messages WHERE ${whereClause}`;
-			db.prepare<void, Record<string, string>>(deleteQuery).run(params);
-
-			return count;
+			const deleted = db
+				.prepare<{ id: string }, Record<string, string>>(
+					`DELETE FROM messages WHERE ${whereClause} RETURNING id`,
+				)
+				.all(params);
+			return deleted.length;
 		},
 
 		close(): void {

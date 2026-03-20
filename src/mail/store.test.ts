@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MailError } from "../errors.ts";
 import { cleanupTempDir } from "../test-helpers.ts";
-import { MAIL_MESSAGE_TYPES, type MailDeliveryState, type MailMessage } from "../types.ts";
+import { MAIL_MESSAGE_TYPES, type MailMessage } from "../types.ts";
 import { createMailStore, type MailStore } from "./store.ts";
 
 describe("createMailStore", () => {
@@ -853,6 +853,71 @@ CREATE INDEX idx_thread ON messages(thread_id);
 			const claimed = store.claim("orchestrator");
 			expect(claimed).toHaveLength(0);
 		});
+
+		test("two agents claiming concurrently get disjoint sets", () => {
+			store.insert({
+				id: "msg-for-a",
+				from: "sender",
+				to: "agent-a",
+				subject: "for a",
+				body: "body",
+				type: "status",
+				priority: "normal",
+				threadId: null,
+			});
+			store.insert({
+				id: "msg-for-b",
+				from: "sender",
+				to: "agent-b",
+				subject: "for b",
+				body: "body",
+				type: "status",
+				priority: "normal",
+				threadId: null,
+			});
+
+			const claimedA = store.claim("agent-a");
+			const claimedB = store.claim("agent-b");
+
+			expect(claimedA).toHaveLength(1);
+			expect(claimedA[0]?.id).toBe("msg-for-a");
+			expect(claimedB).toHaveLength(1);
+			expect(claimedB[0]?.id).toBe("msg-for-b");
+		});
+
+		test("promotes failed messages with elapsed retry timer", () => {
+			store.insert({
+				id: "msg-promote",
+				from: "agent-a",
+				to: "orchestrator",
+				subject: "will retry",
+				body: "body",
+				type: "status",
+				priority: "normal",
+				threadId: null,
+			});
+
+			// Claim and nack to put into failed state with retry
+			store.claim("orchestrator");
+			store.nack("msg-promote", { reason: "temp" });
+
+			// Should not be claimable yet (retry in the future)
+			const empty = store.claim("orchestrator");
+			expect(empty).toHaveLength(0);
+
+			// Manually set next_retry_at to the past
+			const db = new Database(join(tempDir, "mail.db"));
+			db.exec(
+				"UPDATE messages SET next_retry_at = datetime('now', '-10 seconds') WHERE id = 'msg-promote'",
+			);
+			db.close();
+
+			// Now claim should promote and return it
+			const promoted = store.claim("orchestrator");
+			expect(promoted).toHaveLength(1);
+			expect(promoted[0]?.id).toBe("msg-promote");
+			expect(promoted[0]?.state).toBe("claimed");
+		});
 	});
 
 	describe("ack", () => {
@@ -894,6 +959,64 @@ CREATE INDEX idx_thread ON messages(thread_id);
 
 			// Message is queued, not claimed
 			expect(() => store.ack("msg-not-claimed")).toThrow(MailError);
+		});
+
+		test("throws when agentName does not match message recipient", () => {
+			store.insert({
+				id: "msg-ownership",
+				from: "agent-a",
+				to: "orchestrator",
+				subject: "test",
+				body: "body",
+				type: "status",
+				priority: "normal",
+				threadId: null,
+			});
+
+			store.claim("orchestrator");
+			expect(() => store.ack("msg-ownership", "wrong-agent")).toThrow(MailError);
+
+			// But correct agent can ack
+			store.ack("msg-ownership", "orchestrator");
+			const msg = store.getById("msg-ownership");
+			expect(msg?.state).toBe("acked");
+		});
+	});
+
+	describe("ackBatch", () => {
+		test("acks multiple messages in a single transaction", () => {
+			store.insert({
+				id: "msg-batch-ack-1",
+				from: "agent-a",
+				to: "orchestrator",
+				subject: "batch 1",
+				body: "body",
+				type: "status",
+				priority: "normal",
+				threadId: null,
+			});
+			store.insert({
+				id: "msg-batch-ack-2",
+				from: "agent-b",
+				to: "orchestrator",
+				subject: "batch 2",
+				body: "body",
+				type: "status",
+				priority: "normal",
+				threadId: null,
+			});
+
+			store.claim("orchestrator");
+			store.ackBatch(["msg-batch-ack-1", "msg-batch-ack-2"]);
+
+			const m1 = store.getById("msg-batch-ack-1");
+			const m2 = store.getById("msg-batch-ack-2");
+			expect(m1?.state).toBe("acked");
+			expect(m2?.state).toBe("acked");
+		});
+
+		test("empty batch is a no-op", () => {
+			store.ackBatch([]);
 		});
 	});
 
@@ -1044,9 +1167,7 @@ CREATE INDEX idx_thread ON messages(thread_id);
 			for (let i = 0; i < 5; i++) {
 				// Need to set back to claimed each time since nack moves out of claimed
 				const db = new Database(join(tempDir, "mail.db"));
-				db.exec(
-					`UPDATE messages SET state = 'claimed' WHERE id = 'msg-dlq-limit-${i}'`,
-				);
+				db.exec(`UPDATE messages SET state = 'claimed' WHERE id = 'msg-dlq-limit-${i}'`);
 				db.close();
 				store.nack(`msg-dlq-limit-${i}`, { maxAttempts: 1 });
 			}

@@ -128,6 +128,7 @@ const PROTOCOL_TYPES = new Set<string>([
 	"plan_critic_verdict",
 	"plan_review_consolidated",
 	"plan_revision_complete",
+	"decision_gate",
 ]);
 
 /**
@@ -217,20 +218,16 @@ export function createMailClient(store: MailStore): MailClient {
 		},
 
 		check(agentName): MailMessage[] {
-			// v2: use claim+ack for crash-safe delivery
+			// v2: claim+ackBatch for crash-safe delivery
 			const messages = store.claim(agentName);
-			for (const msg of messages) {
-				store.ack(msg.id);
-			}
+			store.ackBatch(messages.map((m) => m.id));
 			return messages;
 		},
 
 		checkInject(agentName): string {
-			// v2: use claim+ack for crash-safe delivery
+			// v2: claim+ackBatch for crash-safe delivery
 			const messages = store.claim(agentName);
-			for (const msg of messages) {
-				store.ack(msg.id);
-			}
+			store.ackBatch(messages.map((m) => m.id));
 			return formatForInjection(messages);
 		},
 
