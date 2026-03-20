@@ -287,8 +287,9 @@ async function nudgeIfIdle(cwd: string, agentName: string, message: string): Pro
 		const tmuxSession = await resolveTargetSession(cwd, agentName);
 		if (!tmuxSession) return;
 
-		const { capturePaneContent, detectAgentState, getPaneWidth, getPaneActivity } =
-			await import("../worktree/tmux.ts");
+		const { capturePaneContent, detectAgentState, getPaneWidth, getPaneActivity } = await import(
+			"../worktree/tmux.ts"
+		);
 		const paneContent = await capturePaneContent(tmuxSession);
 		if (!paneContent) return;
 
@@ -510,37 +511,60 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 			validateMissionFindingRecipients(recipients);
 
 			const client = openClient(cwd);
-			const messageIds: string[] = [];
 
 			try {
-				// Fan out: send individual message to each recipient
-				for (const recipient of recipients) {
-					const id = client.send({ from, to: recipient, subject, body, type, priority, payload });
-					messageIds.push(id);
-					await syncMissionPendingInputFromMail(cwd, {
-						id,
-						from,
-						to: recipient,
-						type,
-						subject,
-					});
+				// Atomic broadcast: insert all messages in a single transaction
+				const messageIds = client.sendBroadcast({
+					from,
+					to: recipients,
+					subject,
+					body,
+					type,
+					priority,
+					payload,
+				});
 
-					// Record mail_sent event for each individual message (fire-and-forget)
-					try {
-						const eventsDbPath = join(cwd, ".overstory", "events.db");
-						const eventStore = createEventStore(eventsDbPath);
+				// Per-recipient side effects (mission sync, events, nudges)
+				// EventStore opened once for all recipients
+				let runId: string | null = null;
+				try {
+					const runIdPath = join(cwd, ".overstory", "current-run.txt");
+					const runIdFile = Bun.file(runIdPath);
+					if (await runIdFile.exists()) {
+						const text = await runIdFile.text();
+						const trimmed = text.trim();
+						if (trimmed.length > 0) {
+							runId = trimmed;
+						}
+					}
+				} catch {
+					// runId read failure is non-fatal
+				}
+
+				const eventsDbPath = join(cwd, ".overstory", "events.db");
+				let eventStore: ReturnType<typeof createEventStore> | null = null;
+				try {
+					eventStore = createEventStore(eventsDbPath);
+				} catch {
+					// EventStore open failure is non-fatal
+				}
+
+				try {
+					for (let i = 0; i < recipients.length; i++) {
+						const recipient = recipients[i]!;
+						const id = messageIds[i]!;
+
+						await syncMissionPendingInputFromMail(cwd, {
+							id,
+							from,
+							to: recipient,
+							type,
+							subject,
+						});
+
+						// Record mail_sent event (fire-and-forget)
 						try {
-							let runId: string | null = null;
-							const runIdPath = join(cwd, ".overstory", "current-run.txt");
-							const runIdFile = Bun.file(runIdPath);
-							if (await runIdFile.exists()) {
-								const text = await runIdFile.text();
-								const trimmed = text.trim();
-								if (trimmed.length > 0) {
-									runId = trimmed;
-								}
-							}
-							eventStore.insert({
+							eventStore?.insert({
 								runId,
 								agentName: from,
 								sessionId: null,
@@ -558,43 +582,42 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 									broadcast: true,
 								}),
 							});
-						} finally {
-							eventStore.close();
+						} catch {
+							// Event recording failure is non-fatal
 						}
-					} catch {
-						// Event recording failure is non-fatal
-					}
 
-					// Auto-nudge for each individual message
-					const shouldNudge =
-						priority === "urgent" || priority === "high" || AUTO_NUDGE_TYPES.has(type);
-					if (shouldNudge) {
-						const nudgeReason = AUTO_NUDGE_TYPES.has(type) ? type : `${priority} priority`;
-						await writePendingNudge(cwd, recipient, {
-							from,
-							reason: nudgeReason,
-							subject,
-							messageId: id,
-						});
-						await nudgeIfIdle(cwd, recipient, `[MAIL] ${subject}`);
+						// Auto-nudge for each individual message
+						const shouldNudge =
+							priority === "urgent" || priority === "high" || AUTO_NUDGE_TYPES.has(type);
+						if (shouldNudge) {
+							const nudgeReason = AUTO_NUDGE_TYPES.has(type) ? type : `${priority} priority`;
+							await writePendingNudge(cwd, recipient, {
+								from,
+								reason: nudgeReason,
+								subject,
+								messageId: id,
+							});
+							await nudgeIfIdle(cwd, recipient, `[MAIL] ${subject}`);
+						}
+					}
+				} finally {
+					eventStore?.close();
+				}
+				// Output broadcast summary
+				if (opts.json) {
+					jsonOutput("mail send", { messageIds, recipientCount: recipients.length });
+				} else {
+					process.stdout.write(
+						`Broadcast sent to ${recipients.length} recipient${recipients.length === 1 ? "" : "s"} (${to})\n`,
+					);
+					for (let i = 0; i < recipients.length; i++) {
+						const recipient = recipients[i];
+						const msgId = messageIds[i];
+						process.stdout.write(`   → ${accent(recipient)} (${accent(msgId)})\n`);
 					}
 				}
 			} finally {
 				client.close();
-			}
-
-			// Output broadcast summary
-			if (opts.json) {
-				jsonOutput("mail send", { messageIds, recipientCount: recipients.length });
-			} else {
-				process.stdout.write(
-					`Broadcast sent to ${recipients.length} recipient${recipients.length === 1 ? "" : "s"} (${to})\n`,
-				);
-				for (let i = 0; i < recipients.length; i++) {
-					const recipient = recipients[i];
-					const msgId = messageIds[i];
-					process.stdout.write(`   → ${accent(recipient)} (${accent(msgId)})\n`);
-				}
 			}
 
 			return; // Early return — broadcast handled
