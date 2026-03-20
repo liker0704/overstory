@@ -221,8 +221,7 @@ describe("mission command e2e", () => {
 		expect(mission).not.toBeNull();
 		expect(mission?.slug).toBe("auth-refresh");
 		expect(deps.started).toEqual(["coordinator", "mission-analyst"]);
-		expect(deps.nudged.some((entry) => entry.agentName === "coordinator")).toBe(true);
-		expect(deps.nudged.some((entry) => entry.agentName === "mission-analyst")).toBe(true);
+		// No nudge on initial start — SessionStart hook activates roles directly
 		expect(await Bun.file(join(overstoryDir, "current-mission.txt")).exists()).toBe(true);
 		expect(await Bun.file(join(overstoryDir, "current-run.txt")).exists()).toBe(true);
 

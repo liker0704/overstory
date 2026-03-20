@@ -907,12 +907,8 @@ export async function missionStart(
 			subject: `Mission started: ${mission.slug}`,
 			body: dispatchBody.join("\n"),
 		});
-		await nudgeMissionRoleBestEffort(
-			projectRoot,
-			"coordinator",
-			`Mission started: ${mission.slug}. Check mail and begin mission coordination.`,
-			deps,
-		);
+		// No nudge needed — coordinator just started, SessionStart hook already
+		// activates it and UserPromptSubmit hook will surface the dispatch mail.
 
 		// Notify analyst of mission start (internal, not user-facing)
 		await sendMissionControlMail({
@@ -931,12 +927,7 @@ export async function missionStart(
 			].join("\n"),
 			type: "dispatch",
 		});
-		await nudgeMissionRoleBestEffort(
-			projectRoot,
-			"mission-analyst",
-			`Mission started: ${mission.slug}. Check mail and begin current-state analysis.`,
-			deps,
-		);
+		// No nudge needed — analyst just started, SessionStart hook handles activation.
 
 		recordMissionEvent({
 			overstoryDir,
