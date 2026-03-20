@@ -144,18 +144,29 @@ CREATE TABLE IF NOT EXISTS messages (
 )`;
 
 /**
+ * Schema version tracked via PRAGMA user_version.
+ * Bump this when schema changes require migration.
+ * v1: original schema (no delivery state)
+ * v2: delivery state columns + CHECK constraints
+ */
+const SCHEMA_VERSION = 2;
+
+/**
  * Migrate an existing messages table to the current schema.
  *
- * Handles migration paths:
- * 1. Tables without CHECK constraints → recreate with constraints
- * 2. Tables without payload column → add payload column
- * 3. Tables with old CHECK constraints (missing protocol types) → recreate with new types
- * 4. Tables without delivery state columns → recreate with state/claimed_at/attempt/next_retry_at/fail_reason
+ * Uses PRAGMA user_version as fast-path: if version >= SCHEMA_VERSION, skip.
+ * Falls back to DDL inspection for databases created before versioning.
  *
  * SQLite does not support ALTER TABLE ADD CONSTRAINT, so constraint changes
  * require recreating the table.
  */
 function migrateSchema(db: Database): void {
+	// Fast path: check schema version
+	const versionRow = db.prepare<{ user_version: number }, []>("PRAGMA user_version").get();
+	if (versionRow && versionRow.user_version >= SCHEMA_VERSION) {
+		return;
+	}
+
 	const row = db
 		.prepare<{ sql: string }, []>(
 			"SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'",
@@ -249,19 +260,23 @@ const CREATE_INDEXES = `
 CREATE INDEX IF NOT EXISTS idx_thread ON messages(thread_id);
 CREATE INDEX IF NOT EXISTS idx_state ON messages(to_agent, state, next_retry_at)`;
 
-/** Generate a random 12-character alphanumeric ID. */
+/** Generate a random 12-character alphanumeric ID (unbiased). */
 function randomId(): string {
 	const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-	const bytes = new Uint8Array(12);
-	crypto.getRandomValues(bytes);
-	let result = "";
-	for (let i = 0; i < 12; i++) {
-		const byte = bytes[i];
-		if (byte !== undefined) {
-			result += chars[byte % chars.length];
+	// 252 is the largest multiple of 36 that fits in a byte, avoiding modulo bias
+	const maxUnbiased = 252;
+	const result: string[] = [];
+	while (result.length < 12) {
+		const bytes = new Uint8Array(16);
+		crypto.getRandomValues(bytes);
+		for (let i = 0; i < bytes.length && result.length < 12; i++) {
+			const byte = bytes[i];
+			if (byte !== undefined && byte < maxUnbiased) {
+				result.push(chars[byte % chars.length] ?? "a");
+			}
 		}
 	}
-	return result;
+	return result.join("");
 }
 
 /** Convert a database row (snake_case) to a MailMessage object (camelCase). */
@@ -318,6 +333,7 @@ export function createMailStore(dbPath: string): MailStore {
 	// Create schema (if table doesn't exist yet, creates with CHECK constraints)
 	db.exec(CREATE_TABLE);
 	db.exec(CREATE_INDEXES);
+	db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
 
 	// Prepare statements for all queries
 	const insertStmt = db.prepare<
@@ -347,20 +363,26 @@ export function createMailStore(dbPath: string): MailStore {
 		SELECT * FROM messages WHERE id = $id
 	`);
 
+	/** Hard cap on messages returned per poll to prevent unbounded memory use. */
+	const MAX_POLL_BATCH = 200;
+
 	const getUnreadStmt = db.prepare<MessageRow, { $to_agent: string }>(`
 		SELECT * FROM messages
 		WHERE to_agent = $to_agent
 		  AND state = 'queued'
 		  AND (next_retry_at IS NULL OR next_retry_at <= datetime('now'))
 		ORDER BY created_at ASC
+		LIMIT ${MAX_POLL_BATCH}
 	`);
 
 	const getByThreadStmt = db.prepare<MessageRow, { $thread_id: string }>(`
 		SELECT * FROM messages WHERE thread_id = $thread_id ORDER BY created_at ASC
 	`);
 
+	// Only transition queued/claimed messages — don't bypass DLQ or failed state
 	const markReadStmt = db.prepare<void, { $id: string }>(`
-		UPDATE messages SET read = 1, state = 'acked' WHERE id = $id
+		UPDATE messages SET read = 1, state = 'acked'
+		WHERE id = $id AND state IN ('queued', 'claimed')
 	`);
 
 	// Claim: expire stale claims (scoped to agent), then atomically claim
@@ -372,10 +394,11 @@ export function createMailStore(dbPath: string): MailStore {
 		  AND claimed_at < datetime('now', '-' || $timeout_sec || ' seconds')
 	`);
 
-	const promoteRetryableStmt = db.prepare<void, []>(`
+	const promoteRetryableStmt = db.prepare<void, { $to_agent: string }>(`
 		UPDATE messages
 		SET state = 'queued', next_retry_at = NULL
 		WHERE state = 'failed'
+		  AND to_agent = $to_agent
 		  AND next_retry_at IS NOT NULL
 		  AND next_retry_at <= datetime('now')
 	`);
@@ -389,12 +412,19 @@ export function createMailStore(dbPath: string): MailStore {
 			  AND state = 'queued'
 			  AND (next_retry_at IS NULL OR next_retry_at <= datetime('now'))
 			ORDER BY created_at ASC
+			LIMIT ${MAX_POLL_BATCH}
 		)
 		RETURNING *
 	`);
 
 	const ackStmt = db.prepare<void, { $id: string }>(`
 		UPDATE messages SET state = 'acked', read = 1 WHERE id = $id
+	`);
+
+	// Guarded ack: only transitions claimed messages (safe for batch use)
+	const ackGuardedStmt = db.prepare<void, { $id: string }>(`
+		UPDATE messages SET state = 'acked', read = 1
+		WHERE id = $id AND state = 'claimed'
 	`);
 
 	const nackDeadLetterStmt = db.prepare<
@@ -443,10 +473,10 @@ export function createMailStore(dbPath: string): MailStore {
 		WHERE id = $id AND state = 'dead_letter'
 	`);
 
-	// Wrap multiple acks in a transaction for batch processing
+	// Wrap multiple acks in a transaction — uses guarded stmt (skips non-claimed)
 	const ackBatchTransaction = db.transaction((ids: string[]) => {
 		for (const id of ids) {
-			ackStmt.run({ $id: id });
+			ackGuardedStmt.run({ $id: id });
 		}
 	});
 
@@ -458,8 +488,8 @@ export function createMailStore(dbPath: string): MailStore {
 			$to_agent: agentName,
 		});
 
-		// Step 2: Promote retryable failed messages
-		promoteRetryableStmt.run();
+		// Step 2: Promote retryable failed messages for this agent
+		promoteRetryableStmt.run({ $to_agent: agentName });
 
 		// Step 3: Atomically claim all available messages
 		return claimStmt.all({ $to_agent: agentName });
@@ -500,6 +530,9 @@ export function createMailStore(dbPath: string): MailStore {
 		},
 	);
 
+	// Cache for dynamically-built prepared statements (filter queries, purge variants)
+	const stmtCache = new Map<string, ReturnType<typeof db.prepare>>();
+
 	// Dynamic filter queries are built at call time since the WHERE clause varies
 	function buildFilterQuery(filters?: {
 		from?: string;
@@ -534,8 +567,14 @@ export function createMailStore(dbPath: string): MailStore {
 			params.$limit = filters.limit;
 		}
 		const query = `SELECT * FROM messages ${whereClause} ORDER BY created_at DESC${limitClause}`;
-		const stmt = db.prepare<MessageRow, Record<string, string | number>>(query);
-		const rows = stmt.all(params);
+		let stmt = stmtCache.get(query);
+		if (!stmt) {
+			stmt = db.prepare(query);
+			stmtCache.set(query, stmt);
+		}
+		const rows = (
+			stmt as ReturnType<typeof db.prepare<MessageRow, Record<string, string | number>>>
+		).all(params);
 		return rows.map(rowToMessage);
 	}
 
@@ -644,20 +683,27 @@ export function createMailStore(dbPath: string): MailStore {
 		},
 
 		ack(id: string, agentName?: string): void {
-			const msg = getByIdStmt.get({ $id: id });
-			if (!msg) {
-				throw new MailError(`Message not found: ${id}`, { messageId: id });
-			}
-			if (msg.state !== "claimed") {
-				throw new MailError(`Cannot ack message in state '${msg.state}': ${id}`, { messageId: id });
-			}
-			if (agentName !== undefined && msg.to_agent !== agentName) {
-				throw new MailError(
-					`Agent '${agentName}' cannot ack message owned by '${msg.to_agent}': ${id}`,
-					{ messageId: id },
-				);
-			}
-			ackStmt.run({ $id: id });
+			// Wrap in transaction to prevent race between read and write
+			db.transaction(() => {
+				const msg = getByIdStmt.get({ $id: id });
+				if (!msg) {
+					throw new MailError(`Message not found: ${id}`, {
+						messageId: id,
+					});
+				}
+				if (msg.state !== "claimed") {
+					throw new MailError(`Cannot ack message in state '${msg.state}': ${id}`, {
+						messageId: id,
+					});
+				}
+				if (agentName !== undefined && msg.to_agent !== agentName) {
+					throw new MailError(
+						`Agent '${agentName}' cannot ack message owned by '${msg.to_agent}': ${id}`,
+						{ messageId: id },
+					);
+				}
+				ackStmt.run({ $id: id });
+			})();
 		},
 
 		ackBatch(ids: string[]): void {
@@ -666,44 +712,50 @@ export function createMailStore(dbPath: string): MailStore {
 		},
 
 		nack(id, options): { deadLettered: boolean } {
-			const msg = getByIdStmt.get({ $id: id });
-			if (!msg) {
-				throw new MailError(`Message not found: ${id}`, { messageId: id });
-			}
-			if (msg.state !== "claimed") {
-				throw new MailError(`Cannot nack message in state '${msg.state}': ${id}`, {
-					messageId: id,
-				});
-			}
+			// Wrap in transaction to prevent race between read and write
+			return db.transaction(() => {
+				const msg = getByIdStmt.get({ $id: id });
+				if (!msg) {
+					throw new MailError(`Message not found: ${id}`, {
+						messageId: id,
+					});
+				}
+				if (msg.state !== "claimed") {
+					throw new MailError(`Cannot nack message in state '${msg.state}': ${id}`, {
+						messageId: id,
+					});
+				}
 
-			const maxAttempts = options?.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
-			const backoffBaseSec = options?.backoffBaseSec ?? DEFAULT_BACKOFF_BASE_SEC;
-			const backoffMaxSec = options?.backoffMaxSec ?? DEFAULT_BACKOFF_MAX_SEC;
-			const reason = options?.reason ?? null;
-			const newAttempt = msg.attempt + 1;
+				const maxAttempts = options?.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+				const backoffBaseSec = options?.backoffBaseSec ?? DEFAULT_BACKOFF_BASE_SEC;
+				const backoffMaxSec = options?.backoffMaxSec ?? DEFAULT_BACKOFF_MAX_SEC;
+				const reason = options?.reason ?? null;
+				const newAttempt = msg.attempt + 1;
 
-			if (newAttempt >= maxAttempts) {
-				nackDeadLetterStmt.run({
+				if (newAttempt >= maxAttempts) {
+					nackDeadLetterStmt.run({
+						$id: id,
+						$reason: reason,
+						$attempt: newAttempt,
+					});
+					return { deadLettered: true };
+				}
+
+				// Exponential backoff: base * 2^attempt, capped at max
+				const delaySec = Math.min(backoffBaseSec * 2 ** newAttempt, backoffMaxSec);
+				nackRetryStmt.run({
 					$id: id,
 					$reason: reason,
 					$attempt: newAttempt,
+					$delay_sec: delaySec,
 				});
-				return { deadLettered: true };
-			}
-
-			// Compute exponential backoff: base * 2^attempt, capped at max
-			const delaySec = Math.min(backoffBaseSec * 2 ** msg.attempt, backoffMaxSec);
-			nackRetryStmt.run({
-				$id: id,
-				$reason: reason,
-				$attempt: newAttempt,
-				$delay_sec: delaySec,
-			});
-			return { deadLettered: false };
+				return { deadLettered: false };
+			})();
 		},
 
 		getDlq(filters): MailMessage[] {
-			const limit = filters?.limit ?? -1;
+			// Default to 100; callers needing all records pass an explicit limit
+			const limit = filters?.limit ?? 100;
 			if (filters?.agent) {
 				const rows = getDlqByAgentStmt.all({
 					$agent: filters.agent,
@@ -742,19 +794,27 @@ export function createMailStore(dbPath: string): MailStore {
 				params.$agent = options.agent;
 			}
 
-			const whereClause = conditions.join(" AND ");
-			const deleted = db
-				.prepare<{ id: string }, Record<string, string>>(
-					`DELETE FROM messages WHERE ${whereClause} RETURNING id`,
-				)
-				.all(params);
+			const sql = `DELETE FROM messages WHERE ${conditions.join(" AND ")} RETURNING id`;
+			let stmt = stmtCache.get(sql);
+			if (!stmt) {
+				stmt = db.prepare(sql);
+				stmtCache.set(sql, stmt);
+			}
+			const deleted = (
+				stmt as ReturnType<typeof db.prepare<{ id: string }, Record<string, string>>>
+			).all(params);
 			return deleted.length;
 		},
 
 		purge(options: { all?: boolean; olderThanMs?: number; agent?: string }): number {
 			if (options.all) {
-				const deleted = db.prepare<{ id: string }, []>("DELETE FROM messages RETURNING id").all();
-				return deleted.length;
+				const sql = "DELETE FROM messages RETURNING id";
+				let stmt = stmtCache.get(sql);
+				if (!stmt) {
+					stmt = db.prepare(sql);
+					stmtCache.set(sql, stmt);
+				}
+				return (stmt as ReturnType<typeof db.prepare<{ id: string }, []>>).all().length;
 			}
 
 			const conditions: string[] = [];
@@ -775,12 +835,15 @@ export function createMailStore(dbPath: string): MailStore {
 				return 0;
 			}
 
-			const whereClause = conditions.join(" AND ");
-			const deleted = db
-				.prepare<{ id: string }, Record<string, string>>(
-					`DELETE FROM messages WHERE ${whereClause} RETURNING id`,
-				)
-				.all(params);
+			const sql = `DELETE FROM messages WHERE ${conditions.join(" AND ")} RETURNING id`;
+			let stmt = stmtCache.get(sql);
+			if (!stmt) {
+				stmt = db.prepare(sql);
+				stmtCache.set(sql, stmt);
+			}
+			const deleted = (
+				stmt as ReturnType<typeof db.prepare<{ id: string }, Record<string, string>>>
+			).all(params);
 			return deleted.length;
 		},
 

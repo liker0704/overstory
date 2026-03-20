@@ -63,7 +63,15 @@ export interface MailClient {
 	ack(id: string): void;
 
 	/** Negative-acknowledge a claimed message. Retries or dead-letters. */
-	nack(id: string, reason?: string): { deadLettered: boolean };
+	nack(
+		id: string,
+		reason?: string,
+		options?: {
+			maxAttempts?: number;
+			backoffBaseSec?: number;
+			backoffMaxSec?: number;
+		},
+	): { deadLettered: boolean };
 
 	/** Query dead-letter queue. */
 	getDlq(filters?: { agent?: string; limit?: number }): MailMessage[];
@@ -239,8 +247,8 @@ export function createMailClient(store: MailStore): MailClient {
 			store.ack(id);
 		},
 
-		nack(id, reason): { deadLettered: boolean } {
-			return store.nack(id, { reason });
+		nack(id, reason, options): { deadLettered: boolean } {
+			return store.nack(id, { reason, ...options });
 		},
 
 		getDlq(filters): MailMessage[] {
