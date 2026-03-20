@@ -309,10 +309,7 @@ export function createManifestLoader(manifestPath: string, agentBaseDir: string)
  *   lead → lead-mission (when mission is active)
  *   All others → unchanged
  */
-export function resolveMissionCapability(
-	capability: string,
-	hasMission: boolean,
-): string {
+export function resolveMissionCapability(capability: string, hasMission: boolean): string {
 	if (!hasMission) return capability;
 	const MISSION_VARIANTS: Record<string, string> = {
 		coordinator: "coordinator-mission",

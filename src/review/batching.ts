@@ -109,9 +109,7 @@ function assembleCoordination(overstoryDir: string): ReviewBatch {
 			for (const record of handoffs) {
 				const lowScoreDimensions = record.dimensions.filter((d) => d.score < 50);
 				if (lowScoreDimensions.length > 0) {
-					const dimSummary = lowScoreDimensions
-						.map((d) => `${d.dimension}:${d.score}`)
-						.join(", ");
+					const dimSummary = lowScoreDimensions.map((d) => `${d.dimension}:${d.score}`).join(", ");
 					evidence.push({
 						path: `reviews.db#${record.id}`,
 						excerpt: truncate(
@@ -138,8 +136,7 @@ function assembleCoordination(overstoryDir: string): ReviewBatch {
 				(e) =>
 					(e.eventType === "session_end" && e.level === "error") ||
 					(e.data !== null &&
-						(e.data.toLowerCase().includes("escalat") ||
-							e.data.toLowerCase().includes("stall"))),
+						(e.data.toLowerCase().includes("escalat") || e.data.toLowerCase().includes("stall"))),
 			);
 			for (const evt of escalations.slice(0, 10)) {
 				evidence.push({

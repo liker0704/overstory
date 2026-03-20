@@ -478,7 +478,8 @@ export function createStatusCommand(): Command {
 			await executeStatus(opts);
 		});
 
-	cmd.command("set <statusLine>")
+	cmd
+		.command("set <statusLine>")
 		.description("Set agent status line (self-reported current activity)")
 		.requiredOption("--agent <name>", "Agent name (use $OVERSTORY_AGENT_NAME)")
 		.option("--json", "Output as JSON")

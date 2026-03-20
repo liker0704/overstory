@@ -137,6 +137,8 @@ describe("createMissionCommand", () => {
 		expect((await Bun.file(join(overstoryDir, "current-mission.txt")).text()).trim()).toBe(
 			"mission-active",
 		);
-		expect((await Bun.file(join(overstoryDir, "current-run.txt")).text()).trim()).toBe("run-active");
+		expect((await Bun.file(join(overstoryDir, "current-run.txt")).text()).trim()).toBe(
+			"run-active",
+		);
 	});
 });

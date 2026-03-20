@@ -8,7 +8,7 @@
 
 import { basename, join, relative, resolve } from "node:path";
 import type { Mission } from "../types.ts";
-import { checkSpecStaleness, refreshBriefChain, type BriefRefreshResult } from "./brief-refresh.ts";
+import { type BriefRefreshResult, checkSpecStaleness, refreshBriefChain } from "./brief-refresh.ts";
 import { listSpecMeta, readSpecMeta, type SpecMeta } from "./spec-meta.ts";
 import { loadWorkstreamsFile, type Workstream } from "./workstreams.ts";
 
@@ -137,7 +137,12 @@ export async function validateCurrentMissionSpec(
 ): Promise<SpecValidationResult> {
 	const taskId = specTaskIdFromPath(specPath);
 	if (!taskId) {
-		return { ok: false, taskId: null, reason: "Unable to derive task ID from spec path", meta: null };
+		return {
+			ok: false,
+			taskId: null,
+			reason: "Unable to derive task ID from spec path",
+			meta: null,
+		};
 	}
 	if (opts.expectedTaskId && taskId !== opts.expectedTaskId) {
 		return {

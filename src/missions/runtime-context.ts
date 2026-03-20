@@ -1,7 +1,7 @@
 import { unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { createMissionStore } from "./store.ts";
 import type { AgentSession, Mission } from "../types.ts";
+import { createMissionStore } from "./store.ts";
 
 export interface ActiveMissionContext {
 	missionId: string;
@@ -52,7 +52,10 @@ export async function writeMissionRuntimePointers(
 }
 
 export async function clearMissionRuntimePointers(overstoryDir: string): Promise<void> {
-	for (const path of [currentMissionPointerPath(overstoryDir), currentRunPointerPath(overstoryDir)]) {
+	for (const path of [
+		currentMissionPointerPath(overstoryDir),
+		currentRunPointerPath(overstoryDir),
+	]) {
 		try {
 			await unlink(path);
 		} catch {
@@ -82,7 +85,10 @@ export async function resolveActiveMissionContext(
 	try {
 		if (pointedMissionId) {
 			const pointedMission = missionStore.getById(pointedMissionId);
-			if (pointedMission && (pointedMission.state === "active" || pointedMission.state === "frozen")) {
+			if (
+				pointedMission &&
+				(pointedMission.state === "active" || pointedMission.state === "frozen")
+			) {
 				if (!pointedRunId && pointedMission.runId) {
 					await writeMissionRuntimePointers(overstoryDir, pointedMission.id, pointedMission.runId);
 				}

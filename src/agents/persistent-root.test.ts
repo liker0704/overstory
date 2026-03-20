@@ -8,17 +8,14 @@
  * Real SQLite (bun:sqlite) is used via temp files — no db mocks.
  */
 
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { AgentError } from "../errors.ts";
 import { createRunStore, createSessionStore } from "../sessions/store.ts";
 import type { AgentSession } from "../types.ts";
-import type {
-	PersistentAgentCaptureDeps,
-	PersistentAgentTmuxDeps,
-} from "./persistent-root.ts";
+import type { PersistentAgentCaptureDeps, PersistentAgentTmuxDeps } from "./persistent-root.ts";
 import {
 	getPersistentAgentStatus,
 	readPersistentAgentOutput,
@@ -97,9 +94,7 @@ function insertRun(runId: string): void {
 	}
 }
 
-function makeTmuxDeps(
-	overrides: Partial<PersistentAgentTmuxDeps> = {},
-): PersistentAgentTmuxDeps {
+function makeTmuxDeps(overrides: Partial<PersistentAgentTmuxDeps> = {}): PersistentAgentTmuxDeps {
 	return {
 		createSession: async () => 12345,
 		isSessionAlive: async () => true,
@@ -274,9 +269,7 @@ describe("readPersistentAgentOutput", () => {
 	});
 
 	test("headless path (tmuxSession='') reads stdout.log", async () => {
-		insertSession(
-			makeSession({ agentName: "coordinator", state: "working", tmuxSession: "" }),
-		);
+		insertSession(makeSession({ agentName: "coordinator", state: "working", tmuxSession: "" }));
 
 		const logsDir = join(overstoryDir, "logs", "coordinator");
 		await mkdir(logsDir, { recursive: true });
@@ -307,9 +300,7 @@ describe("readPersistentAgentOutput", () => {
 	});
 
 	test("headless path returns null when stdout.log is missing", async () => {
-		insertSession(
-			makeSession({ agentName: "coordinator", state: "working", tmuxSession: "" }),
-		);
+		insertSession(makeSession({ agentName: "coordinator", state: "working", tmuxSession: "" }));
 
 		const captureDeps: PersistentAgentCaptureDeps = {
 			capturePaneContent: async () => null,

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { resolveMissionRoleStates } from "./runtime-context.ts";
 import type { AgentSession, Mission } from "../types.ts";
+import { resolveMissionRoleStates } from "./runtime-context.ts";
 
 function makeMission(overrides: Partial<Mission> = {}): Mission {
 	return {
@@ -66,13 +66,10 @@ describe("resolveMissionRoleStates", () => {
 	});
 
 	test("prefers coordinatorSessionId when mission binds a specific coordinator session", () => {
-		const roles = resolveMissionRoleStates(
-			makeMission({ coordinatorSessionId: "session-bound" }),
-			[
-				makeSession({ id: "session-bound", agentName: "coordinator", state: "working" }),
-				makeSession({ id: "session-other", agentName: "coordinator", state: "zombie" }),
-			],
-		);
+		const roles = resolveMissionRoleStates(makeMission({ coordinatorSessionId: "session-bound" }), [
+			makeSession({ id: "session-bound", agentName: "coordinator", state: "working" }),
+			makeSession({ id: "session-other", agentName: "coordinator", state: "zombie" }),
+		]);
 		expect(roles.coordinator).toBe("running");
 	});
 });

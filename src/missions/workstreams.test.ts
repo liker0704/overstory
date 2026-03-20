@@ -6,15 +6,14 @@
  * available in the test environment.
  */
 
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { TrackerClient, TrackerIssue } from "../tracker/types.ts";
 import {
-	type ExecutionHandoff,
-	type Workstream,
 	bridgeWorkstreamsToTasks,
+	type ExecutionHandoff,
 	ensureCanonicalWorkstreamTasks,
 	loadWorkstreamsFile,
 	packageHandoffs,
@@ -22,15 +21,14 @@ import {
 	slingArgsFromHandoff,
 	validateTaskIds,
 	validateWorkstreamsFile,
+	type Workstream,
 } from "./workstreams.ts";
 
 // === Mock TrackerClient ===
 
-function createMockTracker(options: {
-	existingIds?: Set<string>;
-	createShouldFail?: boolean;
-	createdId?: string;
-} = {}): TrackerClient {
+function createMockTracker(
+	options: { existingIds?: Set<string>; createShouldFail?: boolean; createdId?: string } = {},
+): TrackerClient {
 	const existingIds = options.existingIds ?? new Set<string>();
 	return {
 		ready: async () => [],

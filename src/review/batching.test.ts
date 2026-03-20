@@ -5,13 +5,13 @@
  * Per mx-56558b: avoid mock.module() — it leaks across test files.
  */
 
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createEventStore } from "../events/store.ts";
+import { assembleBatch, batchForReview, type ConcernType } from "./batching.ts";
 import { createReviewStore } from "./store.ts";
-import { assembleBatch, batchForReview, type ConcernType, type ReviewBatch } from "./batching.ts";
 
 // === Test Helpers ===
 
@@ -148,7 +148,7 @@ describe("assembleBatch", () => {
 		const batch = assembleBatch(tempDir, null, "coordination");
 		expect(batch.concern).toBe("coordination");
 		expect(batch.evidence.length).toBeGreaterThan(0);
-		expect(batch.evidence[0]!.relevance).toContain("coordination gaps");
+		expect(batch.evidence[0]?.relevance).toContain("coordination gaps");
 	});
 
 	test("coordination: does not return evidence for high-scoring handoffs", () => {
@@ -201,7 +201,7 @@ describe("assembleBatch", () => {
 		const batch = assembleBatch(tempDir, null, "coordination");
 		const eventEvidence = batch.evidence.filter((e) => e.path.includes("events.db"));
 		expect(eventEvidence.length).toBeGreaterThan(0);
-		expect(eventEvidence[0]!.relevance).toContain("escalation");
+		expect(eventEvidence[0]?.relevance).toContain("escalation");
 	});
 
 	test("completeness: returns evidence for low-scoring session types", () => {
@@ -274,7 +274,7 @@ describe("assembleBatch", () => {
 		expect(batch.evidence.length).toBeGreaterThan(0);
 		const grouped = batch.evidence.find((e) => e.path.includes("tool:Bash"));
 		expect(grouped).toBeDefined();
-		expect(grouped!.relevance).toContain("3 times");
+		expect(grouped?.relevance).toContain("3 times");
 	});
 
 	test("error-patterns: ungrouped errors with data are surfaced", () => {

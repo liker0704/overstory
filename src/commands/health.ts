@@ -16,8 +16,8 @@ import { computeScore } from "../health/score.ts";
 import { collectSignals } from "../health/signals.ts";
 import type { HealthSnapshot } from "../health/types.ts";
 import { jsonError, jsonOutput } from "../json.ts";
-import { computeMissionScore } from "../missions/score.ts";
 import type { MissionScore } from "../missions/score.ts";
+import { computeMissionScore } from "../missions/score.ts";
 import { createMissionStore } from "../missions/store.ts";
 
 export interface HealthOptions {

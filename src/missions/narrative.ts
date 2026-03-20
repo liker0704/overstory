@@ -202,7 +202,9 @@ function missionLabel(data: MissionEventData): string {
 /** Build a human-readable description for a mission event. */
 function missionDescription(agent: string, data: MissionEventData): string {
 	if (!data.kind) {
-		return data.detail ? `Mission event from ${agent}: ${data.detail}` : `Mission event from ${agent}.`;
+		return data.detail
+			? `Mission event from ${agent}: ${data.detail}`
+			: `Mission event from ${agent}.`;
 	}
 	switch (data.kind) {
 		case "state_change":

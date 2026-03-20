@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { Mission } from "../types.ts";
 import { cleanupTempDir, createTempGitRepo } from "../test-helpers.ts";
+import type { Mission } from "../types.ts";
 import { computeBriefRevision } from "./brief-refresh.ts";
 import { readSpecMeta, writeSpecMeta } from "./spec-meta.ts";
 import {

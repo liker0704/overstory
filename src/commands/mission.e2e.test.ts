@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { createMailClient } from "../mail/client.ts";
 import { createMailStore } from "../mail/store.ts";

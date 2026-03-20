@@ -10,14 +10,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	ARTIFACT_DEPENDENCIES,
-	MISSING,
-	SNAPSHOT_FILENAME,
 	type ArtifactStalenessSnapshot,
 	checkArtifactStaleness,
 	computeArtifactStaleness,
 	computeDependencyHashes,
 	computeFileHash,
+	MISSING,
 	readSnapshot,
+	SNAPSHOT_FILENAME,
 	writeSnapshot,
 } from "./artifact-staleness.ts";
 

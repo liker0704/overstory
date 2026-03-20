@@ -43,9 +43,7 @@ export function analyzeMission(input: MissionReviewInput): InsertReviewRecord {
 
 	// actionability: terminal state reached, artifactRoot set, key artifacts materialized
 	const isTerminal =
-		mission.state === "completed" ||
-		mission.state === "failed" ||
-		mission.state === "stopped";
+		mission.state === "completed" || mission.state === "failed" || mission.state === "stopped";
 	const hasArtifactRoot = mission.artifactRoot !== null && mission.artifactRoot.length > 0;
 	const hasMaterializedArtifacts = artifactFileCount >= 4;
 	const actionabilityScore = scorePresence(
@@ -106,7 +104,10 @@ export function analyzeMission(input: MissionReviewInput): InsertReviewRecord {
 	const hasDuration = durationMs > 0;
 	const hasMetrics = metricsCount > 0;
 	const coordinationScore = scorePresence(
-		(hasAgents ? 1 : 0) + (notExcessiveAgents ? 1 : 0) + (hasDuration ? 1 : 0) + (hasMetrics ? 1 : 0),
+		(hasAgents ? 1 : 0) +
+			(notExcessiveAgents ? 1 : 0) +
+			(hasDuration ? 1 : 0) +
+			(hasMetrics ? 1 : 0),
 		4,
 	);
 	const coordinationDetails = `agents: ${agentCount}, duration: ${durationMs}ms, metrics: ${metricsCount}`;

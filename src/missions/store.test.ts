@@ -4,11 +4,11 @@
  * Uses real bun:sqlite with temp files. No mocks.
  */
 
+import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Database } from "bun:sqlite";
 import { cleanupTempDir } from "../test-helpers.ts";
 import type { InsertMission, MissionStore } from "../types.ts";
 import { createMissionStore } from "./store.ts";

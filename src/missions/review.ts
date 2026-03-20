@@ -5,9 +5,9 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createMetricsStore } from "../metrics/store.ts";
+import { analyzeMission, type MissionReviewInput } from "../review/analyzers/mission.ts";
 import { createReviewStore } from "../review/store.ts";
 import type { ReviewRecord } from "../review/types.ts";
-import { analyzeMission, type MissionReviewInput } from "../review/analyzers/mission.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import type { Mission } from "../types.ts";
 import { getMissionArtifactPaths } from "./context.ts";
@@ -28,7 +28,9 @@ export function buildMissionReviewInput(
 	const { store: sessionStore } = openSessionStore(overstoryDir);
 	try {
 		const sessions = mission.runId ? sessionStore.getByRun(mission.runId) : [];
-		const completedSessionCount = sessions.filter((session) => session.state === "completed").length;
+		const completedSessionCount = sessions.filter(
+			(session) => session.state === "completed",
+		).length;
 		const agentCount = new Set(sessions.map((session) => session.agentName)).size;
 		const manifestPath = mission.artifactRoot
 			? join(mission.artifactRoot, "results", "manifest.json")

@@ -1393,9 +1393,7 @@ describe("daemon mulch failure recording", () => {
 				].join("\n"),
 		});
 
-		expect(tmuxMock.sentKeys).toEqual([
-			{ name: "overstory-rate-limited-agent", keys: "" },
-		]);
+		expect(tmuxMock.sentKeys).toEqual([{ name: "overstory-rate-limited-agent", keys: "" }]);
 
 		const reloaded = readSessionsFromStore(tempRoot);
 		expect(reloaded[0]?.rateLimitedSince).not.toBeNull();

@@ -5,8 +5,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { computeMissionScoreFromSignals } from "./score.ts";
 import type { MissionScoreSignals } from "./score.ts";
+import { computeMissionScoreFromSignals } from "./score.ts";
 
 const DEFAULT_SIGNALS: MissionScoreSignals = {
 	phase: "understand",

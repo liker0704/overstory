@@ -3071,14 +3071,14 @@ describe("persistent-root: stopPersistentAgent", () => {
 
 		expect(result.runCompleted).toBe(true);
 
-			// Verify run is now stopped in the store
-			const runStore2 = createRunStore(join(overstoryDir, "sessions.db"));
-			try {
-				const run = runStore2.getRun("run-stop-test-123");
-				expect(run?.status).toBe("stopped");
-			} finally {
-				runStore2.close();
-			}
+		// Verify run is now stopped in the store
+		const runStore2 = createRunStore(join(overstoryDir, "sessions.db"));
+		try {
+			const run = runStore2.getRun("run-stop-test-123");
+			expect(run?.status).toBe("stopped");
+		} finally {
+			runStore2.close();
+		}
 
 		// Verify current-run.txt was cleared
 		expect(await Bun.file(join(overstoryDir, "current-run.txt")).exists()).toBe(false);

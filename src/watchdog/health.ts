@@ -106,9 +106,7 @@ function evaluateTimeBased(
 	// Rate-limited agents are waiting, not stalled — skip time-based escalation
 	if (rateLimitState?.limited) {
 		const state =
-			session.state === "booting" ||
-			session.state === "stalled" ||
-			session.state === "zombie"
+			session.state === "booting" || session.state === "stalled" || session.state === "zombie"
 				? "working"
 				: session.state;
 		return {

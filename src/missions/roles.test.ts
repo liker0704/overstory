@@ -7,11 +7,11 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { AgentError } from "../errors.ts";
 import type {
 	StartPersistentAgentOpts,
 	StartPersistentAgentResult,
 } from "../agents/persistent-root.ts";
+import { AgentError } from "../errors.ts";
 import type { AgentSession } from "../types.ts";
 import type { MissionRoleDeps } from "./roles.ts";
 import { startExecutionDirector, startMissionAnalyst, stopMissionRole } from "./roles.ts";

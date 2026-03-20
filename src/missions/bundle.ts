@@ -104,26 +104,26 @@ export async function exportBundle(opts: BundleOptions): Promise<BundleResult> {
 	await Bun.write(join(outputDir, "summary.json"), JSON.stringify(summary, null, 2));
 	filesWritten.push("summary.json");
 
-		// events.jsonl + narrative.{json,md}
-		const eventsDbPath = join(overstoryDir, "events.db");
-		const eventsDbFile = Bun.file(eventsDbPath);
-		let events: ReturnType<ReturnType<typeof createEventStore>["getByRun"]> = [];
-		if ((await eventsDbFile.exists()) && mission.runId) {
-			const eventStore = createEventStore(eventsDbPath);
-			try {
-				events = eventStore.getByRun(mission.runId);
-			} finally {
-				eventStore.close();
-			}
+	// events.jsonl + narrative.{json,md}
+	const eventsDbPath = join(overstoryDir, "events.db");
+	const eventsDbFile = Bun.file(eventsDbPath);
+	let events: ReturnType<ReturnType<typeof createEventStore>["getByRun"]> = [];
+	if ((await eventsDbFile.exists()) && mission.runId) {
+		const eventStore = createEventStore(eventsDbPath);
+		try {
+			events = eventStore.getByRun(mission.runId);
+		} finally {
+			eventStore.close();
 		}
-		await Bun.write(join(outputDir, "events.jsonl"), events.map((e) => JSON.stringify(e)).join("\n"));
-		filesWritten.push("events.jsonl");
+	}
+	await Bun.write(join(outputDir, "events.jsonl"), events.map((e) => JSON.stringify(e)).join("\n"));
+	filesWritten.push("events.jsonl");
 
-		const narrative = buildNarrative(mission, events);
-		await Bun.write(join(outputDir, "narrative.json"), JSON.stringify(narrative, null, 2));
-		filesWritten.push("narrative.json");
-		await Bun.write(join(outputDir, "narrative.md"), `${renderNarrative(narrative)}\n`);
-		filesWritten.push("narrative.md");
+	const narrative = buildNarrative(mission, events);
+	await Bun.write(join(outputDir, "narrative.json"), JSON.stringify(narrative, null, 2));
+	filesWritten.push("narrative.json");
+	await Bun.write(join(outputDir, "narrative.md"), `${renderNarrative(narrative)}\n`);
+	filesWritten.push("narrative.md");
 
 	// sessions.json
 	const { store: sessionStore } = openSessionStore(overstoryDir);
@@ -152,21 +152,21 @@ export async function exportBundle(opts: BundleOptions): Promise<BundleResult> {
 	}
 	filesWritten.push("metrics.json");
 
-		// review.json — optional; export the latest mission review when available
-		const reviewsDbPath = join(overstoryDir, "reviews.db");
-		const reviewsDbFile = Bun.file(reviewsDbPath);
-		if (await reviewsDbFile.exists()) {
-			const reviewStore = createReviewStore(reviewsDbPath);
-			try {
-				const latest = reviewStore.getLatest("mission", missionId);
-				if (latest) {
-					await Bun.write(join(outputDir, "review.json"), JSON.stringify(latest, null, 2));
-					filesWritten.push("review.json");
-				}
-			} finally {
-				reviewStore.close();
+	// review.json — optional; export the latest mission review when available
+	const reviewsDbPath = join(overstoryDir, "reviews.db");
+	const reviewsDbFile = Bun.file(reviewsDbPath);
+	if (await reviewsDbFile.exists()) {
+		const reviewStore = createReviewStore(reviewsDbPath);
+		try {
+			const latest = reviewStore.getLatest("mission", missionId);
+			if (latest) {
+				await Bun.write(join(outputDir, "review.json"), JSON.stringify(latest, null, 2));
+				filesWritten.push("review.json");
 			}
+		} finally {
+			reviewStore.close();
 		}
+	}
 
 	// manifest.json — written last so files list is complete (includes itself)
 	const manifest: BundleManifest = {

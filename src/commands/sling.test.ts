@@ -14,6 +14,7 @@ import { cleanupTempDir, createTempGitRepo } from "../test-helpers.ts";
 import type { AgentManifest, OverstoryConfig } from "../types.ts";
 import {
 	type AutoDispatchOptions,
+	allowedChildCapabilities,
 	type BeaconOptions,
 	buildAutoDispatch,
 	buildBeacon,
@@ -30,7 +31,6 @@ import {
 	isRunningAsRoot,
 	parentHasScouts,
 	shouldShowScoutWarning,
-	allowedChildCapabilities,
 	slingCommand,
 	validateHierarchy,
 } from "./sling.ts";

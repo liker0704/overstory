@@ -173,12 +173,12 @@ export async function startPersistentAgent(
 		createRun: shouldCreateRun,
 		existingRunId,
 		coordinatorName,
-			beacon,
-			beaconDelays = [1_000, 2_000, 3_000, 5_000],
-			shellInitDelayMs = 0,
-			appendSystemPrompt,
-			appendSystemPromptFile: customAppendSystemPromptFile,
-		} = opts;
+		beacon,
+		beaconDelays = [1_000, 2_000, 3_000, 5_000],
+		shellInitDelayMs = 0,
+		appendSystemPrompt,
+		appendSystemPromptFile: customAppendSystemPromptFile,
+	} = opts;
 
 	const { store } = openSessionStore(overstoryDir);
 	try {
@@ -255,25 +255,25 @@ export async function startPersistentAgent(
 		// Preflight: verify tmux is installed before attempting to spawn
 		await tmux.ensureTmuxAvailable();
 
-			// Build spawn command and launch the tmux session
-			let appendSystemPromptFile = customAppendSystemPromptFile;
-			if (!appendSystemPromptFile && appendSystemPrompt === undefined) {
-				const agentDefPath = join(overstoryDir, "agent-defs", `${capability}.md`);
-				const agentDefFile = Bun.file(agentDefPath);
-				if (await agentDefFile.exists()) {
-					appendSystemPromptFile = agentDefPath;
-				}
+		// Build spawn command and launch the tmux session
+		let appendSystemPromptFile = customAppendSystemPromptFile;
+		if (!appendSystemPromptFile && appendSystemPrompt === undefined) {
+			const agentDefPath = join(overstoryDir, "agent-defs", `${capability}.md`);
+			const agentDefFile = Bun.file(agentDefPath);
+			if (await agentDefFile.exists()) {
+				appendSystemPromptFile = agentDefPath;
 			}
-			const runtimeSessionId = crypto.randomUUID();
-			const spawnCmd = runtime.buildSpawnCommand({
-				model: resolvedModel.model,
-				permissionMode: "bypass",
-				sessionId: runtimeSessionId,
-				cwd: projectRoot,
-				appendSystemPrompt,
-				appendSystemPromptFile,
-				env: {
-					...runtime.buildEnv(resolvedModel),
+		}
+		const runtimeSessionId = crypto.randomUUID();
+		const spawnCmd = runtime.buildSpawnCommand({
+			model: resolvedModel.model,
+			permissionMode: "bypass",
+			sessionId: runtimeSessionId,
+			cwd: projectRoot,
+			appendSystemPrompt,
+			appendSystemPromptFile,
+			env: {
+				...runtime.buildEnv(resolvedModel),
 				OVERSTORY_AGENT_NAME: agentName,
 			},
 		});
@@ -450,10 +450,10 @@ export async function stopPersistentAgent(
 
 		// Complete the run and clean up current-run.txt
 		let runCompleted = false;
-			if (resolvedRunId && opts.completeRun !== false) {
+		if (resolvedRunId && opts.completeRun !== false) {
+			try {
+				const runStore = createRunStore(join(overstoryDir, "sessions.db"));
 				try {
-					const runStore = createRunStore(join(overstoryDir, "sessions.db"));
-					try {
 					runStore.completeRun(resolvedRunId, opts.runStatus ?? "stopped");
 					runCompleted = true;
 				} finally {

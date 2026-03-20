@@ -191,46 +191,46 @@ describe("review command functional mission flows", () => {
 		expect(parsed.missions.map((entry) => entry.mission.slug)).toContain("review-beta");
 	});
 
-		test("review mission <slug> --json resolves by slug and executes analyzer", async () => {
-			await seedTerminalMission({ id: "mission-010", slug: "review-slug", state: "completed" });
+	test("review mission <slug> --json resolves by slug and executes analyzer", async () => {
+		await seedTerminalMission({ id: "mission-010", slug: "review-slug", state: "completed" });
 
-			const cmd = createReviewCommand();
-			await cmd.parseAsync(["mission", "review-slug", "--json"], { from: "user" });
+		const cmd = createReviewCommand();
+		await cmd.parseAsync(["mission", "review-slug", "--json"], { from: "user" });
 
-			const parsed = JSON.parse(output.trim()) as {
-				command: string;
-				mission: { id: string; slug: string };
-				record: { subjectType: string; subjectId: string; overallScore: number };
-			};
-			expect(parsed.command).toBe("review");
-			expect(parsed.mission.slug).toBe("review-slug");
-			expect(parsed.record.subjectType).toBe("mission");
-			expect(parsed.record.subjectId).toBe("mission-010");
-			expect(parsed.record.overallScore).toBeGreaterThanOrEqual(0);
-		});
+		const parsed = JSON.parse(output.trim()) as {
+			command: string;
+			mission: { id: string; slug: string };
+			record: { subjectType: string; subjectId: string; overallScore: number };
+		};
+		expect(parsed.command).toBe("review");
+		expect(parsed.mission.slug).toBe("review-slug");
+		expect(parsed.record.subjectType).toBe("mission");
+		expect(parsed.record.subjectId).toBe("mission-010");
+		expect(parsed.record.overallScore).toBeGreaterThanOrEqual(0);
+	});
 
-		test("review mission <id> --json resolves by id and executes analyzer", async () => {
-			await seedTerminalMission({ id: "mission-011", slug: "review-by-id", state: "stopped" });
+	test("review mission <id> --json resolves by id and executes analyzer", async () => {
+		await seedTerminalMission({ id: "mission-011", slug: "review-by-id", state: "stopped" });
 
-			const cmd = createReviewCommand();
-			await cmd.parseAsync(["mission", "mission-011", "--json"], { from: "user" });
+		const cmd = createReviewCommand();
+		await cmd.parseAsync(["mission", "mission-011", "--json"], { from: "user" });
 
-			const parsed = JSON.parse(output.trim()) as {
-				command: string;
-				mission: { id: string; slug: string };
-				record: { subjectType: string; subjectId: string; overallScore: number };
-			};
-			expect(parsed.command).toBe("review");
-			expect(parsed.mission.id).toBe("mission-011");
-			expect(parsed.mission.slug).toBe("review-by-id");
-			expect(parsed.record.subjectType).toBe("mission");
-			expect(parsed.record.subjectId).toBe("mission-011");
-			expect(parsed.record.overallScore).toBeGreaterThanOrEqual(0);
-		});
+		const parsed = JSON.parse(output.trim()) as {
+			command: string;
+			mission: { id: string; slug: string };
+			record: { subjectType: string; subjectId: string; overallScore: number };
+		};
+		expect(parsed.command).toBe("review");
+		expect(parsed.mission.id).toBe("mission-011");
+		expect(parsed.mission.slug).toBe("review-by-id");
+		expect(parsed.record.subjectType).toBe("mission");
+		expect(parsed.record.subjectId).toBe("mission-011");
+		expect(parsed.record.overallScore).toBeGreaterThanOrEqual(0);
+	});
 
-		test("review missions --json returns empty list when no terminal missions exist", async () => {
-			const cmd = createReviewCommand();
-			await cmd.parseAsync(["missions", "--json"], { from: "user" });
+	test("review missions --json returns empty list when no terminal missions exist", async () => {
+		const cmd = createReviewCommand();
+		await cmd.parseAsync(["missions", "--json"], { from: "user" });
 
 		const parsed = JSON.parse(output.trim()) as { missions: unknown[] };
 		expect(parsed.missions).toEqual([]);

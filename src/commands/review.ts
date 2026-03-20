@@ -625,9 +625,9 @@ export function createReviewCommand(): Command {
 		.command("specs")
 		.description("Review all spec files in .overstory/specs/")
 		.option("--json", "Output as JSON")
-			.action(async (opts: ReviewSpecsOpts) => {
-				await executeReviewSpecs(opts);
-			});
+		.action(async (opts: ReviewSpecsOpts) => {
+			await executeReviewSpecs(opts);
+		});
 
 	review
 		.command("missions")

@@ -276,7 +276,10 @@ describe("exportBundle", () => {
 			generatedAt: "1970-01-01T00:00:00.000Z",
 			files: ["manifest.json"],
 		};
-		await Bun.write(join(outputDir, "manifest.json"), `${JSON.stringify(staleManifest, null, 2)}\n`);
+		await Bun.write(
+			join(outputDir, "manifest.json"),
+			`${JSON.stringify(staleManifest, null, 2)}\n`,
+		);
 
 		// exportBundle should detect the stale manifest and rewrite all files.
 		const result = await exportBundle({ overstoryDir, dbPath, missionId });

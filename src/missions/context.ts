@@ -36,7 +36,7 @@ function buildMissionPlanningContract(): string {
 		"Treat `plan/workstreams.json` as a runtime-consumed contract, not a loose planning note.",
 		"Before declaring the mission ready for `ov mission handoff`, ensure every dispatchable workstream satisfies all of these rules:",
 		"",
-		"- The file stays valid JSON with top-level shape `{ \"version\": 1, \"workstreams\": [...] }`.",
+		'- The file stays valid JSON with top-level shape `{ "version": 1, "workstreams": [...] }`.',
 		"- Each workstream object uses only the runtime fields below:",
 		"  - `id`: stable kebab-case workstream identifier",
 		"  - `taskId`: non-empty task identifier; if the final canonical tracker ID is not known yet, choose a stable provisional ID and let `ov mission handoff` canonicalize it before dispatch",
@@ -160,7 +160,10 @@ export async function materializeMissionRolePrompt(opts: {
 	agentName: string;
 	capability: string;
 	roleLabel: string;
-	mission: Pick<Mission, "id" | "slug" | "objective" | "artifactRoot" | "runId" | "phase" | "state">;
+	mission: Pick<
+		Mission,
+		"id" | "slug" | "objective" | "artifactRoot" | "runId" | "phase" | "state"
+	>;
 }): Promise<MaterializedMissionRolePrompt> {
 	const { overstoryDir, agentName, capability, roleLabel, mission } = opts;
 	const paths = await ensureMissionArtifacts(mission);

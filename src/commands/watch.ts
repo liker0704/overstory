@@ -164,13 +164,13 @@ async function runWatch(opts: {
 		const overstoryBin = await resolveOverstoryBin();
 
 		// Spawn a detached background process running `overstory watch` (without --background)
-			const child = Bun.spawn(["bun", "run", overstoryBin, ...childArgs], {
-				cwd,
-				detached: true,
-				stdout: "ignore",
-				stderr: "ignore",
-				stdin: "ignore",
-			});
+		const child = Bun.spawn(["bun", "run", overstoryBin, ...childArgs], {
+			cwd,
+			detached: true,
+			stdout: "ignore",
+			stderr: "ignore",
+			stdin: "ignore",
+		});
 
 		// Unref the child so the parent can exit without waiting for it
 		child.unref();

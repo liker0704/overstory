@@ -160,9 +160,7 @@ describe("analyzeMission", () => {
 	});
 
 	test("short objective reduces clarity score", () => {
-		const result = analyzeMission(
-			makeInput({ mission: makeMission({ objective: "Short" }) }),
-		);
+		const result = analyzeMission(makeInput({ mission: makeMission({ objective: "Short" }) }));
 		const clarity = result.dimensions.find((d) => d.dimension === "clarity");
 		expect(clarity?.score).toBeLessThan(100);
 	});

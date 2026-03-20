@@ -1767,7 +1767,7 @@ export async function missionResume(
 			return;
 		}
 
-		let resumeCheck;
+		let resumeCheck: Awaited<ReturnType<typeof validateWorkstreamResume>> | undefined;
 		try {
 			resumeCheck = await validateWorkstreamResume(projectRoot, mission, workstreamId);
 		} catch (err) {
@@ -1899,7 +1899,7 @@ export async function missionRefreshBriefsCommand(
 			return;
 		}
 
-		let results;
+		let results: Awaited<ReturnType<typeof refreshMissionBriefs>> | undefined;
 		try {
 			results = await refreshMissionBriefs(projectRoot, mission, {
 				workstreamId: opts.workstream,

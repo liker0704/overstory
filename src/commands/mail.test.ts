@@ -655,7 +655,9 @@ describe("mailCommand", () => {
 
 			const mailStore = createMailStore(join(tempDir, ".overstory", "mail.db"));
 			const client = createMailClient(mailStore);
-			const sent = client.list({ to: "operator" }).find((message) => message.subject === "Need clarification");
+			const sent = client
+				.list({ to: "operator" })
+				.find((message) => message.subject === "Need clarification");
 			client.close();
 			expect(sent?.id).toBeTruthy();
 
@@ -674,10 +676,10 @@ describe("mailCommand", () => {
 			try {
 				const events = eventStore.getTimeline({ since: "2000-01-01T00:00:00Z" });
 				const missionEvents = events.filter((event) => event.eventType === "mission");
-				expect(missionEvents.some((event) => event.data?.includes("\"kind\":\"pending_input\""))).toBe(
+				expect(missionEvents.some((event) => event.data?.includes('"kind":"pending_input"'))).toBe(
 					true,
 				);
-				expect(missionEvents.some((event) => event.data?.includes("\"kind\":\"state_change\""))).toBe(
+				expect(missionEvents.some((event) => event.data?.includes('"kind":"state_change"'))).toBe(
 					true,
 				);
 			} finally {

@@ -157,10 +157,7 @@ function recordEvent(
 	}
 }
 
-function latestNonCustomEventType(
-	eventStore: EventStore | null,
-	agentName: string,
-): string | null {
+function latestNonCustomEventType(eventStore: EventStore | null, agentName: string): string | null {
 	if (!eventStore) return null;
 	try {
 		const events = eventStore.getByAgent(agentName);
@@ -925,12 +922,7 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 			}
 
 			// TUI reconciliation: unread-mail wakeups and held session-end completion.
-			if (
-				mailStore &&
-				tmuxAlive &&
-				session.tmuxSession !== "" &&
-				session.state !== "completed"
-			) {
+			if (mailStore && tmuxAlive && session.tmuxSession !== "" && session.state !== "completed") {
 				try {
 					const unread = mailStore.getUnread(session.agentName);
 					const paneContent = lastPaneContent ?? (await capturePane(session.tmuxSession));
@@ -953,10 +945,7 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 									store.updateState(session.agentName, "working");
 									session.state = "working";
 								}
-							} else if (
-								session.state === "zombie" &&
-								latestEventType === "session_end"
-							) {
+							} else if (session.state === "zombie" && latestEventType === "session_end") {
 								if (recentRateLimitHistory) {
 									await sendRateLimitResumeNudge({
 										session,

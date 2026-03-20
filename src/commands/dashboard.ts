@@ -36,7 +36,7 @@ import { stateColor, stateIcon } from "../logging/theme.ts";
 import { createMailStore, type MailStore } from "../mail/store.ts";
 import { createMergeQueue, type MergeQueue } from "../merge/queue.ts";
 import { createMetricsStore, type MetricsStore } from "../metrics/store.ts";
-import { resolveMissionRoleStates, type MissionRoleStates } from "../missions/runtime-context.ts";
+import { type MissionRoleStates, resolveMissionRoleStates } from "../missions/runtime-context.ts";
 import { createMissionStore } from "../missions/store.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import type { SessionStore } from "../sessions/store.ts";

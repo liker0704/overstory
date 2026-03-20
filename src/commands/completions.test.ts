@@ -219,13 +219,12 @@ describe("completionsCommand", () => {
 			{ stdout: "pipe", stderr: "pipe" },
 		);
 
-		return Promise.all([
-			new Response(proc.stderr).text(),
-			proc.exited,
-		]).then(([stderrOutput, exitCode]) => {
-			expect(exitCode).toBe(1);
-			expect(stderrOutput).toContain("missing shell argument");
-		});
+		return Promise.all([new Response(proc.stderr).text(), proc.exited]).then(
+			([stderrOutput, exitCode]) => {
+				expect(exitCode).toBe(1);
+				expect(stderrOutput).toContain("missing shell argument");
+			},
+		);
 	});
 
 	it("should exit with error for unknown shell", () => {
@@ -239,14 +238,13 @@ describe("completionsCommand", () => {
 			{ stdout: "pipe", stderr: "pipe" },
 		);
 
-		return Promise.all([
-			new Response(proc.stderr).text(),
-			proc.exited,
-		]).then(([stderrOutput, exitCode]) => {
-			expect(exitCode).toBe(1);
-			expect(stderrOutput).toContain("unknown shell");
-			expect(stderrOutput).toContain("powershell");
-		});
+		return Promise.all([new Response(proc.stderr).text(), proc.exited]).then(
+			([stderrOutput, exitCode]) => {
+				expect(exitCode).toBe(1);
+				expect(stderrOutput).toContain("unknown shell");
+				expect(stderrOutput).toContain("powershell");
+			},
+		);
 	});
 });
 
