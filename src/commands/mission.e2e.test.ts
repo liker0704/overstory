@@ -785,10 +785,10 @@ describe("mission command e2e", () => {
 		expect(mission?.objective).toBe("Pending — coordinator will clarify with operator");
 		expect(deps.started).toEqual(["coordinator", "mission-analyst"]);
 
-		// Verify dispatch mail tells coordinator to discover objective
+		// Verify dispatch mail tells coordinator to wait for operator input
 		const mailStore = createMailStore(join(overstoryDir, "mail.db"));
 		const dispatchMail = mailStore.getAll({ to: "coordinator" }).find((m) => m.type === "dispatch");
-		expect(dispatchMail?.body).toContain("No objective was provided at start");
+		expect(dispatchMail?.body).toContain("operator will provide the objective directly");
 		expect(dispatchMail?.body).toContain("ov mission update");
 
 		// Update slug and objective

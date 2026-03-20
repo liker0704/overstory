@@ -885,10 +885,10 @@ export async function missionStart(
 					`Artifact root: ${mission.artifactRoot ?? "none"}`,
 					`Context file: ${coordPrompt.contextPath}`,
 					"",
-					"No objective was provided at start. Begin by asking the operator what they want to accomplish.",
-					"Once you understand the objective, set the mission identity:",
-					`  ov mission update --slug <short-name> --objective '<real objective>'`,
-					"Then proceed with standard mission coordination (planning, freeze, handoff).",
+					"The operator will provide the objective directly in this session.",
+					"Wait for their input before proceeding.",
+					"Once you have the objective, set it with:",
+					`  ov mission update --slug <short-name> --objective '<objective>'`,
 					"Mission Analyst is running and available for research queries via mail.",
 				]
 			: [

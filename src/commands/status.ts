@@ -467,6 +467,7 @@ async function executeStatusSet(
 
 export function createStatusCommand(): Command {
 	const cmd = new Command("status")
+		.enablePositionalOptions()
 		.description("Show all active agents and project state")
 		.option("--json", "Output as JSON")
 		.option("--verbose", "Show extra detail per agent (worktree, logs, mail timestamps)")
