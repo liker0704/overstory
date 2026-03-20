@@ -108,8 +108,35 @@ export function buildMissionSummaryRecord(
 	slug: string,
 ): MulchRecordInput {
 	const capabilities = [...new Set(sessions.map((s) => s.capability))].join(", ");
+	const totalInput = metrics.reduce((sum, m) => sum + (m.inputTokens ?? 0), 0);
+	const totalOutput = metrics.reduce((sum, m) => sum + (m.outputTokens ?? 0), 0);
 	const totalCost = metrics.reduce((sum, m) => sum + (m.estimatedCostUsd ?? 0), 0);
-	const costStr = totalCost > 0 ? ` Cost: $${totalCost.toFixed(2)}.` : "";
+
+	// Per-capability token breakdown
+	const byCapability = new Map<string, { input: number; output: number; cost: number }>();
+	for (const m of metrics) {
+		const session = sessions.find((s) => s.agentName === m.agentName);
+		const cap = session?.capability ?? "unknown";
+		const entry = byCapability.get(cap) ?? { input: 0, output: 0, cost: 0 };
+		entry.input += m.inputTokens ?? 0;
+		entry.output += m.outputTokens ?? 0;
+		entry.cost += m.estimatedCostUsd ?? 0;
+		byCapability.set(cap, entry);
+	}
+
+	const breakdownParts: string[] = [];
+	for (const [cap, data] of [...byCapability.entries()].sort((a, b) => b[1].output - a[1].output)) {
+		breakdownParts.push(
+			`${cap}: ${data.input.toLocaleString()}in/${data.output.toLocaleString()}out`,
+		);
+	}
+	const breakdown =
+		breakdownParts.length > 0 ? ` Tokens by role: ${breakdownParts.join(", ")}.` : "";
+
+	const tokenStr =
+		totalInput + totalOutput > 0
+			? ` Tokens: ${totalInput.toLocaleString()}in/${totalOutput.toLocaleString()}out ($${totalCost.toFixed(2)}).`
+			: "";
 
 	return {
 		type: "reference",
@@ -117,7 +144,7 @@ export function buildMissionSummaryRecord(
 		description:
 			`Objective: ${summary.objective}. ` +
 			`Agents: ${sessions.length} (${capabilities || "none"}).` +
-			`${costStr} State: ${summary.state}. Phase: ${summary.phase}.`,
+			`${tokenStr}${breakdown} State: ${summary.state}. Phase: ${summary.phase}.`,
 		tags: ["mission", slug, summary.state],
 		classification: "foundational",
 		outcomeStatus: summary.state === "completed" ? "success" : "failure",

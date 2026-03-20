@@ -92,7 +92,11 @@ describe("buildMissionSummaryRecord", () => {
 		expect(record.outcomeStatus).toBe("success");
 		expect(record.description).toContain("Agents: 2");
 		expect(record.description).toContain("builder, scout");
+		expect(record.description).toContain("1,500in/700out");
 		expect(record.description).toContain("$2.00");
+		expect(record.description).toContain("Tokens by role:");
+		expect(record.description).toContain("builder:");
+		expect(record.description).toContain("scout:");
 	});
 
 	test("marks failed missions with failure outcome", () => {
