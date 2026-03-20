@@ -21,8 +21,14 @@ import { validateMissionIngress } from "../missions/ingress.ts";
 import { resolveActiveMissionContext } from "../missions/runtime-context.ts";
 import { createMissionStore } from "../missions/store.ts";
 import { openSessionStore } from "../sessions/compat.ts";
-import type { MailMessage, MailMessageType, MissionFindingPayload } from "../types.ts";
-import { MAIL_MESSAGE_TYPES } from "../types.ts";
+import {
+	MAIL_DELIVERY_STATES,
+	MAIL_MESSAGE_TYPES,
+	type MailDeliveryState,
+	type MailMessage,
+	type MailMessageType,
+	type MissionFindingPayload,
+} from "../types.ts";
 
 /**
  * Protocol message types that require immediate recipient attention.
@@ -64,6 +70,14 @@ function formatMessage(msg: MailMessage): string {
 	];
 	if (msg.payload !== null) {
 		lines.push(`  Payload: ${msg.payload}`);
+	}
+	if (msg.state !== "queued" && msg.state !== "acked") {
+		lines.push(`  State: ${msg.state} (attempt ${msg.attempt})`);
+	}
+	if (msg.failReason) {
+		const reason =
+			msg.failReason.length > 500 ? `${msg.failReason.slice(0, 500)}…` : msg.failReason;
+		lines.push(`  Reason: ${reason}`);
 	}
 	lines.push(`  ${msg.createdAt}`);
 	return lines.join("\n");
@@ -287,8 +301,9 @@ async function nudgeIfIdle(cwd: string, agentName: string, message: string): Pro
 		const tmuxSession = await resolveTargetSession(cwd, agentName);
 		if (!tmuxSession) return;
 
-		const { capturePaneContent, detectAgentState, getPaneWidth, getPaneActivity } =
-			await import("../worktree/tmux.ts");
+		const { capturePaneContent, detectAgentState, getPaneWidth, getPaneActivity } = await import(
+			"../worktree/tmux.ts"
+		);
 		const paneContent = await capturePaneContent(tmuxSession);
 		if (!paneContent) return;
 
@@ -423,6 +438,7 @@ interface ListOpts {
 	to?: string;
 	agent?: string;
 	unread?: boolean;
+	state?: string;
 	json?: boolean;
 }
 
@@ -510,37 +526,61 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 			validateMissionFindingRecipients(recipients);
 
 			const client = openClient(cwd);
-			const messageIds: string[] = [];
 
 			try {
-				// Fan out: send individual message to each recipient
-				for (const recipient of recipients) {
-					const id = client.send({ from, to: recipient, subject, body, type, priority, payload });
-					messageIds.push(id);
-					await syncMissionPendingInputFromMail(cwd, {
-						id,
-						from,
-						to: recipient,
-						type,
-						subject,
-					});
+				// Atomic broadcast: insert all messages in a single transaction
+				const messageIds = client.sendBroadcast({
+					from,
+					to: recipients,
+					subject,
+					body,
+					type,
+					priority,
+					payload,
+				});
 
-					// Record mail_sent event for each individual message (fire-and-forget)
-					try {
-						const eventsDbPath = join(cwd, ".overstory", "events.db");
-						const eventStore = createEventStore(eventsDbPath);
+				// Per-recipient side effects (mission sync, events, nudges)
+				// EventStore opened once for all recipients
+				let runId: string | null = null;
+				try {
+					const runIdPath = join(cwd, ".overstory", "current-run.txt");
+					const runIdFile = Bun.file(runIdPath);
+					if (await runIdFile.exists()) {
+						const text = await runIdFile.text();
+						const trimmed = text.trim();
+						if (trimmed.length > 0) {
+							runId = trimmed;
+						}
+					}
+				} catch {
+					// runId read failure is non-fatal
+				}
+
+				const eventsDbPath = join(cwd, ".overstory", "events.db");
+				let eventStore: ReturnType<typeof createEventStore> | null = null;
+				try {
+					eventStore = createEventStore(eventsDbPath);
+				} catch {
+					// EventStore open failure is non-fatal
+				}
+
+				try {
+					for (let i = 0; i < recipients.length; i++) {
+						const recipient = recipients[i];
+						const id = messageIds[i];
+						if (!recipient || !id) continue;
+
+						await syncMissionPendingInputFromMail(cwd, {
+							id,
+							from,
+							to: recipient,
+							type,
+							subject,
+						});
+
+						// Record mail_sent event (fire-and-forget)
 						try {
-							let runId: string | null = null;
-							const runIdPath = join(cwd, ".overstory", "current-run.txt");
-							const runIdFile = Bun.file(runIdPath);
-							if (await runIdFile.exists()) {
-								const text = await runIdFile.text();
-								const trimmed = text.trim();
-								if (trimmed.length > 0) {
-									runId = trimmed;
-								}
-							}
-							eventStore.insert({
+							eventStore?.insert({
 								runId,
 								agentName: from,
 								sessionId: null,
@@ -558,43 +598,40 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 									broadcast: true,
 								}),
 							});
-						} finally {
-							eventStore.close();
+						} catch {
+							// Event recording failure is non-fatal
 						}
-					} catch {
-						// Event recording failure is non-fatal
-					}
 
-					// Auto-nudge for each individual message
-					const shouldNudge =
-						priority === "urgent" || priority === "high" || AUTO_NUDGE_TYPES.has(type);
-					if (shouldNudge) {
-						const nudgeReason = AUTO_NUDGE_TYPES.has(type) ? type : `${priority} priority`;
-						await writePendingNudge(cwd, recipient, {
-							from,
-							reason: nudgeReason,
-							subject,
-							messageId: id,
-						});
-						await nudgeIfIdle(cwd, recipient, `[MAIL] ${subject}`);
+						// Auto-nudge for each individual message
+						if (shouldAutoNudge(type as MailMessageType, priority as MailMessage["priority"])) {
+							const nudgeReason = AUTO_NUDGE_TYPES.has(type) ? type : `${priority} priority`;
+							await writePendingNudge(cwd, recipient, {
+								from,
+								reason: nudgeReason,
+								subject,
+								messageId: id,
+							});
+							await nudgeIfIdle(cwd, recipient, `[MAIL] ${subject}`);
+						}
+					}
+				} finally {
+					eventStore?.close();
+				}
+				// Output broadcast summary
+				if (opts.json) {
+					jsonOutput("mail send", { messageIds, recipientCount: recipients.length });
+				} else {
+					process.stdout.write(
+						`Broadcast sent to ${recipients.length} recipient${recipients.length === 1 ? "" : "s"} (${to})\n`,
+					);
+					for (let i = 0; i < recipients.length; i++) {
+						const recipient = recipients[i];
+						const msgId = messageIds[i];
+						process.stdout.write(`   → ${accent(recipient)} (${accent(msgId)})\n`);
 					}
 				}
 			} finally {
 				client.close();
-			}
-
-			// Output broadcast summary
-			if (opts.json) {
-				jsonOutput("mail send", { messageIds, recipientCount: recipients.length });
-			} else {
-				process.stdout.write(
-					`Broadcast sent to ${recipients.length} recipient${recipients.length === 1 ? "" : "s"} (${to})\n`,
-				);
-				for (let i = 0; i < recipients.length; i++) {
-					const recipient = recipients[i];
-					const msgId = messageIds[i];
-					process.stdout.write(`   → ${accent(recipient)} (${accent(msgId)})\n`);
-				}
 			}
 
 			return; // Early return — broadcast handled
@@ -810,9 +847,20 @@ function handleList(opts: ListOpts, cwd: string): void {
 	const unread = opts.unread ? true : undefined;
 	const json = opts.json ?? false;
 
+	let state: MailDeliveryState | undefined;
+	if (opts.state !== undefined) {
+		if (!MAIL_DELIVERY_STATES.includes(opts.state as MailDeliveryState)) {
+			throw new ValidationError(
+				`Invalid state '${opts.state}'. Valid states: ${MAIL_DELIVERY_STATES.join(", ")}`,
+				{ field: "state", value: opts.state },
+			);
+		}
+		state = opts.state as MailDeliveryState;
+	}
+
 	const client = openClient(cwd);
 	try {
-		const messages = client.list({ from, to, unread });
+		const messages = client.list({ from, to, unread, state });
 
 		if (json) {
 			jsonOutput("mail list", { messages });
@@ -938,10 +986,101 @@ function handlePurge(opts: PurgeOpts, cwd: string): void {
 	}
 }
 
+interface DlqOpts {
+	agent?: string;
+	limit?: string;
+	json?: boolean;
+}
+
+/** overstory mail dlq */
+function handleDlq(opts: DlqOpts, cwd: string): void {
+	const MAX_DLQ_LIMIT = 1000;
+	const limit = opts.limit !== undefined ? Number.parseInt(opts.limit, 10) : 100;
+	if (Number.isNaN(limit) || limit <= 0) {
+		throw new ValidationError("--limit must be a positive integer", {
+			field: "limit",
+			value: opts.limit,
+		});
+	}
+	if (limit > MAX_DLQ_LIMIT) {
+		throw new ValidationError(`--limit cannot exceed ${MAX_DLQ_LIMIT}`, {
+			field: "limit",
+			value: opts.limit,
+		});
+	}
+	const json = opts.json ?? false;
+
+	const client = openClient(cwd);
+	try {
+		const messages = client.getDlq({ agent: opts.agent, limit });
+
+		if (json) {
+			jsonOutput("mail dlq", { messages, count: messages.length });
+		} else if (messages.length === 0) {
+			printHint("Dead-letter queue is empty");
+		} else {
+			for (const msg of messages) {
+				process.stdout.write(`${formatMessage(msg)}\n\n`);
+			}
+			process.stdout.write(
+				`Total: ${messages.length} dead-lettered message${messages.length === 1 ? "" : "s"}\n`,
+			);
+		}
+	} finally {
+		client.close();
+	}
+}
+
+interface RetryOpts {
+	all?: boolean;
+	limit?: string;
+	json?: boolean;
+}
+
+/** overstory mail retry */
+function handleRetry(id: string | undefined, opts: RetryOpts, cwd: string): void {
+	if (!id && !opts.all) {
+		throw new ValidationError("Specify a message ID or --all", {
+			field: "retry",
+		});
+	}
+	const json = opts.json ?? false;
+
+	const client = openClient(cwd);
+	try {
+		if (id) {
+			client.replayDlq(id);
+			if (json) {
+				jsonOutput("mail retry", { replayed: 1, ids: [id] });
+			} else {
+				printSuccess("Replayed message", id);
+			}
+		} else {
+			const limit = opts.limit !== undefined ? Number.parseInt(opts.limit, 10) : 50;
+			if (Number.isNaN(limit) || limit <= 0) {
+				throw new ValidationError("--limit must be a positive integer", {
+					field: "limit",
+					value: opts.limit,
+				});
+			}
+			const dlqMessages = client.getDlq({ limit });
+			const ids = dlqMessages.map((m) => m.id);
+			const replayed = client.replayDlqBatch(ids);
+			if (json) {
+				jsonOutput("mail retry", { replayed, ids });
+			} else {
+				printSuccess(`Replayed ${replayed} message(s) from dead-letter queue`);
+			}
+		}
+	} finally {
+		client.close();
+	}
+}
+
 /**
  * Entry point for `overstory mail <subcommand> [args...]`.
  *
- * Subcommands: send, check, list, read, reply, purge.
+ * Subcommands: send, check, list, read, reply, purge, dlq, retry.
  * Uses Commander.js for subcommand routing and option parsing.
  */
 export async function mailCommand(args: string[]): Promise<void> {
@@ -989,6 +1128,7 @@ export async function mailCommand(args: string[]): Promise<void> {
 		.option("--to <name>", "Filter by recipient")
 		.option("--agent <name>", "Alias for --to (filter by recipient)")
 		.option("--unread", "Show only unread messages")
+		.option("--state <state>", "Filter by delivery state (queued|claimed|acked|failed|dead_letter)")
 		.option("--json", "Output as JSON")
 		.exitOverride()
 		.action((opts: ListOpts) => {
@@ -1027,6 +1167,29 @@ export async function mailCommand(args: string[]): Promise<void> {
 		.exitOverride()
 		.action((opts: PurgeOpts) => {
 			handlePurge(opts, root);
+		});
+
+	program
+		.command("dlq")
+		.description("List dead-lettered messages")
+		.option("--agent <name>", "Filter by recipient agent")
+		.option("--limit <n>", "Maximum messages to show")
+		.option("--json", "Output as JSON")
+		.exitOverride()
+		.action((opts: DlqOpts) => {
+			handleDlq(opts, root);
+		});
+
+	program
+		.command("retry")
+		.description("Replay messages from dead-letter queue")
+		.argument("[id]", "Message ID to replay (or use --all)")
+		.option("--all", "Replay all dead-lettered messages")
+		.option("--limit <n>", "Max messages to replay with --all (default: 50)")
+		.option("--json", "Output as JSON")
+		.exitOverride()
+		.action((id: string | undefined, opts: RetryOpts) => {
+			handleRetry(id, opts, root);
 		});
 
 	await program.parseAsync(["node", "overstory-mail", ...args]);

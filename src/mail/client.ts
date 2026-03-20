@@ -79,6 +79,9 @@ export interface MailClient {
 	/** Replay a dead-lettered message back to the queue. */
 	replayDlq(id: string): void;
 
+	/** Replay multiple dead-lettered messages in a single transaction. Returns count replayed. */
+	replayDlqBatch(ids: string[]): number;
+
 	/** List messages with optional filters. */
 	list(filters?: {
 		from?: string;
@@ -260,6 +263,10 @@ export function createMailClient(store: MailStore): MailClient {
 
 		replayDlq(id): void {
 			store.replayDlq(id);
+		},
+
+		replayDlqBatch(ids): number {
+			return store.replayDlqBatch(ids);
 		},
 
 		list(filters): MailMessage[] {

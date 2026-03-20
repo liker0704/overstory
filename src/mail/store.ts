@@ -91,6 +91,9 @@ export interface MailStore {
 	/** Replay a dead-lettered message: reset to queued state. */
 	replayDlq(id: string): void;
 
+	/** Replay multiple dead-lettered messages in a single transaction. */
+	replayDlqBatch(ids: string[]): number;
+
 	/** Purge dead-letter messages. Returns the number deleted. */
 	purgeDlq(options?: { olderThanMs?: number; agent?: string }): number;
 
@@ -495,6 +498,13 @@ export function createMailStore(dbPath: string): MailStore {
 		}
 	});
 
+	// Wrap multiple DLQ replays in a transaction — state guard in stmt skips non-DLQ
+	const replayDlqBatchTransaction = db.transaction((ids: string[]) => {
+		for (const id of ids) {
+			replayDlqStmt.run({ $id: id });
+		}
+	});
+
 	// Wrap claim steps in a transaction for atomicity
 	const claimTransaction = db.transaction((agentName: string, timeoutSec: number): MessageRow[] => {
 		// Step 1: Expire stale claims for this agent's messages
@@ -799,6 +809,12 @@ export function createMailStore(dbPath: string): MailStore {
 				}
 				replayDlqStmt.run({ $id: id });
 			})();
+		},
+
+		replayDlqBatch(ids: string[]): number {
+			if (ids.length === 0) return 0;
+			replayDlqBatchTransaction(ids);
+			return ids.length;
 		},
 
 		purgeDlq(options): number {

@@ -136,6 +136,14 @@ export const DEFAULT_CONFIG: OverstoryConfig = {
 		notifyCoordinator: true,
 		swapRuntime: undefined,
 	},
+	mail: {
+		reliability: {
+			leaseTimeoutSec: 120,
+			maxRetries: 3,
+			backoffBaseMs: 5_000,
+			backoffMaxMs: 60_000,
+		},
+	},
 };
 
 const CONFIG_FILENAME = "config.yaml";
