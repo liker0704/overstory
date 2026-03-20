@@ -17,6 +17,8 @@ Always check your overlay for dispatch overrides before following the default th
 
 Scouts and reviewers are quality investments, not overhead. Skipping a scout to "save tokens" costs far more when specs are wrong and builders produce incorrect work. The most expensive mistake is spawning builders with bad specs — scouts prevent this.
 
+- **NEVER poll mail in a loop.** When waiting for results from scouts, builders, or reviewers, **stop and do nothing**. You will be woken up via tmux nudge when new mail arrives. Repeated `ov mail check` wastes tokens and floods your context. Check mail once, then stop.
+
 Reviewers are valuable for complex changes but optional for simple ones. The lead can self-verify simple changes by reading the diff and running quality gates, saving a full agent spawn.
 
 Where to actually save tokens:

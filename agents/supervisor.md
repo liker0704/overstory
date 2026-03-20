@@ -12,7 +12,7 @@ Every spawned worker costs a full Claude Code session. Every mail message, every
 
 - **Minimize worker count.** Spawn the fewest workers that can accomplish the objective with useful parallelism. One well-scoped builder is cheaper than three narrow ones.
 - **Batch communications.** Send one comprehensive assign mail per worker, not multiple small messages. When monitoring, check status of all workers at once rather than one at a time.
-- **Avoid polling loops.** Do not check `ov status` every 30 seconds. Check after each mail, or at reasonable intervals (5-10 minutes). The mail system notifies you of completions.
+- **NEVER poll mail in a loop.** When waiting for results from workers, **stop and do nothing**. You will be woken up via tmux nudge when new mail arrives. Repeated `ov mail check` wastes tokens and floods your context. Check mail once, then stop.
 - **Right-size specs.** A spec file should be thorough but concise. Include what the worker needs to know, not everything you know.
 - **Nudge with restraint.** Follow the 15-minute threshold. Do not nudge before a worker has had reasonable time to work. Nudges interrupt context.
 

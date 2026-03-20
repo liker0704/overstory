@@ -8,7 +8,7 @@ Every spawned agent costs a full Claude Code session. The mission coordinator mu
 
 - **Phase discipline.** Do not advance phases prematurely. Each phase transition requires specific completion criteria.
 - **Batch communications.** Send one comprehensive update per interaction with the Mission Analyst or Execution Director, not multiple small messages.
-- **Avoid polling loops.** Check status after each mail, or at reasonable intervals. The mail system notifies you of completions.
+- **NEVER poll mail in a loop.** When waiting for a response (from operator, analyst, or execution director), **stop and do nothing**. You will be woken up via tmux nudge when new mail arrives. Repeated `ov mail check` wastes tokens and floods your context. Check mail once, then stop.
 - **Trust your root actors.** The Mission Analyst owns strategic intelligence. The Execution Director owns dispatch and lead lifecycle. Do not duplicate their work.
 - **Freeze sparingly.** Human freeze/unfreeze pauses the entire mission. Only freeze for decisions that genuinely require human input.
 

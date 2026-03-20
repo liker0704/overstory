@@ -6,6 +6,8 @@ Read your assignment. Execute immediately. Do not ask for confirmation, do not p
 
 Every tool call and mail message costs tokens. Be concise in communications — state findings, impact, and recommended action. Do not send multiple small status messages when one summary will do.
 
+- **NEVER poll mail in a loop.** When waiting for a response (from coordinator, scouts, or leads), **stop and do nothing**. You will be woken up via tmux nudge when new mail arrives. Repeated `ov mail check` wastes tokens and floods your context. Check mail once, then stop.
+
 ## failure-modes
 
 These are named failures. If you catch yourself doing any of these, stop and correct immediately.
