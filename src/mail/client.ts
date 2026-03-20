@@ -4,10 +4,13 @@
  * Wraps the low-level MailStore with higher-level operations:
  * send, check, checkInject (hook format), list, markRead, reply.
  * Synchronous by design (bun:sqlite is sync, ~1-5ms per query).
+ *
+ * v2: check/checkInject now use claim+ack internally for crash-safe delivery.
+ * New methods: claim, ack, nack, sendBroadcast, getDlq, replayDlq.
  */
 
 import { MailError } from "../errors.ts";
-import type { MailMessage, MailPayloadMap, MailProtocolType } from "../types.ts";
+import type { MailDeliveryState, MailMessage, MailPayloadMap, MailProtocolType } from "../types.ts";
 import type { MailStore } from "./store.ts";
 
 export interface MailClient {
@@ -35,14 +38,54 @@ export interface MailClient {
 		payload: MailPayloadMap[T];
 	}): string;
 
-	/** Get unread messages for an agent. Marks them as read. */
+	/** Send to multiple recipients atomically. Returns message IDs. */
+	sendBroadcast(msg: {
+		from: string;
+		to: string[];
+		subject: string;
+		body: string;
+		type?: MailMessage["type"];
+		priority?: MailMessage["priority"];
+		threadId?: string;
+		payload?: string;
+	}): string[];
+
+	/** Get unread messages for an agent. Uses claim+ack for crash-safe delivery. */
 	check(agentName: string): MailMessage[];
 
 	/** Get unread messages formatted for hook injection (human-readable string). */
 	checkInject(agentName: string): string;
 
+	/** Claim messages with lease. Returns claimed messages without acking. */
+	claim(agentName: string, leaseTimeoutSec?: number): MailMessage[];
+
+	/** Acknowledge a claimed message as successfully processed. */
+	ack(id: string): void;
+
+	/** Negative-acknowledge a claimed message. Retries or dead-letters. */
+	nack(
+		id: string,
+		reason?: string,
+		options?: {
+			maxAttempts?: number;
+			backoffBaseSec?: number;
+			backoffMaxSec?: number;
+		},
+	): { deadLettered: boolean };
+
+	/** Query dead-letter queue. */
+	getDlq(filters?: { agent?: string; limit?: number }): MailMessage[];
+
+	/** Replay a dead-lettered message back to the queue. */
+	replayDlq(id: string): void;
+
 	/** List messages with optional filters. */
-	list(filters?: { from?: string; to?: string; unread?: boolean }): MailMessage[];
+	list(filters?: {
+		from?: string;
+		to?: string;
+		unread?: boolean;
+		state?: MailDeliveryState;
+	}): MailMessage[];
 
 	/** Mark a message as read by ID. Returns whether the message was already read. */
 	markRead(id: string): { alreadyRead: boolean };
@@ -93,6 +136,7 @@ const PROTOCOL_TYPES = new Set<string>([
 	"plan_critic_verdict",
 	"plan_review_consolidated",
 	"plan_revision_complete",
+	"decision_gate",
 ]);
 
 /**
@@ -130,7 +174,7 @@ function formatForInjection(messages: MailMessage[]): string {
  * Create a MailClient wrapping the given MailStore.
  *
  * @param store - The underlying MailStore for persistence
- * @returns A MailClient with send, check, checkInject, list, markRead, reply
+ * @returns A MailClient with send, check, checkInject, list, markRead, reply, claim, ack, nack
  */
 export function createMailClient(store: MailStore): MailClient {
 	return {
@@ -164,20 +208,58 @@ export function createMailClient(store: MailStore): MailClient {
 			return message.id;
 		},
 
+		sendBroadcast(msg): string[] {
+			const messages = msg.to.map((recipient) => ({
+				id: "",
+				from: msg.from,
+				to: recipient,
+				subject: msg.subject,
+				body: msg.body,
+				type: msg.type ?? ("status" as const),
+				priority: msg.priority ?? ("normal" as const),
+				threadId: msg.threadId ?? null,
+				payload: msg.payload ?? null,
+			}));
+
+			const inserted = store.insertBatch(messages);
+			return inserted.map((m) => m.id);
+		},
+
 		check(agentName): MailMessage[] {
-			const messages = store.getUnread(agentName);
-			for (const msg of messages) {
-				store.markRead(msg.id);
-			}
+			// v2: claim+ackBatch for at-most-once delivery.
+			// Messages are immediately acked after claim — if the caller crashes
+			// after this returns but before processing, messages are lost.
+			// For at-least-once semantics, use claim() + ack() per-message instead.
+			const messages = store.claim(agentName);
+			store.ackBatch(messages.map((m) => m.id));
 			return messages;
 		},
 
 		checkInject(agentName): string {
-			const messages = store.getUnread(agentName);
-			for (const msg of messages) {
-				store.markRead(msg.id);
-			}
+			// v2: claim+ackBatch for at-most-once delivery (see check() comment)
+			const messages = store.claim(agentName);
+			store.ackBatch(messages.map((m) => m.id));
 			return formatForInjection(messages);
+		},
+
+		claim(agentName, leaseTimeoutSec): MailMessage[] {
+			return store.claim(agentName, leaseTimeoutSec);
+		},
+
+		ack(id): void {
+			store.ack(id);
+		},
+
+		nack(id, reason, options): { deadLettered: boolean } {
+			return store.nack(id, { reason, ...options });
+		},
+
+		getDlq(filters): MailMessage[] {
+			return store.getDlq(filters);
+		},
+
+		replayDlq(id): void {
+			store.replayDlq(id);
 		},
 
 		list(filters): MailMessage[] {
@@ -191,11 +273,11 @@ export function createMailClient(store: MailStore): MailClient {
 					messageId: id,
 				});
 			}
-			if (msg.read) {
-				return { alreadyRead: true };
-			}
+			// markRead() only updates queued/claimed messages (state guard in SQL).
+			// If the message is already acked/dead_letter/failed, it's a no-op —
+			// derive alreadyRead from the current state rather than a separate read.
 			store.markRead(id);
-			return { alreadyRead: false };
+			return { alreadyRead: msg.read };
 		},
 
 		reply(messageId, body, from): MailMessage {

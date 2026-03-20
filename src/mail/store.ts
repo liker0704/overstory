@@ -4,22 +4,96 @@
  * Provides low-level CRUD operations on the messages table.
  * Uses bun:sqlite for zero-dependency, synchronous database access.
  * The higher-level mail client (L2) wraps this store.
+ *
+ * v2: Adds delivery state tracking (claim/ack/nack), lease-based expiry,
+ * retry with backoff, dead-letter queue, and atomic batch inserts.
  */
 
 import { Database } from "bun:sqlite";
 import { MailError } from "../errors.ts";
-import type { MailMessage } from "../types.ts";
-import { MAIL_MESSAGE_TYPES } from "../types.ts";
+import type { MailDeliveryState, MailMessage } from "../types.ts";
+import { MAIL_DELIVERY_STATES, MAIL_MESSAGE_TYPES } from "../types.ts";
 
 export interface MailStore {
 	insert(
-		message: Omit<MailMessage, "read" | "createdAt" | "payload"> & { payload?: string | null },
+		message: Omit<
+			MailMessage,
+			| "read"
+			| "createdAt"
+			| "payload"
+			| "state"
+			| "claimedAt"
+			| "attempt"
+			| "nextRetryAt"
+			| "failReason"
+		> & { payload?: string | null },
 	): MailMessage;
+
+	/** Insert multiple messages atomically (for broadcast fan-out). */
+	insertBatch(
+		messages: Array<
+			Omit<
+				MailMessage,
+				| "read"
+				| "createdAt"
+				| "payload"
+				| "state"
+				| "claimedAt"
+				| "attempt"
+				| "nextRetryAt"
+				| "failReason"
+			> & { payload?: string | null }
+		>,
+	): MailMessage[];
+
 	getUnread(agentName: string): MailMessage[];
-	getAll(filters?: { from?: string; to?: string; unread?: boolean; limit?: number }): MailMessage[];
+	getAll(filters?: {
+		from?: string;
+		to?: string;
+		unread?: boolean;
+		state?: MailDeliveryState;
+		limit?: number;
+	}): MailMessage[];
 	getById(id: string): MailMessage | null;
 	getByThread(threadId: string): MailMessage[];
 	markRead(id: string): void;
+
+	/**
+	 * Expire stale claims, promote retryable failures, then claim available
+	 * messages for the given agent. Sets state='claimed' and claimed_at=now.
+	 */
+	claim(agentName: string, leaseTimeoutSec?: number): MailMessage[];
+
+	/** Acknowledge successful processing. Sets state='acked', read=1. */
+	ack(id: string, agentName?: string): void;
+
+	/** Acknowledge multiple messages in a single transaction. */
+	ackBatch(ids: string[]): void;
+
+	/**
+	 * Negative-acknowledge a claimed message. Increments attempt count,
+	 * computes next retry with exponential backoff, or moves to dead_letter
+	 * if max attempts exceeded.
+	 */
+	nack(
+		id: string,
+		options?: {
+			reason?: string;
+			maxAttempts?: number;
+			backoffBaseSec?: number;
+			backoffMaxSec?: number;
+		},
+	): { deadLettered: boolean };
+
+	/** Get dead-lettered messages. */
+	getDlq(filters?: { agent?: string; limit?: number }): MailMessage[];
+
+	/** Replay a dead-lettered message: reset to queued state. */
+	replayDlq(id: string): void;
+
+	/** Purge dead-letter messages. Returns the number deleted. */
+	purgeDlq(options?: { olderThanMs?: number; agent?: string }): number;
+
 	/** Delete messages matching the given criteria. Returns the number of messages deleted. */
 	purge(options: { all?: boolean; olderThanMs?: number; agent?: string }): number;
 	close(): void;
@@ -38,10 +112,31 @@ interface MessageRow {
 	payload: string | null;
 	read: number;
 	created_at: string;
+	state: string;
+	claimed_at: string | null;
+	attempt: number;
+	next_retry_at: string | null;
+	fail_reason: string | null;
 }
+
+/**
+ * Validate that a value is safe for embedding in DDL (SQL schema definitions).
+ * Only alphanumeric characters and underscores are allowed — prevents SQL injection
+ * in dynamically-built CHECK constraints.
+ */
+function assertSafeForDdl(value: string): void {
+	if (!/^[a-z0-9_]+$/.test(value)) {
+		throw new Error(`Unsafe DDL value: ${value}`);
+	}
+}
+
+// Validate all type/state constants at module load time
+for (const t of MAIL_MESSAGE_TYPES) assertSafeForDdl(t);
+for (const s of MAIL_DELIVERY_STATES) assertSafeForDdl(s);
 
 /** Build the CHECK constraint for message types from the runtime constant. */
 const TYPE_CHECK = `CHECK(type IN (${MAIL_MESSAGE_TYPES.map((t) => `'${t}'`).join(",")}))`;
+const STATE_CHECK = `CHECK(state IN (${MAIL_DELIVERY_STATES.map((s) => `'${s}'`).join(",")}))`;
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS messages (
@@ -55,21 +150,38 @@ CREATE TABLE IF NOT EXISTS messages (
   thread_id TEXT,
   payload TEXT,
   read INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  state TEXT NOT NULL DEFAULT 'queued' ${STATE_CHECK},
+  claimed_at TEXT,
+  attempt INTEGER NOT NULL DEFAULT 0,
+  next_retry_at TEXT,
+  fail_reason TEXT
 )`;
+
+/**
+ * Schema version tracked via PRAGMA user_version.
+ * Bump this when schema changes require migration.
+ * v1: original schema (no delivery state)
+ * v2: delivery state columns + CHECK constraints
+ */
+const SCHEMA_VERSION = 2;
 
 /**
  * Migrate an existing messages table to the current schema.
  *
- * Handles two migration paths:
- * 1. Tables without CHECK constraints → recreate with constraints
- * 2. Tables without payload column → add payload column
- * 3. Tables with old CHECK constraints (missing protocol types) → recreate with new types
+ * Uses PRAGMA user_version as fast-path: if version >= SCHEMA_VERSION, skip.
+ * Falls back to DDL inspection for databases created before versioning.
  *
  * SQLite does not support ALTER TABLE ADD CONSTRAINT, so constraint changes
  * require recreating the table.
  */
 function migrateSchema(db: Database): void {
+	// Fast path: check schema version
+	const versionRow = db.prepare<{ user_version: number }, []>("PRAGMA user_version").get();
+	if (versionRow && versionRow.user_version >= SCHEMA_VERSION) {
+		return;
+	}
+
 	const row = db
 		.prepare<{ sql: string }, []>(
 			"SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'",
@@ -83,21 +195,30 @@ function migrateSchema(db: Database): void {
 	const hasCheckConstraints = row.sql.includes("CHECK");
 	const hasPayloadColumn = row.sql.includes("payload");
 	const hasCurrentTypeSet = MAIL_MESSAGE_TYPES.every((type) => row.sql.includes(`'${type}'`));
+	const hasStateColumn = row.sql.includes("state");
+	const hasCurrentStateSet = MAIL_DELIVERY_STATES.every((s) => row.sql.includes(`'${s}'`));
 
 	// If schema is fully up to date, nothing to do
-	if (hasCheckConstraints && hasPayloadColumn && hasCurrentTypeSet) {
+	if (
+		hasCheckConstraints &&
+		hasPayloadColumn &&
+		hasCurrentTypeSet &&
+		hasStateColumn &&
+		hasCurrentStateSet
+	) {
 		return;
 	}
 
-	// If only missing the payload column (has correct CHECK constraints), use ALTER TABLE
-	if (hasCheckConstraints && hasCurrentTypeSet && !hasPayloadColumn) {
-		db.exec("ALTER TABLE messages ADD COLUMN payload TEXT");
-		return;
-	}
-
-	// Need to recreate the table (missing CHECK constraints or needs type update)
+	// Need to recreate the table for state columns, missing CHECK constraints, or type update
 	const validTypes = MAIL_MESSAGE_TYPES.map((t) => `'${t}'`).join(",");
-	db.exec("BEGIN TRANSACTION");
+	const validStates = MAIL_DELIVERY_STATES.map((s) => `'${s}'`).join(",");
+	const oldHasPayload = row.sql.includes("payload");
+	const oldHasState = row.sql.includes("state");
+	const payloadSelect = oldHasPayload ? "payload" : "NULL";
+
+	// BEGIN IMMEDIATE acquires a write lock upfront, preventing concurrent
+	// migrations from interleaving DDL operations on the same database.
+	db.exec("BEGIN IMMEDIATE");
 	try {
 		db.exec("ALTER TABLE messages RENAME TO messages_old");
 		db.exec(`
@@ -112,18 +233,38 @@ CREATE TABLE messages (
   thread_id TEXT,
   payload TEXT,
   read INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  state TEXT NOT NULL DEFAULT 'queued' CHECK(state IN (${validStates})),
+  claimed_at TEXT,
+  attempt INTEGER NOT NULL DEFAULT 0,
+  next_retry_at TEXT,
+  fail_reason TEXT
 )`);
-		// Copy data, mapping invalid types to 'status'. Old tables may not have payload column.
-		const oldHasPayload = row.sql.includes("payload");
-		const payloadSelect = oldHasPayload ? "payload" : "NULL";
-		db.exec(`
-INSERT INTO messages (id, from_agent, to_agent, subject, body, type, priority, thread_id, payload, read, created_at)
+
+		if (oldHasState) {
+			// Already had state columns — copy as-is
+			db.exec(`
+INSERT INTO messages (id, from_agent, to_agent, subject, body, type, priority, thread_id, payload, read, created_at, state, claimed_at, attempt, next_retry_at, fail_reason)
 SELECT id, from_agent, to_agent, subject, body,
   CASE WHEN type IN (${validTypes}) THEN type ELSE 'status' END,
   CASE WHEN priority IN ('low','normal','high','urgent') THEN priority ELSE 'normal' END,
-  thread_id, ${payloadSelect}, read, created_at
+  thread_id, ${payloadSelect}, read, created_at,
+  CASE WHEN state IN (${validStates}) THEN state ELSE 'queued' END,
+  claimed_at, COALESCE(attempt, 0), next_retry_at, fail_reason
 FROM messages_old`);
+		} else {
+			// No state columns — map read=1 to acked, read=0 to queued
+			db.exec(`
+INSERT INTO messages (id, from_agent, to_agent, subject, body, type, priority, thread_id, payload, read, created_at, state, claimed_at, attempt, next_retry_at, fail_reason)
+SELECT id, from_agent, to_agent, subject, body,
+  CASE WHEN type IN (${validTypes}) THEN type ELSE 'status' END,
+  CASE WHEN priority IN ('low','normal','high','urgent') THEN priority ELSE 'normal' END,
+  thread_id, ${payloadSelect}, read, created_at,
+  CASE WHEN read = 1 THEN 'acked' ELSE 'queued' END,
+  NULL, 0, NULL, NULL
+FROM messages_old`);
+		}
+
 		db.exec("DROP TABLE messages_old");
 		db.exec("COMMIT");
 	} catch (err) {
@@ -133,22 +274,27 @@ FROM messages_old`);
 }
 
 const CREATE_INDEXES = `
-CREATE INDEX IF NOT EXISTS idx_inbox ON messages(to_agent, read);
-CREATE INDEX IF NOT EXISTS idx_thread ON messages(thread_id)`;
+CREATE INDEX IF NOT EXISTS idx_thread ON messages(thread_id);
+CREATE INDEX IF NOT EXISTS idx_state ON messages(to_agent, state, next_retry_at);
+CREATE INDEX IF NOT EXISTS idx_from_agent ON messages(from_agent)`;
 
-/** Generate a random 12-character alphanumeric ID. */
+/** Generate a random 12-character alphanumeric ID (unbiased). */
 function randomId(): string {
 	const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-	const bytes = new Uint8Array(12);
-	crypto.getRandomValues(bytes);
-	let result = "";
-	for (let i = 0; i < 12; i++) {
-		const byte = bytes[i];
-		if (byte !== undefined) {
-			result += chars[byte % chars.length];
+	// 252 is the largest multiple of 36 that fits in a byte, avoiding modulo bias
+	const maxUnbiased = 252;
+	const result: string[] = [];
+	while (result.length < 12) {
+		const bytes = new Uint8Array(16);
+		crypto.getRandomValues(bytes);
+		for (let i = 0; i < bytes.length && result.length < 12; i++) {
+			const byte = bytes[i];
+			if (byte !== undefined && byte < maxUnbiased) {
+				result.push(chars[byte % chars.length] ?? "a");
+			}
 		}
 	}
-	return result;
+	return result.join("");
 }
 
 /** Convert a database row (snake_case) to a MailMessage object (camelCase). */
@@ -165,8 +311,22 @@ function rowToMessage(row: MessageRow): MailMessage {
 		payload: row.payload,
 		read: row.read === 1,
 		createdAt: row.created_at,
+		state: row.state as MailDeliveryState,
+		claimedAt: row.claimed_at,
+		attempt: row.attempt,
+		nextRetryAt: row.next_retry_at,
+		failReason: row.fail_reason,
 	};
 }
+
+/** Default lease timeout for claimed messages (seconds). */
+const DEFAULT_LEASE_TIMEOUT_SEC = 120;
+/** Default max retry attempts before dead-lettering. */
+const DEFAULT_MAX_ATTEMPTS = 3;
+/** Default backoff base in seconds (doubles per attempt). */
+const DEFAULT_BACKOFF_BASE_SEC = 5;
+/** Default maximum backoff in seconds. */
+const DEFAULT_BACKOFF_MAX_SEC = 60;
 
 /**
  * Create a new MailStore backed by a SQLite database at the given path.
@@ -191,6 +351,7 @@ export function createMailStore(dbPath: string): MailStore {
 	// Create schema (if table doesn't exist yet, creates with CHECK constraints)
 	db.exec(CREATE_TABLE);
 	db.exec(CREATE_INDEXES);
+	db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
 
 	// Prepare statements for all queries
 	const insertStmt = db.prepare<
@@ -207,35 +368,195 @@ export function createMailStore(dbPath: string): MailStore {
 			$payload: string | null;
 			$read: number;
 			$created_at: string;
+			$state: string;
 		}
 	>(`
 		INSERT INTO messages
-			(id, from_agent, to_agent, subject, body, type, priority, thread_id, payload, read, created_at)
+			(id, from_agent, to_agent, subject, body, type, priority, thread_id, payload, read, created_at, state)
 		VALUES
-			($id, $from_agent, $to_agent, $subject, $body, $type, $priority, $thread_id, $payload, $read, $created_at)
+			($id, $from_agent, $to_agent, $subject, $body, $type, $priority, $thread_id, $payload, $read, $created_at, $state)
 	`);
 
 	const getByIdStmt = db.prepare<MessageRow, { $id: string }>(`
 		SELECT * FROM messages WHERE id = $id
 	`);
 
+	/** Hard cap on messages returned per poll to prevent unbounded memory use. */
+	const MAX_POLL_BATCH = 200;
+
 	const getUnreadStmt = db.prepare<MessageRow, { $to_agent: string }>(`
-		SELECT * FROM messages WHERE to_agent = $to_agent AND read = 0 ORDER BY created_at ASC
+		SELECT * FROM messages
+		WHERE to_agent = $to_agent
+		  AND state = 'queued'
+		  AND (next_retry_at IS NULL OR next_retry_at <= datetime('now'))
+		ORDER BY created_at ASC
+		LIMIT ${MAX_POLL_BATCH}
 	`);
 
 	const getByThreadStmt = db.prepare<MessageRow, { $thread_id: string }>(`
 		SELECT * FROM messages WHERE thread_id = $thread_id ORDER BY created_at ASC
+		LIMIT ${MAX_POLL_BATCH}
 	`);
 
+	// Only transition queued/claimed messages — don't bypass DLQ or failed state
 	const markReadStmt = db.prepare<void, { $id: string }>(`
-		UPDATE messages SET read = 1 WHERE id = $id
+		UPDATE messages SET read = 1, state = 'acked'
+		WHERE id = $id AND state IN ('queued', 'claimed')
 	`);
+
+	// Claim: expire stale claims (scoped to agent), then atomically claim
+	const expireClaimsStmt = db.prepare<void, { $timeout_sec: number; $to_agent: string }>(`
+		UPDATE messages
+		SET state = 'queued', claimed_at = NULL
+		WHERE state = 'claimed'
+		  AND to_agent = $to_agent
+		  AND claimed_at < datetime('now', '-' || $timeout_sec || ' seconds')
+	`);
+
+	const promoteRetryableStmt = db.prepare<void, { $to_agent: string }>(`
+		UPDATE messages
+		SET state = 'queued', next_retry_at = NULL
+		WHERE state = 'failed'
+		  AND to_agent = $to_agent
+		  AND next_retry_at IS NOT NULL
+		  AND next_retry_at <= datetime('now')
+	`);
+
+	const claimStmt = db.prepare<MessageRow, { $to_agent: string }>(`
+		UPDATE messages
+		SET state = 'claimed', claimed_at = datetime('now')
+		WHERE id IN (
+			SELECT id FROM messages
+			WHERE to_agent = $to_agent
+			  AND state = 'queued'
+			  AND (next_retry_at IS NULL OR next_retry_at <= datetime('now'))
+			ORDER BY created_at ASC
+			LIMIT ${MAX_POLL_BATCH}
+		)
+		RETURNING *
+	`);
+
+	// Guarded ack: only transitions claimed messages (defense-in-depth)
+	const ackStmt = db.prepare<void, { $id: string }>(`
+		UPDATE messages SET state = 'acked', read = 1
+		WHERE id = $id AND state = 'claimed'
+	`);
+
+	const nackDeadLetterStmt = db.prepare<
+		void,
+		{ $id: string; $reason: string | null; $attempt: number }
+	>(`
+		UPDATE messages
+		SET state = 'dead_letter', attempt = $attempt, fail_reason = $reason,
+		    claimed_at = NULL, next_retry_at = NULL
+		WHERE id = $id AND state = 'claimed'
+	`);
+
+	const nackRetryStmt = db.prepare<
+		void,
+		{
+			$id: string;
+			$reason: string | null;
+			$attempt: number;
+			$delay_sec: number;
+		}
+	>(`
+		UPDATE messages
+		SET state = 'failed', attempt = $attempt, fail_reason = $reason,
+		    claimed_at = NULL,
+		    next_retry_at = datetime('now', '+' || $delay_sec || ' seconds')
+		WHERE id = $id AND state = 'claimed'
+	`);
+
+	const getDlqStmt = db.prepare<MessageRow, { $limit: number }>(`
+		SELECT * FROM messages
+		WHERE state = 'dead_letter'
+		ORDER BY created_at DESC
+		LIMIT $limit
+	`);
+
+	const getDlqByAgentStmt = db.prepare<MessageRow, { $agent: string; $limit: number }>(`
+		SELECT * FROM messages
+		WHERE state = 'dead_letter' AND to_agent = $agent
+		ORDER BY created_at DESC
+		LIMIT $limit
+	`);
+
+	const replayDlqStmt = db.prepare<void, { $id: string }>(`
+		UPDATE messages
+		SET state = 'queued', attempt = 0, fail_reason = NULL, next_retry_at = NULL, claimed_at = NULL, read = 0
+		WHERE id = $id AND state = 'dead_letter'
+	`);
+
+	// Wrap multiple acks in a transaction — state guard in stmt skips non-claimed
+	const ackBatchTransaction = db.transaction((ids: string[]) => {
+		for (const id of ids) {
+			ackStmt.run({ $id: id });
+		}
+	});
+
+	// Wrap claim steps in a transaction for atomicity
+	const claimTransaction = db.transaction((agentName: string, timeoutSec: number): MessageRow[] => {
+		// Step 1: Expire stale claims for this agent's messages
+		expireClaimsStmt.run({
+			$timeout_sec: timeoutSec,
+			$to_agent: agentName,
+		});
+
+		// Step 2: Promote retryable failed messages for this agent
+		promoteRetryableStmt.run({ $to_agent: agentName });
+
+		// Step 3: Atomically claim all available messages
+		return claimStmt.all({ $to_agent: agentName });
+	});
+
+	// Wrap multiple inserts in a transaction for atomicity
+	const insertBatchTransaction = db.transaction(
+		(
+			msgs: Array<{
+				id: string;
+				from: string;
+				to: string;
+				subject: string;
+				body: string;
+				type: string;
+				priority: string;
+				threadId: string | null;
+				payload: string | null;
+				createdAt: string;
+			}>,
+		) => {
+			for (const msg of msgs) {
+				insertStmt.run({
+					$id: msg.id,
+					$from_agent: msg.from,
+					$to_agent: msg.to,
+					$subject: msg.subject,
+					$body: msg.body,
+					$type: msg.type,
+					$priority: msg.priority,
+					$thread_id: msg.threadId,
+					$payload: msg.payload,
+					$read: 0,
+					$created_at: msg.createdAt,
+					$state: "queued",
+				});
+			}
+		},
+	);
+
+	// Cache for dynamically-built prepared statements (filter queries, purge variants).
+	// Bounded by the number of distinct filter/purge query shapes — in practice <20
+	// since the set of callers (getAll, purge, purgeDlq) generates a finite number
+	// of WHERE clause combinations.
+	const stmtCache = new Map<string, ReturnType<typeof db.prepare>>();
 
 	// Dynamic filter queries are built at call time since the WHERE clause varies
 	function buildFilterQuery(filters?: {
 		from?: string;
 		to?: string;
 		unread?: boolean;
+		state?: MailDeliveryState;
 		limit?: number;
 	}): MailMessage[] {
 		const conditions: string[] = [];
@@ -253,24 +574,30 @@ export function createMailStore(dbPath: string): MailStore {
 			conditions.push("read = $read");
 			params.$read = filters.unread ? 0 : 1;
 		}
+		if (filters?.state !== undefined) {
+			conditions.push("state = $state");
+			params.$state = filters.state;
+		}
 
 		const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-		const limitClause = filters?.limit !== undefined ? ` LIMIT $limit` : "";
-		if (filters?.limit !== undefined) {
-			params.$limit = filters.limit;
-		}
+		// Default limit prevents unbounded result sets when no filters are specified
+		const effectiveLimit = filters?.limit ?? 1000;
+		const limitClause = " LIMIT $limit";
+		params.$limit = effectiveLimit;
 		const query = `SELECT * FROM messages ${whereClause} ORDER BY created_at DESC${limitClause}`;
-		const stmt = db.prepare<MessageRow, Record<string, string | number>>(query);
-		const rows = stmt.all(params);
+		let stmt = stmtCache.get(query);
+		if (!stmt) {
+			stmt = db.prepare(query);
+			stmtCache.set(query, stmt);
+		}
+		const rows = (
+			stmt as ReturnType<typeof db.prepare<MessageRow, Record<string, string | number>>>
+		).all(params);
 		return rows.map(rowToMessage);
 	}
 
 	return {
-		insert(
-			message: Omit<MailMessage, "read" | "createdAt" | "payload"> & {
-				payload?: string | null;
-			},
-		): MailMessage {
+		insert(message): MailMessage {
 			const id = message.id || `msg-${randomId()}`;
 			const createdAt = new Date().toISOString();
 			const payload = message.payload ?? null;
@@ -288,6 +615,7 @@ export function createMailStore(dbPath: string): MailStore {
 					$payload: payload,
 					$read: 0,
 					$created_at: createdAt,
+					$state: "queued",
 				});
 			} catch (err) {
 				throw new MailError(`Failed to insert message: ${id}`, {
@@ -302,7 +630,45 @@ export function createMailStore(dbPath: string): MailStore {
 				payload,
 				read: false,
 				createdAt,
+				state: "queued",
+				claimedAt: null,
+				attempt: 0,
+				nextRetryAt: null,
+				failReason: null,
 			};
+		},
+
+		insertBatch(messages): MailMessage[] {
+			const prepared = messages.map((msg) => ({
+				id: msg.id || `msg-${randomId()}`,
+				from: msg.from,
+				to: msg.to,
+				subject: msg.subject,
+				body: msg.body,
+				type: msg.type,
+				priority: msg.priority,
+				threadId: msg.threadId,
+				payload: msg.payload ?? null,
+				createdAt: new Date().toISOString(),
+			}));
+
+			try {
+				insertBatchTransaction(prepared);
+			} catch (err) {
+				throw new MailError("Failed to insert message batch", {
+					cause: err instanceof Error ? err : undefined,
+				});
+			}
+
+			return prepared.map((msg) => ({
+				...msg,
+				read: false,
+				state: "queued" as const,
+				claimedAt: null,
+				attempt: 0,
+				nextRetryAt: null,
+				failReason: null,
+			}));
 		},
 
 		getUnread(agentName: string): MailMessage[] {
@@ -310,12 +676,7 @@ export function createMailStore(dbPath: string): MailStore {
 			return rows.map(rowToMessage);
 		},
 
-		getAll(filters?: {
-			from?: string;
-			to?: string;
-			unread?: boolean;
-			limit?: number;
-		}): MailMessage[] {
+		getAll(filters): MailMessage[] {
 			return buildFilterQuery(filters);
 		},
 
@@ -333,15 +694,148 @@ export function createMailStore(dbPath: string): MailStore {
 			markReadStmt.run({ $id: id });
 		},
 
+		claim(agentName: string, leaseTimeoutSec?: number): MailMessage[] {
+			const timeout = leaseTimeoutSec ?? DEFAULT_LEASE_TIMEOUT_SEC;
+			const rows = claimTransaction(agentName, timeout);
+			return rows.map(rowToMessage);
+		},
+
+		ack(id: string, agentName?: string): void {
+			// Wrap in transaction to prevent race between read and write
+			db.transaction(() => {
+				const msg = getByIdStmt.get({ $id: id });
+				if (!msg) {
+					throw new MailError(`Message not found: ${id}`, {
+						messageId: id,
+					});
+				}
+				if (msg.state !== "claimed") {
+					throw new MailError(`Cannot ack message in state '${msg.state}': ${id}`, {
+						messageId: id,
+					});
+				}
+				if (agentName !== undefined && msg.to_agent !== agentName) {
+					throw new MailError(
+						`Agent '${agentName}' cannot ack message owned by '${msg.to_agent}': ${id}`,
+						{ messageId: id },
+					);
+				}
+				ackStmt.run({ $id: id });
+			})();
+		},
+
+		ackBatch(ids: string[]): void {
+			if (ids.length === 0) return;
+			ackBatchTransaction(ids);
+		},
+
+		nack(id, options): { deadLettered: boolean } {
+			// Wrap in transaction to prevent race between read and write
+			return db.transaction(() => {
+				const msg = getByIdStmt.get({ $id: id });
+				if (!msg) {
+					throw new MailError(`Message not found: ${id}`, {
+						messageId: id,
+					});
+				}
+				if (msg.state !== "claimed") {
+					throw new MailError(`Cannot nack message in state '${msg.state}': ${id}`, {
+						messageId: id,
+					});
+				}
+
+				const maxAttempts = options?.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+				const backoffBaseSec = options?.backoffBaseSec ?? DEFAULT_BACKOFF_BASE_SEC;
+				const backoffMaxSec = options?.backoffMaxSec ?? DEFAULT_BACKOFF_MAX_SEC;
+				const reason = options?.reason ?? null;
+				const newAttempt = msg.attempt + 1;
+
+				if (newAttempt >= maxAttempts) {
+					nackDeadLetterStmt.run({
+						$id: id,
+						$reason: reason,
+						$attempt: newAttempt,
+					});
+					return { deadLettered: true };
+				}
+
+				// Exponential backoff: base * 2^attempt, capped at max
+				const delaySec = Math.min(backoffBaseSec * 2 ** newAttempt, backoffMaxSec);
+				nackRetryStmt.run({
+					$id: id,
+					$reason: reason,
+					$attempt: newAttempt,
+					$delay_sec: delaySec,
+				});
+				return { deadLettered: false };
+			})();
+		},
+
+		getDlq(filters): MailMessage[] {
+			// Default to 100; callers needing all records pass an explicit limit
+			const limit = filters?.limit ?? 100;
+			if (filters?.agent) {
+				const rows = getDlqByAgentStmt.all({
+					$agent: filters.agent,
+					$limit: limit,
+				});
+				return rows.map(rowToMessage);
+			}
+			const rows = getDlqStmt.all({ $limit: limit });
+			return rows.map(rowToMessage);
+		},
+
+		replayDlq(id: string): void {
+			// Wrap in transaction to prevent TOCTOU race between read and write
+			db.transaction(() => {
+				const msg = getByIdStmt.get({ $id: id });
+				if (!msg) {
+					throw new MailError(`Message not found: ${id}`, { messageId: id });
+				}
+				if (msg.state !== "dead_letter") {
+					throw new MailError(`Cannot replay message in state '${msg.state}': ${id}`, {
+						messageId: id,
+					});
+				}
+				replayDlqStmt.run({ $id: id });
+			})();
+		},
+
+		purgeDlq(options): number {
+			const conditions: string[] = ["state = 'dead_letter'"];
+			const params: Record<string, string> = {};
+
+			if (options?.olderThanMs !== undefined) {
+				const cutoff = new Date(Date.now() - options.olderThanMs).toISOString();
+				conditions.push("created_at < $cutoff");
+				params.$cutoff = cutoff;
+			}
+			if (options?.agent !== undefined) {
+				conditions.push("to_agent = $agent");
+				params.$agent = options.agent;
+			}
+
+			const sql = `DELETE FROM messages WHERE ${conditions.join(" AND ")} RETURNING id`;
+			let stmt = stmtCache.get(sql);
+			if (!stmt) {
+				stmt = db.prepare(sql);
+				stmtCache.set(sql, stmt);
+			}
+			const deleted = (
+				stmt as ReturnType<typeof db.prepare<{ id: string }, Record<string, string>>>
+			).all(params);
+			return deleted.length;
+		},
+
 		purge(options: { all?: boolean; olderThanMs?: number; agent?: string }): number {
-			// Count matching rows before deletion so we can report accurate numbers
 			if (options.all) {
-				const countRow = db
-					.prepare<{ cnt: number }, []>("SELECT COUNT(*) as cnt FROM messages")
-					.get();
-				const count = countRow?.cnt ?? 0;
-				db.prepare("DELETE FROM messages").run();
-				return count;
+				const sql = "DELETE FROM messages RETURNING id";
+				let stmt = stmtCache.get(sql);
+				if (!stmt) {
+					stmt = db.prepare(sql);
+					stmtCache.set(sql, stmt);
+				}
+				return (stmt as ReturnType<typeof db.prepare<{ id: string }, []>>).all().length;
 			}
 
 			const conditions: string[] = [];
@@ -362,15 +856,16 @@ export function createMailStore(dbPath: string): MailStore {
 				return 0;
 			}
 
-			const whereClause = conditions.join(" AND ");
-			const countQuery = `SELECT COUNT(*) as cnt FROM messages WHERE ${whereClause}`;
-			const countRow = db.prepare<{ cnt: number }, Record<string, string>>(countQuery).get(params);
-			const count = countRow?.cnt ?? 0;
-
-			const deleteQuery = `DELETE FROM messages WHERE ${whereClause}`;
-			db.prepare<void, Record<string, string>>(deleteQuery).run(params);
-
-			return count;
+			const sql = `DELETE FROM messages WHERE ${conditions.join(" AND ")} RETURNING id`;
+			let stmt = stmtCache.get(sql);
+			if (!stmt) {
+				stmt = db.prepare(sql);
+				stmtCache.set(sql, stmt);
+			}
+			const deleted = (
+				stmt as ReturnType<typeof db.prepare<{ id: string }, Record<string, string>>>
+			).all(params);
+			return deleted.length;
 		},
 
 		close(): void {
