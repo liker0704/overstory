@@ -75,7 +75,9 @@ function formatMessage(msg: MailMessage): string {
 		lines.push(`  State: ${msg.state} (attempt ${msg.attempt})`);
 	}
 	if (msg.failReason) {
-		lines.push(`  Reason: ${msg.failReason}`);
+		const reason =
+			msg.failReason.length > 500 ? `${msg.failReason.slice(0, 500)}…` : msg.failReason;
+		lines.push(`  Reason: ${reason}`);
 	}
 	lines.push(`  ${msg.createdAt}`);
 	return lines.join("\n");
@@ -564,8 +566,9 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 
 				try {
 					for (let i = 0; i < recipients.length; i++) {
-						const recipient = recipients[i]!;
-						const id = messageIds[i]!;
+						const recipient = recipients[i];
+						const id = messageIds[i];
+						if (!recipient || !id) continue;
 
 						await syncMissionPendingInputFromMail(cwd, {
 							id,
@@ -600,9 +603,7 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 						}
 
 						// Auto-nudge for each individual message
-						const shouldNudge =
-							priority === "urgent" || priority === "high" || AUTO_NUDGE_TYPES.has(type);
-						if (shouldNudge) {
+						if (shouldAutoNudge(type as MailMessageType, priority as MailMessage["priority"])) {
 							const nudgeReason = AUTO_NUDGE_TYPES.has(type) ? type : `${priority} priority`;
 							await writePendingNudge(cwd, recipient, {
 								from,
@@ -993,9 +994,16 @@ interface DlqOpts {
 
 /** overstory mail dlq */
 function handleDlq(opts: DlqOpts, cwd: string): void {
+	const MAX_DLQ_LIMIT = 1000;
 	const limit = opts.limit !== undefined ? Number.parseInt(opts.limit, 10) : 100;
 	if (Number.isNaN(limit) || limit <= 0) {
 		throw new ValidationError("--limit must be a positive integer", {
+			field: "limit",
+			value: opts.limit,
+		});
+	}
+	if (limit > MAX_DLQ_LIMIT) {
+		throw new ValidationError(`--limit cannot exceed ${MAX_DLQ_LIMIT}`, {
 			field: "limit",
 			value: opts.limit,
 		});
@@ -1025,6 +1033,7 @@ function handleDlq(opts: DlqOpts, cwd: string): void {
 
 interface RetryOpts {
 	all?: boolean;
+	limit?: string;
 	json?: boolean;
 }
 
@@ -1047,16 +1056,20 @@ function handleRetry(id: string | undefined, opts: RetryOpts, cwd: string): void
 				printSuccess("Replayed message", id);
 			}
 		} else {
-			const dlqMessages = client.getDlq({ limit: 10_000 });
-			const replayedIds: string[] = [];
-			for (const msg of dlqMessages) {
-				client.replayDlq(msg.id);
-				replayedIds.push(msg.id);
+			const limit = opts.limit !== undefined ? Number.parseInt(opts.limit, 10) : 50;
+			if (Number.isNaN(limit) || limit <= 0) {
+				throw new ValidationError("--limit must be a positive integer", {
+					field: "limit",
+					value: opts.limit,
+				});
 			}
+			const dlqMessages = client.getDlq({ limit });
+			const ids = dlqMessages.map((m) => m.id);
+			const replayed = client.replayDlqBatch(ids);
 			if (json) {
-				jsonOutput("mail retry", { replayed: replayedIds.length, ids: replayedIds });
+				jsonOutput("mail retry", { replayed, ids });
 			} else {
-				printSuccess(`Replayed ${replayedIds.length} message(s) from dead-letter queue`);
+				printSuccess(`Replayed ${replayed} message(s) from dead-letter queue`);
 			}
 		}
 	} finally {
@@ -1172,6 +1185,7 @@ export async function mailCommand(args: string[]): Promise<void> {
 		.description("Replay messages from dead-letter queue")
 		.argument("[id]", "Message ID to replay (or use --all)")
 		.option("--all", "Replay all dead-lettered messages")
+		.option("--limit <n>", "Max messages to replay with --all (default: 50)")
 		.option("--json", "Output as JSON")
 		.exitOverride()
 		.action((id: string | undefined, opts: RetryOpts) => {
