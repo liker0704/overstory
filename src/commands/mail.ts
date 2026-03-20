@@ -638,6 +638,8 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 		// The message is already in the DB — the UserPromptSubmit hook's
 		// `mail check --inject` will surface it on the next prompt cycle.
 		// The pending nudge marker ensures the message gets a priority banner.
+		// Pending nudge marker: priority banner for urgent/high/protocol messages.
+		// Surfaces on the next UserPromptSubmit hook cycle via `mail check --inject`.
 		const shouldNudge = priority === "urgent" || priority === "high" || AUTO_NUDGE_TYPES.has(type);
 		if (shouldNudge) {
 			const nudgeReason = AUTO_NUDGE_TYPES.has(type) ? type : `${priority} priority`;
@@ -652,10 +654,11 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 					`Queued nudge for "${to}" (${nudgeReason}, delivered on next prompt)\n`,
 				);
 			}
-			// File markers only surface on the next UserPromptSubmit hook cycle.
-			// If the recipient is idle at the prompt, send a direct tmux nudge.
-			await nudgeIfIdle(cwd, to, `[MAIL] ${subject}`);
 		}
+
+		// Always poke idle agents — if they're sitting at the prompt they won't
+		// fire UserPromptSubmit, so the pending marker alone can't reach them.
+		await nudgeIfIdle(cwd, to, `[MAIL] ${subject}`);
 
 		// For dispatch messages, also send an immediate tmux nudge.
 		// Dispatch targets newly spawned agents that may be idle at the welcome
@@ -844,8 +847,7 @@ async function handleReply(id: string, opts: ReplyOpts, cwd: string): Promise<vo
 		client.close();
 	}
 
-	// Auto-nudge: replies inherit type/priority from original message.
-	// Apply the same nudge logic as handleSend.
+	// Pending nudge marker for urgent/high/protocol replies.
 	if (shouldAutoNudge(reply.type, reply.priority)) {
 		const nudgeReason = AUTO_NUDGE_TYPES.has(reply.type)
 			? reply.type
@@ -861,8 +863,10 @@ async function handleReply(id: string, opts: ReplyOpts, cwd: string): Promise<vo
 				`Queued nudge for "${reply.to}" (${nudgeReason}, delivered on next prompt)\n`,
 			);
 		}
-		await nudgeIfIdle(cwd, reply.to, `[MAIL] ${reply.subject}`);
 	}
+
+	// Always poke idle agents on any reply.
+	await nudgeIfIdle(cwd, reply.to, `[MAIL] ${reply.subject}`);
 
 	if (isDispatchNudge(reply.type)) {
 		try {
