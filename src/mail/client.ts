@@ -226,14 +226,17 @@ export function createMailClient(store: MailStore): MailClient {
 		},
 
 		check(agentName): MailMessage[] {
-			// v2: claim+ackBatch for crash-safe delivery
+			// v2: claim+ackBatch for at-most-once delivery.
+			// Messages are immediately acked after claim — if the caller crashes
+			// after this returns but before processing, messages are lost.
+			// For at-least-once semantics, use claim() + ack() per-message instead.
 			const messages = store.claim(agentName);
 			store.ackBatch(messages.map((m) => m.id));
 			return messages;
 		},
 
 		checkInject(agentName): string {
-			// v2: claim+ackBatch for crash-safe delivery
+			// v2: claim+ackBatch for at-most-once delivery (see check() comment)
 			const messages = store.claim(agentName);
 			store.ackBatch(messages.map((m) => m.id));
 			return formatForInjection(messages);
@@ -270,11 +273,11 @@ export function createMailClient(store: MailStore): MailClient {
 					messageId: id,
 				});
 			}
-			if (msg.read) {
-				return { alreadyRead: true };
-			}
+			// markRead() only updates queued/claimed messages (state guard in SQL).
+			// If the message is already acked/dead_letter/failed, it's a no-op —
+			// derive alreadyRead from the current state rather than a separate read.
 			store.markRead(id);
-			return { alreadyRead: false };
+			return { alreadyRead: msg.read };
 		},
 
 		reply(messageId, body, from): MailMessage {

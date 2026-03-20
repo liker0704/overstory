@@ -119,6 +119,21 @@ interface MessageRow {
 	fail_reason: string | null;
 }
 
+/**
+ * Validate that a value is safe for embedding in DDL (SQL schema definitions).
+ * Only alphanumeric characters and underscores are allowed — prevents SQL injection
+ * in dynamically-built CHECK constraints.
+ */
+function assertSafeForDdl(value: string): void {
+	if (!/^[a-z0-9_]+$/.test(value)) {
+		throw new Error(`Unsafe DDL value: ${value}`);
+	}
+}
+
+// Validate all type/state constants at module load time
+for (const t of MAIL_MESSAGE_TYPES) assertSafeForDdl(t);
+for (const s of MAIL_DELIVERY_STATES) assertSafeForDdl(s);
+
 /** Build the CHECK constraint for message types from the runtime constant. */
 const TYPE_CHECK = `CHECK(type IN (${MAIL_MESSAGE_TYPES.map((t) => `'${t}'`).join(",")}))`;
 const STATE_CHECK = `CHECK(state IN (${MAIL_DELIVERY_STATES.map((s) => `'${s}'`).join(",")}))`;
@@ -201,7 +216,9 @@ function migrateSchema(db: Database): void {
 	const oldHasState = row.sql.includes("state");
 	const payloadSelect = oldHasPayload ? "payload" : "NULL";
 
-	db.exec("BEGIN TRANSACTION");
+	// BEGIN IMMEDIATE acquires a write lock upfront, preventing concurrent
+	// migrations from interleaving DDL operations on the same database.
+	db.exec("BEGIN IMMEDIATE");
 	try {
 		db.exec("ALTER TABLE messages RENAME TO messages_old");
 		db.exec(`
@@ -258,7 +275,8 @@ FROM messages_old`);
 
 const CREATE_INDEXES = `
 CREATE INDEX IF NOT EXISTS idx_thread ON messages(thread_id);
-CREATE INDEX IF NOT EXISTS idx_state ON messages(to_agent, state, next_retry_at)`;
+CREATE INDEX IF NOT EXISTS idx_state ON messages(to_agent, state, next_retry_at);
+CREATE INDEX IF NOT EXISTS idx_from_agent ON messages(from_agent)`;
 
 /** Generate a random 12-character alphanumeric ID (unbiased). */
 function randomId(): string {
@@ -377,6 +395,7 @@ export function createMailStore(dbPath: string): MailStore {
 
 	const getByThreadStmt = db.prepare<MessageRow, { $thread_id: string }>(`
 		SELECT * FROM messages WHERE thread_id = $thread_id ORDER BY created_at ASC
+		LIMIT ${MAX_POLL_BATCH}
 	`);
 
 	// Only transition queued/claimed messages — don't bypass DLQ or failed state
@@ -417,12 +436,8 @@ export function createMailStore(dbPath: string): MailStore {
 		RETURNING *
 	`);
 
+	// Guarded ack: only transitions claimed messages (defense-in-depth)
 	const ackStmt = db.prepare<void, { $id: string }>(`
-		UPDATE messages SET state = 'acked', read = 1 WHERE id = $id
-	`);
-
-	// Guarded ack: only transitions claimed messages (safe for batch use)
-	const ackGuardedStmt = db.prepare<void, { $id: string }>(`
 		UPDATE messages SET state = 'acked', read = 1
 		WHERE id = $id AND state = 'claimed'
 	`);
@@ -434,7 +449,7 @@ export function createMailStore(dbPath: string): MailStore {
 		UPDATE messages
 		SET state = 'dead_letter', attempt = $attempt, fail_reason = $reason,
 		    claimed_at = NULL, next_retry_at = NULL
-		WHERE id = $id
+		WHERE id = $id AND state = 'claimed'
 	`);
 
 	const nackRetryStmt = db.prepare<
@@ -450,7 +465,7 @@ export function createMailStore(dbPath: string): MailStore {
 		SET state = 'failed', attempt = $attempt, fail_reason = $reason,
 		    claimed_at = NULL,
 		    next_retry_at = datetime('now', '+' || $delay_sec || ' seconds')
-		WHERE id = $id
+		WHERE id = $id AND state = 'claimed'
 	`);
 
 	const getDlqStmt = db.prepare<MessageRow, { $limit: number }>(`
@@ -473,10 +488,10 @@ export function createMailStore(dbPath: string): MailStore {
 		WHERE id = $id AND state = 'dead_letter'
 	`);
 
-	// Wrap multiple acks in a transaction — uses guarded stmt (skips non-claimed)
+	// Wrap multiple acks in a transaction — state guard in stmt skips non-claimed
 	const ackBatchTransaction = db.transaction((ids: string[]) => {
 		for (const id of ids) {
-			ackGuardedStmt.run({ $id: id });
+			ackStmt.run({ $id: id });
 		}
 	});
 
@@ -530,7 +545,10 @@ export function createMailStore(dbPath: string): MailStore {
 		},
 	);
 
-	// Cache for dynamically-built prepared statements (filter queries, purge variants)
+	// Cache for dynamically-built prepared statements (filter queries, purge variants).
+	// Bounded by the number of distinct filter/purge query shapes — in practice <20
+	// since the set of callers (getAll, purge, purgeDlq) generates a finite number
+	// of WHERE clause combinations.
 	const stmtCache = new Map<string, ReturnType<typeof db.prepare>>();
 
 	// Dynamic filter queries are built at call time since the WHERE clause varies
@@ -562,10 +580,10 @@ export function createMailStore(dbPath: string): MailStore {
 		}
 
 		const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-		const limitClause = filters?.limit !== undefined ? ` LIMIT $limit` : "";
-		if (filters?.limit !== undefined) {
-			params.$limit = filters.limit;
-		}
+		// Default limit prevents unbounded result sets when no filters are specified
+		const effectiveLimit = filters?.limit ?? 1000;
+		const limitClause = " LIMIT $limit";
+		params.$limit = effectiveLimit;
 		const query = `SELECT * FROM messages ${whereClause} ORDER BY created_at DESC${limitClause}`;
 		let stmt = stmtCache.get(query);
 		if (!stmt) {
@@ -768,16 +786,19 @@ export function createMailStore(dbPath: string): MailStore {
 		},
 
 		replayDlq(id: string): void {
-			const msg = getByIdStmt.get({ $id: id });
-			if (!msg) {
-				throw new MailError(`Message not found: ${id}`, { messageId: id });
-			}
-			if (msg.state !== "dead_letter") {
-				throw new MailError(`Cannot replay message in state '${msg.state}': ${id}`, {
-					messageId: id,
-				});
-			}
-			replayDlqStmt.run({ $id: id });
+			// Wrap in transaction to prevent TOCTOU race between read and write
+			db.transaction(() => {
+				const msg = getByIdStmt.get({ $id: id });
+				if (!msg) {
+					throw new MailError(`Message not found: ${id}`, { messageId: id });
+				}
+				if (msg.state !== "dead_letter") {
+					throw new MailError(`Cannot replay message in state '${msg.state}': ${id}`, {
+						messageId: id,
+					});
+				}
+				replayDlqStmt.run({ $id: id });
+			})();
 		},
 
 		purgeDlq(options): number {
