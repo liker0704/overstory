@@ -105,6 +105,13 @@ export function validateUnknownFields(raw: Record<string, unknown>): void {
 		}
 	}
 
+	if (isObj(raw.mail)) {
+		assertKnownKeys(raw.mail, KNOWN_FIELDS.mail, "mail");
+		if (isObj(raw.mail.reliability)) {
+			assertKnownKeys(raw.mail.reliability, KNOWN_FIELDS.mailReliability, "mail.reliability");
+		}
+	}
+
 	if (isObj(raw.runtime)) {
 		assertKnownKeys(raw.runtime, KNOWN_FIELDS.runtime, "runtime");
 		if (isObj(raw.runtime.pi)) {

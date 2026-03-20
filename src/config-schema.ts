@@ -31,6 +31,7 @@ export const KNOWN_FIELDS = {
 		"rateLimit",
 		"runtime",
 		"mission",
+		"mail",
 	]),
 	project: new Set(["name", "root", "canonicalBranch", "qualityGates"]),
 	qualityGateItem: new Set(["name", "command", "description"]),
@@ -80,4 +81,6 @@ export const KNOWN_FIELDS = {
 	providerItem: new Set(["type", "baseUrl", "authTokenEnv"]),
 	mission: new Set(["planReview"]),
 	missionPlanReview: new Set(["enabled", "tier", "maxRounds", "criticModel"]),
+	mail: new Set(["reliability"]),
+	mailReliability: new Set(["leaseTimeoutSec", "maxRetries", "backoffBaseMs", "backoffMaxMs"]),
 } as const;

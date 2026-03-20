@@ -185,6 +185,18 @@ export interface OverstoryConfig {
 			criticModel?: ModelRef;
 		};
 	};
+	mail?: {
+		reliability?: {
+			/** Lease timeout for claimed messages in seconds. Default: 120. */
+			leaseTimeoutSec?: number;
+			/** Max retry attempts before dead-lettering. Default: 3. */
+			maxRetries?: number;
+			/** Base backoff delay in milliseconds. Default: 5000. */
+			backoffBaseMs?: number;
+			/** Maximum backoff delay in milliseconds. Default: 60000. */
+			backoffMaxMs?: number;
+		};
+	};
 }
 
 // === Agent Manifest ===

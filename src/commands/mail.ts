@@ -21,8 +21,14 @@ import { validateMissionIngress } from "../missions/ingress.ts";
 import { resolveActiveMissionContext } from "../missions/runtime-context.ts";
 import { createMissionStore } from "../missions/store.ts";
 import { openSessionStore } from "../sessions/compat.ts";
-import type { MailMessage, MailMessageType, MissionFindingPayload } from "../types.ts";
-import { MAIL_MESSAGE_TYPES } from "../types.ts";
+import {
+	MAIL_DELIVERY_STATES,
+	MAIL_MESSAGE_TYPES,
+	type MailDeliveryState,
+	type MailMessage,
+	type MailMessageType,
+	type MissionFindingPayload,
+} from "../types.ts";
 
 /**
  * Protocol message types that require immediate recipient attention.
@@ -64,6 +70,12 @@ function formatMessage(msg: MailMessage): string {
 	];
 	if (msg.payload !== null) {
 		lines.push(`  Payload: ${msg.payload}`);
+	}
+	if (msg.state !== "queued" && msg.state !== "acked") {
+		lines.push(`  State: ${msg.state} (attempt ${msg.attempt})`);
+	}
+	if (msg.failReason) {
+		lines.push(`  Reason: ${msg.failReason}`);
 	}
 	lines.push(`  ${msg.createdAt}`);
 	return lines.join("\n");
@@ -424,6 +436,7 @@ interface ListOpts {
 	to?: string;
 	agent?: string;
 	unread?: boolean;
+	state?: string;
 	json?: boolean;
 }
 
@@ -833,9 +846,20 @@ function handleList(opts: ListOpts, cwd: string): void {
 	const unread = opts.unread ? true : undefined;
 	const json = opts.json ?? false;
 
+	let state: MailDeliveryState | undefined;
+	if (opts.state !== undefined) {
+		if (!MAIL_DELIVERY_STATES.includes(opts.state as MailDeliveryState)) {
+			throw new ValidationError(
+				`Invalid state '${opts.state}'. Valid states: ${MAIL_DELIVERY_STATES.join(", ")}`,
+				{ field: "state", value: opts.state },
+			);
+		}
+		state = opts.state as MailDeliveryState;
+	}
+
 	const client = openClient(cwd);
 	try {
-		const messages = client.list({ from, to, unread });
+		const messages = client.list({ from, to, unread, state });
 
 		if (json) {
 			jsonOutput("mail list", { messages });
@@ -961,10 +985,89 @@ function handlePurge(opts: PurgeOpts, cwd: string): void {
 	}
 }
 
+interface DlqOpts {
+	agent?: string;
+	limit?: string;
+	json?: boolean;
+}
+
+/** overstory mail dlq */
+function handleDlq(opts: DlqOpts, cwd: string): void {
+	const limit = opts.limit !== undefined ? Number.parseInt(opts.limit, 10) : 100;
+	if (Number.isNaN(limit) || limit <= 0) {
+		throw new ValidationError("--limit must be a positive integer", {
+			field: "limit",
+			value: opts.limit,
+		});
+	}
+	const json = opts.json ?? false;
+
+	const client = openClient(cwd);
+	try {
+		const messages = client.getDlq({ agent: opts.agent, limit });
+
+		if (json) {
+			jsonOutput("mail dlq", { messages, count: messages.length });
+		} else if (messages.length === 0) {
+			printHint("Dead-letter queue is empty");
+		} else {
+			for (const msg of messages) {
+				process.stdout.write(`${formatMessage(msg)}\n\n`);
+			}
+			process.stdout.write(
+				`Total: ${messages.length} dead-lettered message${messages.length === 1 ? "" : "s"}\n`,
+			);
+		}
+	} finally {
+		client.close();
+	}
+}
+
+interface RetryOpts {
+	all?: boolean;
+	json?: boolean;
+}
+
+/** overstory mail retry */
+function handleRetry(id: string | undefined, opts: RetryOpts, cwd: string): void {
+	if (!id && !opts.all) {
+		throw new ValidationError("Specify a message ID or --all", {
+			field: "retry",
+		});
+	}
+	const json = opts.json ?? false;
+
+	const client = openClient(cwd);
+	try {
+		if (id) {
+			client.replayDlq(id);
+			if (json) {
+				jsonOutput("mail retry", { replayed: 1, ids: [id] });
+			} else {
+				printSuccess("Replayed message", id);
+			}
+		} else {
+			const dlqMessages = client.getDlq({ limit: 10_000 });
+			const replayedIds: string[] = [];
+			for (const msg of dlqMessages) {
+				client.replayDlq(msg.id);
+				replayedIds.push(msg.id);
+			}
+			if (json) {
+				jsonOutput("mail retry", { replayed: replayedIds.length, ids: replayedIds });
+			} else {
+				printSuccess(`Replayed ${replayedIds.length} message(s) from dead-letter queue`);
+			}
+		}
+	} finally {
+		client.close();
+	}
+}
+
 /**
  * Entry point for `overstory mail <subcommand> [args...]`.
  *
- * Subcommands: send, check, list, read, reply, purge.
+ * Subcommands: send, check, list, read, reply, purge, dlq, retry.
  * Uses Commander.js for subcommand routing and option parsing.
  */
 export async function mailCommand(args: string[]): Promise<void> {
@@ -1012,6 +1115,7 @@ export async function mailCommand(args: string[]): Promise<void> {
 		.option("--to <name>", "Filter by recipient")
 		.option("--agent <name>", "Alias for --to (filter by recipient)")
 		.option("--unread", "Show only unread messages")
+		.option("--state <state>", "Filter by delivery state (queued|claimed|acked|failed|dead_letter)")
 		.option("--json", "Output as JSON")
 		.exitOverride()
 		.action((opts: ListOpts) => {
@@ -1050,6 +1154,28 @@ export async function mailCommand(args: string[]): Promise<void> {
 		.exitOverride()
 		.action((opts: PurgeOpts) => {
 			handlePurge(opts, root);
+		});
+
+	program
+		.command("dlq")
+		.description("List dead-lettered messages")
+		.option("--agent <name>", "Filter by recipient agent")
+		.option("--limit <n>", "Maximum messages to show")
+		.option("--json", "Output as JSON")
+		.exitOverride()
+		.action((opts: DlqOpts) => {
+			handleDlq(opts, root);
+		});
+
+	program
+		.command("retry")
+		.description("Replay messages from dead-letter queue")
+		.argument("[id]", "Message ID to replay (or use --all)")
+		.option("--all", "Replay all dead-lettered messages")
+		.option("--json", "Output as JSON")
+		.exitOverride()
+		.action((id: string | undefined, opts: RetryOpts) => {
+			handleRetry(id, opts, root);
 		});
 
 	await program.parseAsync(["node", "overstory-mail", ...args]);
