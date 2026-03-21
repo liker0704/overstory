@@ -10,8 +10,8 @@ import chalk from "chalk";
 import { Command } from "commander";
 import { loadConfig } from "../config.ts";
 import { jsonError, jsonOutput } from "../json.ts";
-import type { ReconciliationReport } from "../recovery/types.ts";
 import { restoreBundle } from "../recovery/restore.ts";
+import type { ReconciliationReport } from "../recovery/types.ts";
 
 export interface RecoverCommandOptions {
 	force?: boolean;
@@ -58,7 +58,10 @@ function renderReport(report: ReconciliationReport, dryRun: boolean): void {
 /**
  * Core recover command logic, extracted for testability.
  */
-export async function executeRecover(bundlePath: string, opts: RecoverCommandOptions): Promise<void> {
+export async function executeRecover(
+	bundlePath: string,
+	opts: RecoverCommandOptions,
+): Promise<void> {
 	const json = opts.json ?? false;
 
 	let config: Awaited<ReturnType<typeof loadConfig>>;

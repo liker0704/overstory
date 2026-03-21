@@ -33,10 +33,7 @@ function checkPid(pid: number | null): boolean | null {
 	}
 }
 
-function agentComponentStatus(
-	tmuxAlive: boolean,
-	worktreeExists: boolean,
-): ComponentRestoreStatus {
+function agentComponentStatus(tmuxAlive: boolean, worktreeExists: boolean): ComponentRestoreStatus {
 	if (tmuxAlive && worktreeExists) return "restored";
 	if (!tmuxAlive && !worktreeExists) return "missing";
 	return "degraded";

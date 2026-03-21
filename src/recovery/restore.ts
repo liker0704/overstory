@@ -7,13 +7,13 @@ import { createMailStore } from "../mail/store.ts";
 import { createMergeQueue } from "../merge/queue.ts";
 import { createMissionStore } from "../missions/store.ts";
 import { createRunStore, createSessionStore } from "../sessions/store.ts";
+import { type ReconcileDeps, reconcileSnapshot } from "./reconcile.ts";
 import type {
 	ReconciliationReport,
 	RecoveryBundleManifest,
 	RestoreOptions,
 	SwarmSnapshot,
 } from "./types.ts";
-import { type ReconcileDeps, reconcileSnapshot } from "./reconcile.ts";
 
 /** Injectable deps for testing. */
 export interface RestoreDeps {
@@ -43,10 +43,9 @@ async function loadBundle(
 	const manifest = await loadJson<RecoveryBundleManifest>(join(bundlePath, "manifest.json"));
 
 	if (manifest.formatVersion !== 1) {
-		throw new RecoveryError(
-			`Unsupported bundle format version: ${manifest.formatVersion}`,
-			{ bundleId: manifest.bundleId },
-		);
+		throw new RecoveryError(`Unsupported bundle format version: ${manifest.formatVersion}`, {
+			bundleId: manifest.bundleId,
+		});
 	}
 
 	const snapshot = await loadJson<SwarmSnapshot>(
@@ -81,10 +80,7 @@ function restoreSessions(
 }
 
 /** Restore runs into sessions.db (skips on primary key conflict). */
-function restoreRuns(
-	dbPath: string,
-	snapshot: SwarmSnapshot,
-): { count: number; skipped: number } {
+function restoreRuns(dbPath: string, snapshot: SwarmSnapshot): { count: number; skipped: number } {
 	const store = createRunStore(dbPath);
 	let count = 0;
 	let skipped = 0;
@@ -146,10 +142,7 @@ function restoreMissions(
 }
 
 /** Restore mail messages into mail.db (skips on ID conflict). */
-function restoreMail(
-	dbPath: string,
-	snapshot: SwarmSnapshot,
-): { count: number; skipped: number } {
+function restoreMail(dbPath: string, snapshot: SwarmSnapshot): { count: number; skipped: number } {
 	const store = createMailStore(dbPath);
 	let count = 0;
 	let skipped = 0;
@@ -211,10 +204,7 @@ function restoreMergeQueue(
 }
 
 /** Restore file-based agent state: checkpoints, handoffs, identities. */
-async function restoreAgentFiles(
-	agentsDir: string,
-	snapshot: SwarmSnapshot,
-): Promise<void> {
+async function restoreAgentFiles(agentsDir: string, snapshot: SwarmSnapshot): Promise<void> {
 	await mkdir(agentsDir, { recursive: true });
 
 	const tasks: Promise<void>[] = [];
@@ -363,7 +353,10 @@ export async function restoreBundle(
 	const mergeResult = restoreMergeQueue(mergeQueueDbPath, snapshot);
 	components.push({
 		name: "merge-queue",
-		status: mergeResult.count >= pendingCount || snapshot.mergeQueue.length === 0 ? "restored" : "degraded",
+		status:
+			mergeResult.count >= pendingCount || snapshot.mergeQueue.length === 0
+				? "restored"
+				: "degraded",
 		details: `${mergeResult.count} pending entries restored, ${nonPendingCount} non-pending skipped`,
 	});
 	if (nonPendingCount > 0) {

@@ -101,12 +101,8 @@ export async function executeSnapshot(opts: SnapshotCommandOptions): Promise<voi
 	}
 
 	const totalBytes = manifest.files.reduce((sum, f) => sum + f.sizeBytes, 0);
-	process.stdout.write(
-		`${chalk.green("✓")} Snapshot created: ${chalk.cyan(outputDir)}\n`,
-	);
-	process.stdout.write(
-		`  Files: ${manifest.files.length}  Size: ${formatBytes(totalBytes)}\n`,
-	);
+	process.stdout.write(`${chalk.green("✓")} Snapshot created: ${chalk.cyan(outputDir)}\n`);
+	process.stdout.write(`  Files: ${manifest.files.length}  Size: ${formatBytes(totalBytes)}\n`);
 	process.stdout.write(
 		`  Sessions: ${componentSummary.sessions}  Runs: ${componentSummary.runs}` +
 			`  Missions: ${componentSummary.missions}  Mail: ${componentSummary.mail}\n`,

@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { createMailStore } from "../mail/store.ts";
 import { createMergeQueue } from "../merge/queue.ts";
 import { createRunStore, createSessionStore } from "../sessions/store.ts";
-import type { AgentSession, InsertRun, SessionCheckpoint } from "../types.ts";
+import type { AgentSession, InsertRun } from "../types.ts";
 import { type ReconcileDeps, reconcileSnapshot } from "./reconcile.ts";
 import { restoreBundle } from "./restore.ts";
 import { createSnapshot, exportSnapshotBundle } from "./snapshot.ts";
@@ -261,20 +261,15 @@ describe("restoreBundle", () => {
 				files: [],
 			}),
 		);
-		await expect(
-			restoreBundle(targetDir, { bundlePath: bundleDir }),
-		).rejects.toThrow("Unsupported bundle format version");
+		await expect(restoreBundle(targetDir, { bundlePath: bundleDir })).rejects.toThrow(
+			"Unsupported bundle format version",
+		);
 	});
 
 	test("dry run — returns reconcile report without writing any files", async () => {
 		const snapshot = await createSnapshot(sourceDir);
 		const manifest = await exportSnapshotBundle(snapshot);
-		const bundlePath = join(
-			sourceDir,
-			".overstory",
-			"snapshots",
-			snapshot.snapshotId,
-		);
+		const bundlePath = join(sourceDir, ".overstory", "snapshots", snapshot.snapshotId);
 
 		const report = await restoreBundle(
 			targetDir,
@@ -293,11 +288,7 @@ describe("restoreBundle", () => {
 		const manifest = await exportSnapshotBundle(snapshot);
 		const bundlePath = join(sourceDir, ".overstory", "snapshots", snapshot.snapshotId);
 
-		const report = await restoreBundle(
-			targetDir,
-			{ bundlePath },
-			{ reconcile: tmuxAlwaysDead },
-		);
+		const report = await restoreBundle(targetDir, { bundlePath }, { reconcile: tmuxAlwaysDead });
 
 		expect(report.bundleId).toBe(manifest.bundleId);
 		expect(report.overallStatus).toBe("restored");
@@ -319,7 +310,7 @@ describe("restoreBundle", () => {
 		store.close();
 
 		const snapshot = await createSnapshot(sourceDir, { includeCompleted: true });
-		const manifest = await exportSnapshotBundle(snapshot);
+		const _manifest = await exportSnapshotBundle(snapshot);
 		const bundlePath = join(sourceOvDir, "snapshots", snapshot.snapshotId);
 
 		await restoreBundle(targetDir, { bundlePath }, { reconcile: tmuxAlwaysDead });
@@ -341,7 +332,7 @@ describe("restoreBundle", () => {
 		runStore.close();
 
 		const snapshot = await createSnapshot(sourceDir);
-		const manifest = await exportSnapshotBundle(snapshot);
+		const _manifest = await exportSnapshotBundle(snapshot);
 		const bundlePath = join(sourceOvDir, "snapshots", snapshot.snapshotId);
 
 		await restoreBundle(targetDir, { bundlePath }, { reconcile: tmuxAlwaysDead });
@@ -372,7 +363,7 @@ describe("restoreBundle", () => {
 		mailStore.close();
 
 		const snapshot = await createSnapshot(sourceDir);
-		const manifest = await exportSnapshotBundle(snapshot);
+		const _manifest = await exportSnapshotBundle(snapshot);
 		const bundlePath = join(sourceOvDir, "snapshots", snapshot.snapshotId);
 
 		await restoreBundle(targetDir, { bundlePath }, { reconcile: tmuxAlwaysDead });
@@ -454,11 +445,7 @@ describe("restoreBundle", () => {
 		await exportSnapshotBundle(snapshot);
 		const bundlePath = join(sourceOvDir, "snapshots", snapshot.snapshotId);
 
-		const report = await restoreBundle(
-			targetDir,
-			{ bundlePath },
-			{ reconcile: tmuxAlwaysDead },
-		);
+		const report = await restoreBundle(targetDir, { bundlePath }, { reconcile: tmuxAlwaysDead });
 
 		// Should include agent reconcile components alongside store components
 		const agentComponents = report.components.filter((c) => c.name.startsWith("agent:"));
@@ -470,21 +457,12 @@ describe("restoreBundle", () => {
 	test("idempotent restore — re-running restore on populated target skips conflicts", async () => {
 		const snapshot = await createSnapshot(sourceDir);
 		await exportSnapshotBundle(snapshot);
-		const bundlePath = join(
-			sourceDir,
-			".overstory",
-			"snapshots",
-			snapshot.snapshotId,
-		);
+		const bundlePath = join(sourceDir, ".overstory", "snapshots", snapshot.snapshotId);
 
 		// First restore
 		await restoreBundle(targetDir, { bundlePath }, { reconcile: tmuxAlwaysDead });
 		// Second restore (should skip all conflicts, not throw)
-		const report = await restoreBundle(
-			targetDir,
-			{ bundlePath },
-			{ reconcile: tmuxAlwaysDead },
-		);
+		const report = await restoreBundle(targetDir, { bundlePath }, { reconcile: tmuxAlwaysDead });
 
 		expect(report.bundleId).toBeTruthy();
 	});
