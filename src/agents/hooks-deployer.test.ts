@@ -42,18 +42,21 @@ describe("deployHooks", () => {
 		expect(exists).toBe(true);
 	});
 
-	test("replaces {{AGENT_NAME}} with the actual agent name", async () => {
+	test("uses $OVERSTORY_AGENT_NAME instead of baked agent name", async () => {
 		const worktreePath = join(tempDir, "worktree");
 
 		await deployHooks(worktreePath, "my-builder");
 
 		const outputPath = join(worktreePath, ".claude", "settings.local.json");
 		const content = await Bun.file(outputPath).text();
-		expect(content).toContain("my-builder");
+		// Template no longer bakes agent names — uses env var at runtime
+		expect(content).toContain("$OVERSTORY_AGENT_NAME");
 		expect(content).not.toContain("{{AGENT_NAME}}");
+		// Agent name still appears in capability guards (getDangerGuards branch naming)
+		expect(content).toContain("my-builder");
 	});
 
-	test("replaces all occurrences of {{AGENT_NAME}}", async () => {
+	test("no baked agent name in base hook commands", async () => {
 		const worktreePath = join(tempDir, "worktree");
 
 		await deployHooks(worktreePath, "scout-alpha");
@@ -61,10 +64,11 @@ describe("deployHooks", () => {
 		const outputPath = join(worktreePath, ".claude", "settings.local.json");
 		const content = await Bun.file(outputPath).text();
 
-		// The template has {{AGENT_NAME}} in multiple hook commands
-		const occurrences = content.split("scout-alpha").length - 1;
-		expect(occurrences).toBeGreaterThanOrEqual(7);
+		// Template hooks use $OVERSTORY_AGENT_NAME, not baked names
 		expect(content).not.toContain("{{AGENT_NAME}}");
+		// $OVERSTORY_AGENT_NAME should appear many times in template hooks
+		const envVarCount = content.split("$OVERSTORY_AGENT_NAME").length - 1;
+		expect(envVarCount).toBeGreaterThanOrEqual(7);
 	});
 
 	test("output is valid JSON", async () => {
@@ -155,9 +159,9 @@ describe("deployHooks", () => {
 		expect(postToolUse[0].hooks[0].command).toContain("ov log tool-end");
 		// Second entry is the debounced mail check
 		expect(postToolUse[1].hooks[0].command).toContain("ov mail check --inject");
-		expect(postToolUse[1].hooks[0].command).toContain("mail-check-agent");
+		expect(postToolUse[1].hooks[0].command).toContain('--agent "$OVERSTORY_AGENT_NAME"');
 		expect(postToolUse[1].hooks[0].command).toContain("--debounce 30000");
-		expect(postToolUse[1].hooks[0].command).toContain("OVERSTORY_AGENT_NAME");
+		expect(postToolUse[1].hooks[0].command).toContain("OVERSTORY_RUNTIME_SESSION_ID");
 	});
 
 	test("PostToolUse hook includes mulch diff Bash hook", async () => {
@@ -215,8 +219,8 @@ describe("deployHooks", () => {
 		const parsed = JSON.parse(content);
 		const sessionStart = parsed.hooks.SessionStart[0];
 		expect(sessionStart.hooks[0].type).toBe("command");
-		expect(sessionStart.hooks[0].command).toContain("ov prime --agent prime-agent");
-		expect(sessionStart.hooks[0].command).toContain("OVERSTORY_AGENT_NAME");
+		expect(sessionStart.hooks[0].command).toContain('ov prime --agent "$OVERSTORY_AGENT_NAME"');
+		expect(sessionStart.hooks[0].command).toContain("OVERSTORY_RUNTIME_SESSION_ID");
 	});
 
 	test("UserPromptSubmit hook runs mail check with agent name", async () => {
@@ -228,8 +232,10 @@ describe("deployHooks", () => {
 		const content = await Bun.file(outputPath).text();
 		const parsed = JSON.parse(content);
 		const userPrompt = parsed.hooks.UserPromptSubmit[0];
-		expect(userPrompt.hooks[0].command).toContain("ov mail check --inject --agent mail-agent");
-		expect(userPrompt.hooks[0].command).toContain("OVERSTORY_AGENT_NAME");
+		expect(userPrompt.hooks[0].command).toContain(
+			'ov mail check --inject --agent "$OVERSTORY_AGENT_NAME"',
+		);
+		expect(userPrompt.hooks[0].command).toContain("OVERSTORY_RUNTIME_SESSION_ID");
 	});
 
 	test("PreCompact hook runs overstory prime with --compact flag", async () => {
@@ -242,8 +248,10 @@ describe("deployHooks", () => {
 		const parsed = JSON.parse(content);
 		const preCompact = parsed.hooks.PreCompact[0];
 		expect(preCompact.hooks[0].type).toBe("command");
-		expect(preCompact.hooks[0].command).toContain("ov prime --agent compact-agent --compact");
-		expect(preCompact.hooks[0].command).toContain("OVERSTORY_AGENT_NAME");
+		expect(preCompact.hooks[0].command).toContain(
+			'ov prime --agent "$OVERSTORY_AGENT_NAME" --compact',
+		);
+		expect(preCompact.hooks[0].command).toContain("OVERSTORY_RUNTIME_SESSION_ID");
 	});
 
 	test("PreToolUse hook pipes stdin to overstory log with --stdin flag", async () => {
@@ -261,7 +269,7 @@ describe("deployHooks", () => {
 		expect(baseHook).toBeDefined();
 		expect(baseHook.hooks[0].command).toContain("--stdin");
 		expect(baseHook.hooks[0].command).toContain("ov log tool-start");
-		expect(baseHook.hooks[0].command).toContain("stdin-agent");
+		expect(baseHook.hooks[0].command).toContain('--agent "$OVERSTORY_AGENT_NAME"');
 		expect(baseHook.hooks[0].command).not.toContain("read -r INPUT");
 	});
 
@@ -276,7 +284,7 @@ describe("deployHooks", () => {
 		const postToolUse = parsed.hooks.PostToolUse[0];
 		expect(postToolUse.hooks[0].command).toContain("--stdin");
 		expect(postToolUse.hooks[0].command).toContain("ov log tool-end");
-		expect(postToolUse.hooks[0].command).toContain("stdin-agent");
+		expect(postToolUse.hooks[0].command).toContain('--agent "$OVERSTORY_AGENT_NAME"');
 		expect(postToolUse.hooks[0].command).not.toContain("read -r INPUT");
 	});
 
@@ -296,9 +304,9 @@ describe("deployHooks", () => {
 		// Second hook should be mail check with debounce
 		expect(postToolUse.hooks[1].command).toContain("ov mail check");
 		expect(postToolUse.hooks[1].command).toContain("--inject");
-		expect(postToolUse.hooks[1].command).toContain("--agent mail-debounce-agent");
+		expect(postToolUse.hooks[1].command).toContain('--agent "$OVERSTORY_AGENT_NAME"');
 		expect(postToolUse.hooks[1].command).toContain("--debounce 500");
-		expect(postToolUse.hooks[1].command).toContain("OVERSTORY_AGENT_NAME");
+		expect(postToolUse.hooks[1].command).toContain("OVERSTORY_RUNTIME_SESSION_ID");
 	});
 
 	test("Stop hook pipes stdin to overstory log with --stdin flag", async () => {
@@ -312,7 +320,7 @@ describe("deployHooks", () => {
 		const stop = parsed.hooks.Stop[0];
 		expect(stop.hooks[0].command).toContain("--stdin");
 		expect(stop.hooks[0].command).toContain("ov log session-end");
-		expect(stop.hooks[0].command).toContain("stdin-agent");
+		expect(stop.hooks[0].command).toContain('--agent "$OVERSTORY_AGENT_NAME"');
 		expect(stop.hooks[0].command).not.toContain("read -r INPUT");
 	});
 
@@ -533,8 +541,9 @@ describe("deployHooks", () => {
 			.filter((h: { matcher: string }) => h.matcher !== "")
 			.map((h: { matcher: string }) => h.matcher);
 
-		// Path boundary guards + Bash danger guard + Bash path boundary guard + 10 native team tool blocks
+		// Path boundary guards + Bash danger guard + Bash path boundary guard + 11 native team tool blocks
 		expect(guardMatchers).toContain("Bash");
+		expect(guardMatchers).toContain("Agent");
 		expect(guardMatchers).toContain("Task");
 		expect(guardMatchers).toContain("TeamCreate");
 		// Builder has Write guards for path boundary (not block guards)
@@ -837,7 +846,7 @@ describe("deployHooks", () => {
 			entry.hooks.map((h) => h.command),
 		);
 		const mailCheckCmd = allCommands.find((cmd: string) =>
-			cmd.includes("ov mail check --inject --agent my-agent"),
+			cmd.includes('ov mail check --inject --agent "$OVERSTORY_AGENT_NAME"'),
 		);
 		expect(mailCheckCmd).toBeDefined();
 	});
@@ -948,37 +957,37 @@ describe("isOverstoryHookEntry", () => {
 });
 
 describe("getCapabilityGuards", () => {
-	// 10 native team tool blocks apply to ALL capabilities
-	const NATIVE_TEAM_TOOL_COUNT = 10;
+	// 11 native team tool blocks apply to ALL capabilities
+	const NATIVE_TEAM_TOOL_COUNT = 11;
 	// 3 interactive tool blocks (AskUserQuestion, EnterPlanMode, EnterWorktree) apply to ALL capabilities
 	const INTERACTIVE_TOOL_COUNT = 3;
 
-	test("returns 17 guards for scout (10 team + 3 interactive + 3 tool blocks + 1 bash file guard)", () => {
+	test("returns 18 guards for scout (11 team + 3 interactive + 3 tool blocks + 1 bash file guard)", () => {
 		const guards = getCapabilityGuards("scout", "test-scout");
 		expect(guards.length).toBe(NATIVE_TEAM_TOOL_COUNT + INTERACTIVE_TOOL_COUNT + 4);
 	});
 
-	test("returns 17 guards for reviewer (10 team + 3 interactive + 3 tool blocks + 1 bash file guard)", () => {
+	test("returns 18 guards for reviewer (11 team + 3 interactive + 3 tool blocks + 1 bash file guard)", () => {
 		const guards = getCapabilityGuards("reviewer", "test-reviewer");
 		expect(guards.length).toBe(NATIVE_TEAM_TOOL_COUNT + INTERACTIVE_TOOL_COUNT + 4);
 	});
 
-	test("returns 17 guards for lead (10 team + 3 interactive + 3 tool blocks + 1 bash file guard)", () => {
+	test("returns 18 guards for lead (11 team + 3 interactive + 3 tool blocks + 1 bash file guard)", () => {
 		const guards = getCapabilityGuards("lead", "test-lead");
 		expect(guards.length).toBe(NATIVE_TEAM_TOOL_COUNT + INTERACTIVE_TOOL_COUNT + 4);
 	});
 
-	test("returns 14 guards for builder (10 team + 3 interactive + 1 bash path boundary)", () => {
+	test("returns 15 guards for builder (11 team + 3 interactive + 1 bash path boundary)", () => {
 		const guards = getCapabilityGuards("builder", "test-builder");
 		expect(guards.length).toBe(NATIVE_TEAM_TOOL_COUNT + INTERACTIVE_TOOL_COUNT + 1);
 	});
 
-	test("returns 14 guards for merger (10 team + 3 interactive + 1 bash path boundary)", () => {
+	test("returns 15 guards for merger (11 team + 3 interactive + 1 bash path boundary)", () => {
 		const guards = getCapabilityGuards("merger", "test-merger");
 		expect(guards.length).toBe(NATIVE_TEAM_TOOL_COUNT + INTERACTIVE_TOOL_COUNT + 1);
 	});
 
-	test("returns 13 guards for unknown capability (10 team + 3 interactive tool blocks)", () => {
+	test("returns 14 guards for unknown capability (11 team + 3 interactive tool blocks)", () => {
 		const guards = getCapabilityGuards("unknown", "test-unknown");
 		expect(guards.length).toBe(NATIVE_TEAM_TOOL_COUNT + INTERACTIVE_TOOL_COUNT);
 	});
@@ -1064,7 +1073,7 @@ describe("getCapabilityGuards", () => {
 		}
 	});
 
-	test("all capabilities get TeamCreate and SendMessage blocked", () => {
+	test("all capabilities get Agent, TeamCreate and SendMessage blocked", () => {
 		for (const cap of [
 			"scout",
 			"reviewer",
@@ -1076,6 +1085,7 @@ describe("getCapabilityGuards", () => {
 		]) {
 			const guards = getCapabilityGuards(cap, `test-${cap}`);
 			const matchers = guards.map((g) => g.matcher);
+			expect(matchers).toContain("Agent");
 			expect(matchers).toContain("TeamCreate");
 			expect(matchers).toContain("SendMessage");
 		}
@@ -1097,12 +1107,12 @@ describe("getCapabilityGuards", () => {
 		expect(taskGuard?.hooks[0]?.command).toContain('[ -z "$OVERSTORY_AGENT_NAME" ] && exit 0;');
 	});
 
-	test("coordinator gets 13 guards (10 team + 3 interactive, no file blocks)", () => {
+	test("coordinator gets 14 guards (11 team + 3 interactive, no file blocks)", () => {
 		const guards = getCapabilityGuards("coordinator", "test-coordinator");
 		expect(guards.length).toBe(NATIVE_TEAM_TOOL_COUNT + INTERACTIVE_TOOL_COUNT);
 	});
 
-	test("supervisor gets 17 guards (10 team + 3 interactive + 3 tool blocks + 1 bash file guard)", () => {
+	test("supervisor gets 18 guards (11 team + 3 interactive + 3 tool blocks + 1 bash file guard)", () => {
 		const guards = getCapabilityGuards("supervisor", "test-supervisor");
 		expect(guards.length).toBe(NATIVE_TEAM_TOOL_COUNT + INTERACTIVE_TOOL_COUNT + 4);
 	});
@@ -2230,7 +2240,7 @@ describe("bash path boundary integration", () => {
 		expect(pathGuard).toBeDefined();
 	});
 
-	test("deployed hooks include universal git push guard without ENV_GUARD", async () => {
+	test("deployed hooks include git push guard with ENV_GUARD v2", async () => {
 		const worktreePath = join(tempDir, "universal-push-wt");
 
 		await deployHooks(worktreePath, "universal-push-agent", "builder");
@@ -2240,15 +2250,16 @@ describe("bash path boundary integration", () => {
 		const parsed = JSON.parse(content);
 		const preToolUse = parsed.hooks.PreToolUse;
 
-		// Find the universal git push guard: Bash matcher, blocks git push, no ENV_GUARD
-		const universalGuard = preToolUse.find(
+		// Find the git push guard: Bash matcher, blocks git push
+		// Now includes ENV_GUARD v2 so it only fires for overstory sessions
+		const pushGuard = preToolUse.find(
 			(h: { matcher: string; hooks: Array<{ command: string }> }) =>
-				h.matcher === "Bash" &&
-				h.hooks[0]?.command?.includes("git push is blocked") &&
-				!h.hooks[0]?.command?.includes("OVERSTORY_AGENT_NAME"),
+				h.matcher === "Bash" && h.hooks[0]?.command?.includes("git push is blocked"),
 		);
-		expect(universalGuard).toBeDefined();
-		expect(universalGuard.hooks[0].command).toContain('"decision":"block"');
+		expect(pushGuard).toBeDefined();
+		expect(pushGuard.hooks[0].command).toContain('"decision":"block"');
+		// ENV_GUARD v2: uses OVERSTORY_RUNTIME_SESSION_ID as C6 discriminator
+		expect(pushGuard.hooks[0].command).toContain("OVERSTORY_RUNTIME_SESSION_ID");
 	});
 });
 
@@ -2256,6 +2267,10 @@ describe("PATH_PREFIX", () => {
 	test("PATH_PREFIX is exported and is a non-empty string", () => {
 		expect(typeof PATH_PREFIX).toBe("string");
 		expect(PATH_PREFIX.length).toBeGreaterThan(0);
+	});
+
+	test("PATH_PREFIX contains project-local node_modules/.bin", () => {
+		expect(PATH_PREFIX).toContain("node_modules/.bin");
 	});
 
 	test("PATH_PREFIX contains ~/.bun/bin for bun-installed CLIs", () => {

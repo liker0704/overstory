@@ -24,13 +24,20 @@ const NON_IMPLEMENTATION_CAPABILITIES = new Set([
 	"supervisor",
 	"monitor",
 	"mission-analyst",
+	"plan-review-lead",
 ]);
 
 /**
  * Capabilities that coordinate work and need git add/commit for syncing
  * tasks, mulch, and other metadata — but must NOT git push.
  */
-const COORDINATION_CAPABILITIES = new Set(["coordinator", "supervisor", "monitor"]);
+const COORDINATION_CAPABILITIES = new Set([
+	"coordinator",
+	"coordinator-mission",
+	"execution-director",
+	"supervisor",
+	"monitor",
+]);
 
 /**
  * Additional safe Bash prefixes for coordination capabilities.
@@ -67,7 +74,7 @@ function getTemplatePath(): string {
 }
 
 /**
- * Env var guard prefix for hook commands.
+ * Env var guard prefix for hook commands (v2).
  *
  * When hooks are deployed to the project root (e.g. for the coordinator),
  * they affect ALL Claude Code sessions in that directory. This prefix
@@ -75,14 +82,24 @@ function getTemplatePath(): string {
  * (which have OVERSTORY_AGENT_NAME set in their environment) and are
  * no-ops for the user's own Claude Code session.
  *
- * If OVERSTORY_AGENT_NAME is unset (e.g. after context compaction where
- * the process restarts without the original exports), falls back to sourcing
- * `.claude/.agent-env` — a file written by createSession() containing all
- * OVERSTORY_* exports. Uses shell builtin `. file` (0 forks, ~0.03ms).
+ * Uses OVERSTORY_RUNTIME_SESSION_ID as a session discriminator to distinguish
+ * agent compaction recovery from human sessions. Human sessions have neither
+ * OVERSTORY_AGENT_NAME nor OVERSTORY_RUNTIME_SESSION_ID — they exit at step 2.
+ *
+ * Recovery path (compaction): if OVERSTORY_AGENT_NAME is lost but
+ * OVERSTORY_RUNTIME_SESSION_ID survives (set in tmux env at spawn), sources
+ * a session-scoped `.agent-env.{sessionId}` file to recover identity.
+ *
+ * Steps:
+ *  1. OVERSTORY_AGENT_NAME set → proceed (happy path, ~0ms)
+ *  2. OVERSTORY_RUNTIME_SESSION_ID unset → human session → exit 0
+ *  3. Source session-scoped .agent-env.{sessionId} file (~0.03ms)
+ *  4. OVERSTORY_AGENT_NAME still unset → exit 0
  */
 const ENV_GUARD =
 	'if [ -z "$OVERSTORY_AGENT_NAME" ]; then ' +
-	"[ -f .claude/.agent-env ] && . .claude/.agent-env; " +
+	'[ -z "$OVERSTORY_RUNTIME_SESSION_ID" ] && exit 0; ' +
+	'[ -f ".claude/.agent-env.$OVERSTORY_RUNTIME_SESSION_ID" ] && . ".claude/.agent-env.$OVERSTORY_RUNTIME_SESSION_ID"; ' +
 	'[ -z "$OVERSTORY_AGENT_NAME" ] && exit 0; ' +
 	"fi;";
 
@@ -103,17 +120,18 @@ function agentGuard(agentName: string): string {
  * PATH setup prefix for hook commands.
  *
  * Claude Code executes hook commands via /bin/sh with a minimal PATH
- * (/usr/bin:/bin:/usr/sbin:/sbin). Bun-installed CLIs — ov, ml, sd, cn, bd —
- * live in ~/.bun/bin which is absent from that PATH, causing hooks like
- * `ov prime` (SessionStart) and `ml learn` (Stop) to fail with
- * "command not found".
+ * (/usr/bin:/bin:/usr/sbin:/sbin). os-eco CLIs may be available either via
+ * project-local node_modules/.bin or via Bun global installs in ~/.bun/bin;
+ * both are absent from that PATH, causing hooks like `ov prime` (SessionStart)
+ * and `ml learn` (Stop) to fail with "command not found".
  *
  * Prepend this to any hook command that invokes one of those CLIs so they
  * resolve correctly regardless of how Claude Code was launched.
  *
  * Exported so tests can verify the exact prefix value.
  */
-export const PATH_PREFIX = 'export PATH="$HOME/.bun/bin:/usr/local/bin:/opt/homebrew/bin:$PATH";';
+export const PATH_PREFIX =
+	'export PATH="$(pwd)/node_modules/.bin:$HOME/.bun/bin:/usr/local/bin:/opt/homebrew/bin:$PATH";';
 
 /**
  * Build a PreToolUse guard script that validates file paths are within
@@ -624,11 +642,9 @@ export async function deployHooks(
 		});
 	}
 
-	// Replace all occurrences of {{AGENT_NAME}}
-	let content = template;
-	while (content.includes("{{AGENT_NAME}}")) {
-		content = content.replace("{{AGENT_NAME}}", agentName);
-	}
+	// Template no longer uses {{AGENT_NAME}} — hooks resolve identity dynamically
+	// via $OVERSTORY_AGENT_NAME env var at runtime (ENV_GUARD v2).
+	const content = template;
 
 	// Parse the base config from the template
 	const config = JSON.parse(content) as { hooks: Record<string, HookEntry[]> };

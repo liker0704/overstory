@@ -6,11 +6,11 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "[ -z \"$OVERSTORY_AGENT_NAME\" ] && exit 0; ov prime --agent {{AGENT_NAME}}"
+						"command": "if [ -z \"$OVERSTORY_AGENT_NAME\" ]; then [ -z \"$OVERSTORY_RUNTIME_SESSION_ID\" ] && exit 0; [ -f \".claude/.agent-env.$OVERSTORY_RUNTIME_SESSION_ID\" ] && . \".claude/.agent-env.$OVERSTORY_RUNTIME_SESSION_ID\"; [ -z \"$OVERSTORY_AGENT_NAME\" ] && exit 0; fi; ov prime --agent \"$OVERSTORY_AGENT_NAME\""
 					},
 					{
 						"type": "command",
-						"command": "[ -z \"$OVERSTORY_AGENT_NAME\" ] && exit 0; ov mail check --inject --agent {{AGENT_NAME}}"
+						"command": "if [ -z \"$OVERSTORY_AGENT_NAME\" ]; then [ -z \"$OVERSTORY_RUNTIME_SESSION_ID\" ] && exit 0; [ -f \".claude/.agent-env.$OVERSTORY_RUNTIME_SESSION_ID\" ] && . \".claude/.agent-env.$OVERSTORY_RUNTIME_SESSION_ID\"; [ -z \"$OVERSTORY_AGENT_NAME\" ] && exit 0; fi; ov mail check --inject --agent \"$OVERSTORY_AGENT_NAME\""
 					}
 				]
 			}
@@ -21,7 +21,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "[ -z \"$OVERSTORY_AGENT_NAME\" ] && exit 0; ov mail check --inject --agent {{AGENT_NAME}}"
+						"command": "if [ -z \"$OVERSTORY_AGENT_NAME\" ]; then [ -z \"$OVERSTORY_RUNTIME_SESSION_ID\" ] && exit 0; [ -f \".claude/.agent-env.$OVERSTORY_RUNTIME_SESSION_ID\" ] && . \".claude/.agent-env.$OVERSTORY_RUNTIME_SESSION_ID\"; [ -z \"$OVERSTORY_AGENT_NAME\" ] && exit 0; fi; ov mail check --inject --agent \"$OVERSTORY_AGENT_NAME\""
 					}
 				]
 			}
@@ -32,7 +32,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "[ -z \"$OVERSTORY_AGENT_NAME\" ] && exit 0; ov log tool-start --agent {{AGENT_NAME}} --stdin"
+						"command": "if [ -z \"$OVERSTORY_AGENT_NAME\" ]; then [ -z \"$OVERSTORY_RUNTIME_SESSION_ID\" ] && exit 0; [ -f \".claude/.agent-env.$OVERSTORY_RUNTIME_SESSION_ID\" ] && . \".claude/.agent-env.$OVERSTORY_RUNTIME_SESSION_ID\"; [ -z \"$OVERSTORY_AGENT_NAME\" ] && exit 0; fi; ov log tool-start --agent \"$OVERSTORY_AGENT_NAME\" --stdin"
 					}
 				]
 			},
@@ -41,7 +41,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "read -r INPUT; CMD=$(echo \"$INPUT\" | sed 's/.*\"command\": *\"\\([^\"]*\\)\".*/\\1/'); if echo \"$CMD\" | grep -qE '\\bgit\\s+push\\b'; then echo '{\"decision\":\"block\",\"reason\":\"git push is blocked — use ov merge to integrate changes, push manually when ready\"}'; exit 0; fi;"
+						"command": "if [ -z \"$OVERSTORY_AGENT_NAME\" ]; then [ -z \"$OVERSTORY_RUNTIME_SESSION_ID\" ] && exit 0; [ -f \".claude/.agent-env.$OVERSTORY_RUNTIME_SESSION_ID\" ] && . \".claude/.agent-env.$OVERSTORY_RUNTIME_SESSION_ID\"; [ -z \"$OVERSTORY_AGENT_NAME\" ] && exit 0; fi; read -r INPUT; CMD=$(echo \"$INPUT\" | sed 's/.*\"command\": *\"\\([^\"]*\\)\".*/\\1/'); if echo \"$CMD\" | grep -qE '\\bgit\\s+push\\b'; then echo '{\"decision\":\"block\",\"reason\":\"git push is blocked — use ov merge to integrate changes, push manually when ready\"}'; exit 0; fi;"
 					}
 				]
 			}
@@ -52,11 +52,11 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "[ -z \"$OVERSTORY_AGENT_NAME\" ] && exit 0; ov log tool-end --agent {{AGENT_NAME}} --stdin"
+						"command": "if [ -z \"$OVERSTORY_AGENT_NAME\" ]; then [ -z \"$OVERSTORY_RUNTIME_SESSION_ID\" ] && exit 0; [ -f \".claude/.agent-env.$OVERSTORY_RUNTIME_SESSION_ID\" ] && . \".claude/.agent-env.$OVERSTORY_RUNTIME_SESSION_ID\"; [ -z \"$OVERSTORY_AGENT_NAME\" ] && exit 0; fi; ov log tool-end --agent \"$OVERSTORY_AGENT_NAME\" --stdin"
 					},
 					{
 						"type": "command",
-						"command": "[ -z \"$OVERSTORY_AGENT_NAME\" ] && exit 0; ov mail check --inject --agent {{AGENT_NAME}} --debounce 500"
+						"command": "if [ -z \"$OVERSTORY_AGENT_NAME\" ]; then [ -z \"$OVERSTORY_RUNTIME_SESSION_ID\" ] && exit 0; [ -f \".claude/.agent-env.$OVERSTORY_RUNTIME_SESSION_ID\" ] && . \".claude/.agent-env.$OVERSTORY_RUNTIME_SESSION_ID\"; [ -z \"$OVERSTORY_AGENT_NAME\" ] && exit 0; fi; ov mail check --inject --agent \"$OVERSTORY_AGENT_NAME\" --debounce 500"
 					}
 				]
 			},
@@ -65,7 +65,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "[ -z \"$OVERSTORY_AGENT_NAME\" ] && exit 0; ov mail check --inject --agent {{AGENT_NAME}} --debounce 30000"
+						"command": "if [ -z \"$OVERSTORY_AGENT_NAME\" ]; then [ -z \"$OVERSTORY_RUNTIME_SESSION_ID\" ] && exit 0; [ -f \".claude/.agent-env.$OVERSTORY_RUNTIME_SESSION_ID\" ] && . \".claude/.agent-env.$OVERSTORY_RUNTIME_SESSION_ID\"; [ -z \"$OVERSTORY_AGENT_NAME\" ] && exit 0; fi; ov mail check --inject --agent \"$OVERSTORY_AGENT_NAME\" --debounce 30000"
 					}
 				]
 			},
@@ -74,7 +74,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "[ -z \"$OVERSTORY_AGENT_NAME\" ] && exit 0; read -r INPUT; if echo \"$INPUT\" | grep -qE '\\bgit\\s+commit\\b'; then ml diff HEAD~1 >/dev/null 2>&1 || true; fi; exit 0;"
+						"command": "if [ -z \"$OVERSTORY_AGENT_NAME\" ]; then [ -z \"$OVERSTORY_RUNTIME_SESSION_ID\" ] && exit 0; [ -f \".claude/.agent-env.$OVERSTORY_RUNTIME_SESSION_ID\" ] && . \".claude/.agent-env.$OVERSTORY_RUNTIME_SESSION_ID\"; [ -z \"$OVERSTORY_AGENT_NAME\" ] && exit 0; fi; read -r INPUT; if echo \"$INPUT\" | grep -qE '\\bgit\\s+commit\\b'; then ml diff HEAD~1 >/dev/null 2>&1 || true; fi; exit 0;"
 					}
 				]
 			}
@@ -85,11 +85,11 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "[ -z \"$OVERSTORY_AGENT_NAME\" ] && exit 0; ov log session-end --agent {{AGENT_NAME}} --stdin"
+						"command": "if [ -z \"$OVERSTORY_AGENT_NAME\" ]; then [ -z \"$OVERSTORY_RUNTIME_SESSION_ID\" ] && exit 0; [ -f \".claude/.agent-env.$OVERSTORY_RUNTIME_SESSION_ID\" ] && . \".claude/.agent-env.$OVERSTORY_RUNTIME_SESSION_ID\"; [ -z \"$OVERSTORY_AGENT_NAME\" ] && exit 0; fi; ov log session-end --agent \"$OVERSTORY_AGENT_NAME\" --stdin"
 					},
 					{
 						"type": "command",
-						"command": "[ -z \"$OVERSTORY_AGENT_NAME\" ] && exit 0; ml learn"
+						"command": "if [ -z \"$OVERSTORY_AGENT_NAME\" ]; then [ -z \"$OVERSTORY_RUNTIME_SESSION_ID\" ] && exit 0; [ -f \".claude/.agent-env.$OVERSTORY_RUNTIME_SESSION_ID\" ] && . \".claude/.agent-env.$OVERSTORY_RUNTIME_SESSION_ID\"; [ -z \"$OVERSTORY_AGENT_NAME\" ] && exit 0; fi; ml learn"
 					}
 				]
 			}
@@ -100,7 +100,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "[ -z \"$OVERSTORY_AGENT_NAME\" ] && exit 0; ov prime --agent {{AGENT_NAME}} --compact"
+						"command": "if [ -z \"$OVERSTORY_AGENT_NAME\" ]; then [ -z \"$OVERSTORY_RUNTIME_SESSION_ID\" ] && exit 0; [ -f \".claude/.agent-env.$OVERSTORY_RUNTIME_SESSION_ID\" ] && . \".claude/.agent-env.$OVERSTORY_RUNTIME_SESSION_ID\"; [ -z \"$OVERSTORY_AGENT_NAME\" ] && exit 0; fi; ov prime --agent \"$OVERSTORY_AGENT_NAME\" --compact"
 					}
 				]
 			}

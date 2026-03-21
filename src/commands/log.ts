@@ -91,6 +91,7 @@ const PERSISTENT_CAPABILITIES = new Set([
 	"monitor",
 	"mission-analyst",
 	"execution-director",
+	"plan-review-lead",
 ]);
 
 /**

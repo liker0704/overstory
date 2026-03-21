@@ -265,6 +265,12 @@ export async function startPersistentAgent(
 			}
 		}
 		const runtimeSessionId = crypto.randomUUID();
+		const agentEnv = {
+			...runtime.buildEnv(resolvedModel),
+			OVERSTORY_AGENT_NAME: agentName,
+			OVERSTORY_CAPABILITY: capability,
+			OVERSTORY_RUNTIME_SESSION_ID: runtimeSessionId,
+		};
 		const spawnCmd = runtime.buildSpawnCommand({
 			model: resolvedModel.model,
 			permissionMode: "bypass",
@@ -272,15 +278,9 @@ export async function startPersistentAgent(
 			cwd: projectRoot,
 			appendSystemPrompt,
 			appendSystemPromptFile,
-			env: {
-				...runtime.buildEnv(resolvedModel),
-				OVERSTORY_AGENT_NAME: agentName,
-			},
+			env: agentEnv,
 		});
-		const pid = await tmux.createSession(tmuxSession, projectRoot, spawnCmd, {
-			...runtime.buildEnv(resolvedModel),
-			OVERSTORY_AGENT_NAME: agentName,
-		});
+		const pid = await tmux.createSession(tmuxSession, projectRoot, spawnCmd, agentEnv);
 
 		// Generate session ID shared between the session record and the run record
 		const sessionId = `session-${Date.now()}-${agentName}`;
@@ -424,8 +424,10 @@ export async function stopPersistentAgent(
 			sessionKilled = true;
 		}
 
-		// Clean up .agent-env to prevent hook pollution in user sessions
-		removeAgentEnvFile(opts.projectRoot);
+		// Clean up session-scoped .agent-env file for this agent only.
+		// Pass runtimeSessionId so only this role's file is removed,
+		// leaving other active root roles' files intact.
+		removeAgentEnvFile(opts.projectRoot, session.runtimeSessionId ?? undefined);
 
 		// Update session state
 		store.updateState(agentName, "completed");

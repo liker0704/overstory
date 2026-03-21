@@ -17,29 +17,64 @@ const AGENT_ENV_FILENAME = ".agent-env";
 const AGENT_ENV_DIR = ".claude";
 
 /**
- * Write an agent env file so hooks can recover env vars after process restarts.
+ * Write agent env files so hooks can recover env vars after process restarts.
  *
- * Written to `.claude/.agent-env` in the agent's cwd (project root for
- * coordinator/monitor, worktree root for workers). Sourced by hook guards
- * via `. .claude/.agent-env` — a shell builtin with 0 forks (~0.03ms).
+ * Writes TWO files:
+ * 1. Session-scoped `.claude/.agent-env.{runtimeSessionId}` — keyed by
+ *    OVERSTORY_RUNTIME_SESSION_ID. This is the primary recovery file used by
+ *    ENV_GUARD v2. Each root role gets its own file, solving the singleton
+ *    content problem and the C6 violation (human sessions cannot source it
+ *    because they lack OVERSTORY_RUNTIME_SESSION_ID).
+ * 2. Legacy singleton `.claude/.agent-env` — backward compatibility with
+ *    hooks that have not been redeployed yet. Will be removed in Phase 4.
+ *
+ * Written with mode 0600 (owner-only) via atomic temp-file + rename.
  */
 export async function writeAgentEnvFile(cwd: string, env: Record<string, string>): Promise<void> {
 	const lines = Object.entries(env).map(([k, v]) => `export ${k}="${v}"`);
 	const content = `${lines.join("\n")}\n`;
-	const filePath = join(cwd, AGENT_ENV_DIR, AGENT_ENV_FILENAME);
-	await Bun.write(filePath, content);
+	const dir = join(cwd, AGENT_ENV_DIR);
+
+	// Write session-scoped file keyed by OVERSTORY_RUNTIME_SESSION_ID
+	const sessionId = env.OVERSTORY_RUNTIME_SESSION_ID;
+	if (sessionId) {
+		const scopedPath = join(dir, `${AGENT_ENV_FILENAME}.${sessionId}`);
+		const tmpPath = `${scopedPath}.tmp.${process.pid}`;
+		await Bun.write(tmpPath, content, { mode: 0o600 });
+		const { rename } = await import("node:fs/promises");
+		await rename(tmpPath, scopedPath);
+	}
+
+	// Write legacy singleton for backward compat (Phase 4 removes this).
+	// NOTE: In shared-root scenarios, the last-started agent overwrites this file.
+	// ENV_GUARD v2 uses session-scoped files above — the singleton is only for
+	// hooks that haven't been redeployed yet (old ENV_GUARD v1 fallback).
+	const legacyPath = join(dir, AGENT_ENV_FILENAME);
+	await Bun.write(legacyPath, content, { mode: 0o600 });
 }
 
 /**
- * Remove the agent env file on session stop/cleanup.
+ * Remove the session-scoped agent env file on session stop/cleanup.
+ * Only removes the file for the given runtimeSessionId, leaving other
+ * root roles' files intact.
+ *
+ * The legacy singleton `.agent-env` is NOT removed — other root roles
+ * may still depend on it for old ENV_GUARD v1 hooks that haven't been
+ * redeployed. The singleton will be removed entirely in Phase 4.
+ *
  * Silently ignores missing files.
  */
-export function removeAgentEnvFile(cwd: string): void {
-	const filePath = join(cwd, AGENT_ENV_DIR, AGENT_ENV_FILENAME);
+export function removeAgentEnvFile(cwd: string, runtimeSessionId?: string): void {
 	try {
-		if (existsSync(filePath)) {
-			unlinkSync(filePath);
+		// Remove session-scoped file if sessionId provided
+		if (runtimeSessionId) {
+			const scopedPath = join(cwd, AGENT_ENV_DIR, `${AGENT_ENV_FILENAME}.${runtimeSessionId}`);
+			if (existsSync(scopedPath)) {
+				unlinkSync(scopedPath);
+			}
 		}
+		// Legacy singleton is intentionally NOT removed here — other root roles
+		// may still need it for un-redeployed hooks. Phase 4 handles full cleanup.
 	} catch {
 		// Best-effort cleanup — ignore errors
 	}
