@@ -214,6 +214,46 @@ export class EvalScenarioError extends OverstoryError {
 }
 
 /**
+ * Raised when swarm snapshot creation fails.
+ * Examples: database read errors, worktree enumeration failures.
+ */
+export class SnapshotError extends OverstoryError {
+	readonly snapshotId: string | null;
+
+	constructor(
+		message: string,
+		context?: {
+			snapshotId?: string;
+			cause?: Error;
+		},
+	) {
+		super(message, "SNAPSHOT_ERROR", { cause: context?.cause });
+		this.name = "SnapshotError";
+		this.snapshotId = context?.snapshotId ?? null;
+	}
+}
+
+/**
+ * Raised when swarm recovery/restore fails.
+ * Examples: bundle corruption, reconciliation failures, missing components.
+ */
+export class RecoveryError extends OverstoryError {
+	readonly bundleId: string | null;
+
+	constructor(
+		message: string,
+		context?: {
+			bundleId?: string;
+			cause?: Error;
+		},
+	) {
+		super(message, "RECOVERY_ERROR", { cause: context?.cause });
+		this.name = "RecoveryError";
+		this.bundleId = context?.bundleId ?? null;
+	}
+}
+
+/**
  * Raised when session lifecycle operations fail.
  * Examples: checkpoint save/restore failures, handoff failures.
  */
