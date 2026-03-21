@@ -1058,5 +1058,15 @@
 		"status": "active",
 		"createdAt": "2026-03-14T17:32:50.071Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-f8dfd2cd",
+		"name": "global-swarm-recovery-batch1",
+		"memberIssueIds": [
+			"overstory-a54c"
+		],
+		"status": "active",
+		"createdAt": "2026-03-21T19:26:39.892Z",
+		"completedAt": null
 	}
 ]

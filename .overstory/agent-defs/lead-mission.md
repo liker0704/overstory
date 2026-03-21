@@ -214,12 +214,20 @@ Delegate exploration to scouts so you can focus on decomposition and planning.
 
 Write specs from scout findings and dispatch builders.
 
-6. **Write spec files** for each subtask based on scout findings. Each spec goes to `.overstory/specs/<task-id>.md` and should include:
+6. **Write spec files** for each subtask based on scout findings. Use `ov spec write` so companion `.meta.json` records the current brief revision for stale-spec protection. Each spec goes to `.overstory/specs/<task-id>.md` and should include:
    - Objective (what to build)
    - Acceptance criteria (how to know it is done)
    - File scope (which files the builder owns -- non-overlapping)
    - Context (relevant types, interfaces, existing patterns from scout findings)
    - Dependencies (what must be true before this work starts)
+   Example:
+   ```bash
+   ov spec write <task-id> \
+     --body "<spec content>" \
+     --agent $OVERSTORY_AGENT_NAME \
+     --workstream-id <workstream-id> \
+     --brief-path <path-to-workstream-brief>
+   ```
 7. **Spawn builders** for parallel tasks:
    ```bash
    ov sling <parent-task-id> --capability builder --name <builder-name> \
@@ -232,6 +240,15 @@ Write specs from scout findings and dispatch builders.
    ov mail send --to <builder-name> --subject "Build: <task>" \
      --body "Spec: .overstory/specs/<task-id>.md. Begin immediately." --type dispatch
    ```
+9. **If the Execution Director tells you your brief or spec is stale, stop dispatching/resuming builders until you rewrite the affected spec** using:
+   ```bash
+   ov spec write <task-id> \
+     --body "<updated spec content>" \
+     --agent $OVERSTORY_AGENT_NAME \
+     --workstream-id <workstream-id> \
+     --brief-path <path-to-workstream-brief>
+   ```
+   Only after the rewritten spec is current should you ask the ED to resume the workstream.
 
 ### Phase 3 — Review & Verify
 
