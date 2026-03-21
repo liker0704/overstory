@@ -38,11 +38,13 @@ import { createMonitorCommand } from "./commands/monitor.ts";
 import { createNextImprovementCommand } from "./commands/next-improvement.ts";
 import { nudgeCommand } from "./commands/nudge.ts";
 import { primeCommand } from "./commands/prime.ts";
+import { createRecoverCommand } from "./commands/recover.ts";
 import { createReplayCommand } from "./commands/replay.ts";
 import { createResumeCommand } from "./commands/resume.ts";
 import { createReviewCommand } from "./commands/review.ts";
 import { createRunCommand } from "./commands/run.ts";
 import { slingCommand } from "./commands/sling.ts";
+import { createSnapshotCommand } from "./commands/snapshot.ts";
 import { specWriteCommand } from "./commands/spec.ts";
 import { createStatusCommand } from "./commands/status.ts";
 import { stopCommand } from "./commands/stop.ts";
@@ -80,6 +82,7 @@ const COMMANDS = [
 	"attach",
 	"init",
 	"sling",
+	"snapshot",
 	"spec",
 	"prime",
 	"stop",
@@ -105,6 +108,7 @@ const COMMANDS = [
 	"ecosystem",
 	"feed",
 	"errors",
+	"recover",
 	"replay",
 	"resume",
 	"run",
@@ -444,6 +448,9 @@ program.addCommand(createMissionCommand());
 program.addCommand(createUpdateCommand());
 
 program.addCommand(createUpgradeCommand());
+
+program.addCommand(createSnapshotCommand());
+program.addCommand(createRecoverCommand());
 
 // Handle unknown commands with Levenshtein fuzzy-match suggestions
 program.on("command:*", (operands) => {
