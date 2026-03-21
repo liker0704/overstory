@@ -40,7 +40,7 @@
 	"fix-errors-tests-lead": 1773352762554,
 	"fix-roles-test-builder": 1773354104466,
 	"mission-analyst": 1774121037387,
-	"execution-director": 1774123485077,
+	"execution-director": 1774124344043,
 	"e2e-verify-lead": 1773414340183,
 	"lead-child-e2e": 1773414344523,
 	"builder-child-e2e": 1773414337660,
@@ -71,5 +71,9 @@
 	"lead-overstory-5834": 1774122443563,
 	"build-snapshot-5834": 1774122102405,
 	"lead-overstory-225e": 1774123466779,
-	"build-restore-225e": 1774123336035
+	"build-restore-225e": 1774123336035,
+	"lead-overstory-1cf1": 1774124206256,
+	"build-snapshot-cmd": 1774123813859,
+	"build-recover-cmd": 1774123883599,
+	"build-index-1cf1": 1774124129733
 }
