@@ -1063,7 +1063,8 @@
 		"id": "group-f8dfd2cd",
 		"name": "global-swarm-recovery-batch1",
 		"memberIssueIds": [
-			"overstory-a54c"
+			"overstory-a54c",
+			"overstory-5834"
 		],
 		"status": "active",
 		"createdAt": "2026-03-21T19:26:39.892Z",
