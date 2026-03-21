@@ -12,6 +12,7 @@ import { jsonError, jsonOutput } from "../json.ts";
 import { accent, printError, printHint, printSuccess, printWarning } from "../logging/color.ts";
 import { renderHeader, renderSubHeader, separator } from "../logging/theme.ts";
 import { createMailClient } from "../mail/client.ts";
+import { canonicalizeMailAgentName } from "../mail/identity.ts";
 import { createMailStore } from "../mail/store.ts";
 import {
 	buildMissionRoleBeacon,
@@ -281,8 +282,7 @@ async function ensureMissionRoleResponsive(opts: {
 	const { projectRoot, overstoryDir, mission, roleName, threadId, replyId, deps = {} } = opts;
 	const nudgeMessage = `Operator replied in thread ${threadId} (${replyId}). Check mail and continue the mission.`;
 
-	// Normalize coordinator-mission sender name to the canonical agent name
-	const effectiveRoleName = roleName === "coordinator-mission" ? "coordinator" : roleName;
+	const effectiveRoleName = canonicalizeMailAgentName(roleName);
 
 	if (
 		effectiveRoleName !== "coordinator" &&

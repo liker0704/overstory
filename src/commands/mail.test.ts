@@ -391,6 +391,48 @@ describe("mailCommand", () => {
 			expect(output).not.toContain("PRIORITY");
 		});
 
+		test("mail check --inject reads legacy coordinator-mission marker and inbox via coordinator", async () => {
+			const store = createMailStore(join(tempDir, ".overstory", "mail.db"));
+			try {
+				store.insert({
+					id: "",
+					from: "mission-analyst",
+					to: "coordinator-mission",
+					subject: "Legacy mailbox",
+					body: "This was queued before alias normalization.",
+					type: "status",
+					priority: "urgent",
+					threadId: null,
+				});
+			} finally {
+				store.close();
+			}
+
+			const markerDir = join(tempDir, ".overstory", "pending-nudges");
+			await mkdir(markerDir, { recursive: true });
+			await Bun.write(
+				join(markerDir, "coordinator-mission.json"),
+				`${JSON.stringify(
+					{
+						from: "mission-analyst",
+						reason: "urgent priority",
+						subject: "Legacy mailbox",
+						messageId: "legacy-msg",
+						createdAt: new Date().toISOString(),
+					},
+					null,
+					"\t",
+				)}\n`,
+			);
+
+			output = "";
+			await mailCommand(["check", "--inject", "--agent", "coordinator"]);
+
+			expect(output).toContain("PRIORITY");
+			expect(output).toContain("Legacy mailbox");
+			expect(output).toContain("This was queued before alias normalization.");
+		});
+
 		test("json output for auto-nudge send does not include nudge banner", async () => {
 			await mailCommand([
 				"send",

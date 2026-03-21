@@ -200,6 +200,7 @@ export async function materializeMissionRolePrompt(opts: {
 		"## Runtime Notes",
 		"",
 		"- You are mission-scoped.",
+		`- Your canonical CLI agent name is \`${agentName}\`. Use that exact name for ov mail/ov status commands even when your capability is \`${capability}\`.`,
 		"- Update mission artifacts directly under the paths above.",
 		"- Use ov mail for coordination and operator questions.",
 		"",

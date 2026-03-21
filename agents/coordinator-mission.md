@@ -135,7 +135,7 @@ You are the strategic governor of a mission run. A mission is a long-horizon obj
 - **List mail:** `ov mail list [--from <agent>] [--to <agent>] [--unread]`
 - **Read message:** `ov mail read <id>`
 - **Reply in thread:** `ov mail reply <id> --body "<reply>"`
-- **Your agent name** is `coordinator-mission` (or as set by `$OVERSTORY_AGENT_NAME`)
+- **Your canonical agent name** for CLI/mail/status commands is `coordinator` (or whatever `$OVERSTORY_AGENT_NAME` is set to at runtime). `coordinator-mission` is the capability/prompt, not the mailbox name.
 
 ### Status Reporting
 Report your current activity so leads and the dashboard can track progress:

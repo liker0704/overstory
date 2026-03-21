@@ -11,6 +11,7 @@
 
 import { MailError } from "../errors.ts";
 import type { MailDeliveryState, MailMessage, MailPayloadMap, MailProtocolType } from "../types.ts";
+import { canonicalizeMailAgentName, expandMailAgentNames } from "./identity.ts";
 import type { MailStore } from "./store.ts";
 
 export interface MailClient {
@@ -173,6 +174,102 @@ function formatForInjection(messages: MailMessage[]): string {
 	return lines.join("\n");
 }
 
+function sortMessagesAscending(messages: MailMessage[]): MailMessage[] {
+	return [...messages].sort((left, right) => {
+		const byCreatedAt = left.createdAt.localeCompare(right.createdAt);
+		if (byCreatedAt !== 0) {
+			return byCreatedAt;
+		}
+		return left.id.localeCompare(right.id);
+	});
+}
+
+function sortMessagesDescending(messages: MailMessage[]): MailMessage[] {
+	return [...messages].sort((left, right) => {
+		const byCreatedAt = right.createdAt.localeCompare(left.createdAt);
+		if (byCreatedAt !== 0) {
+			return byCreatedAt;
+		}
+		return right.id.localeCompare(left.id);
+	});
+}
+
+function collectMessagesForMailbox(
+	store: MailStore,
+	agentName: string,
+	leaseTimeoutSec?: number,
+): MailMessage[] {
+	const messages: MailMessage[] = [];
+	for (const mailboxName of expandMailAgentNames(agentName)) {
+		messages.push(...store.claim(mailboxName, leaseTimeoutSec));
+	}
+	return sortMessagesAscending(messages);
+}
+
+function listMessagesForMailbox(
+	store: MailStore,
+	filters?: {
+		from?: string;
+		to?: string;
+		unread?: boolean;
+		state?: MailDeliveryState;
+	},
+): MailMessage[] {
+	if (!filters?.from && !filters?.to) {
+		return store.getAll(filters);
+	}
+
+	const fromNames = filters.from ? expandMailAgentNames(filters.from) : [undefined];
+	const toNames = filters.to ? expandMailAgentNames(filters.to) : [undefined];
+	const seen = new Set<string>();
+	const messages: MailMessage[] = [];
+
+	for (const fromName of fromNames) {
+		for (const toName of toNames) {
+			const batch = store.getAll({
+				from: fromName,
+				to: toName,
+				unread: filters.unread,
+				state: filters.state,
+			});
+			for (const message of batch) {
+				if (seen.has(message.id)) {
+					continue;
+				}
+				seen.add(message.id);
+				messages.push(message);
+			}
+		}
+	}
+
+	return sortMessagesDescending(messages);
+}
+
+function listDlqMessagesForMailbox(
+	store: MailStore,
+	filters?: { agent?: string; limit?: number },
+): MailMessage[] {
+	if (!filters?.agent) {
+		return store.getDlq(filters);
+	}
+
+	const seen = new Set<string>();
+	const messages: MailMessage[] = [];
+	for (const mailboxName of expandMailAgentNames(filters.agent)) {
+		const batch = store.getDlq({ agent: mailboxName, limit: filters.limit });
+		for (const message of batch) {
+			if (seen.has(message.id)) {
+				continue;
+			}
+			seen.add(message.id);
+			messages.push(message);
+		}
+	}
+
+	const sorted = sortMessagesDescending(messages);
+	return sorted.slice(0, filters.limit ?? sorted.length);
+}
+
 /**
  * Create a MailClient wrapping the given MailStore.
  *
@@ -184,8 +281,8 @@ export function createMailClient(store: MailStore): MailClient {
 		send(msg): string {
 			const message = store.insert({
 				id: "",
-				from: msg.from,
-				to: msg.to,
+				from: canonicalizeMailAgentName(msg.from),
+				to: canonicalizeMailAgentName(msg.to),
 				subject: msg.subject,
 				body: msg.body,
 				type: msg.type ?? "status",
@@ -199,8 +296,8 @@ export function createMailClient(store: MailStore): MailClient {
 		sendProtocol(msg): string {
 			const message = store.insert({
 				id: "",
-				from: msg.from,
-				to: msg.to,
+				from: canonicalizeMailAgentName(msg.from),
+				to: canonicalizeMailAgentName(msg.to),
 				subject: msg.subject,
 				body: msg.body,
 				type: msg.type,
@@ -214,8 +311,8 @@ export function createMailClient(store: MailStore): MailClient {
 		sendBroadcast(msg): string[] {
 			const messages = msg.to.map((recipient) => ({
 				id: "",
-				from: msg.from,
-				to: recipient,
+				from: canonicalizeMailAgentName(msg.from),
+				to: canonicalizeMailAgentName(recipient),
 				subject: msg.subject,
 				body: msg.body,
 				type: msg.type ?? ("status" as const),
@@ -233,20 +330,20 @@ export function createMailClient(store: MailStore): MailClient {
 			// Messages are immediately acked after claim — if the caller crashes
 			// after this returns but before processing, messages are lost.
 			// For at-least-once semantics, use claim() + ack() per-message instead.
-			const messages = store.claim(agentName);
+			const messages = collectMessagesForMailbox(store, agentName);
 			store.ackBatch(messages.map((m) => m.id));
 			return messages;
 		},
 
 		checkInject(agentName): string {
 			// v2: claim+ackBatch for at-most-once delivery (see check() comment)
-			const messages = store.claim(agentName);
+			const messages = collectMessagesForMailbox(store, agentName);
 			store.ackBatch(messages.map((m) => m.id));
 			return formatForInjection(messages);
 		},
 
 		claim(agentName, leaseTimeoutSec): MailMessage[] {
-			return store.claim(agentName, leaseTimeoutSec);
+			return collectMessagesForMailbox(store, agentName, leaseTimeoutSec);
 		},
 
 		ack(id): void {
@@ -258,7 +355,7 @@ export function createMailClient(store: MailStore): MailClient {
 		},
 
 		getDlq(filters): MailMessage[] {
-			return store.getDlq(filters);
+			return listDlqMessagesForMailbox(store, filters);
 		},
 
 		replayDlq(id): void {
@@ -270,7 +367,7 @@ export function createMailClient(store: MailStore): MailClient {
 		},
 
 		list(filters): MailMessage[] {
-			return store.getAll(filters);
+			return listMessagesForMailbox(store, filters);
 		},
 
 		markRead(id): { alreadyRead: boolean } {
@@ -296,15 +393,18 @@ export function createMailClient(store: MailStore): MailClient {
 			}
 
 			const threadId = original.threadId ?? original.id;
+			const canonicalFrom = canonicalizeMailAgentName(from);
+			const originalFrom = canonicalizeMailAgentName(original.from);
+			const originalTo = canonicalizeMailAgentName(original.to);
 
 			// Determine the correct recipient: reply goes to "the other side"
 			// If the replier is the original sender, reply goes to the original recipient.
 			// If the replier is the original recipient (or anyone else), reply goes to the original sender.
-			const to = from === original.from ? original.to : original.from;
+			const to = canonicalFrom === originalFrom ? originalTo : originalFrom;
 
 			return store.insert({
 				id: "",
-				from,
+				from: canonicalFrom,
 				to,
 				subject: `Re: ${original.subject}`,
 				body,

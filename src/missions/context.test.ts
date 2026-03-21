@@ -96,6 +96,25 @@ describe("mission context helpers", () => {
 		expect(prompt).not.toContain("{{INSTRUCTION_PATH}}");
 	});
 
+	test("mission context states the canonical CLI agent name when capability differs", async () => {
+		await Bun.write(
+			join(tempDir, "agent-defs", "coordinator-mission.md"),
+			"Mission coordinator\n\nSee {{INSTRUCTION_PATH}}\n",
+		);
+
+		const materialized = await materializeMissionRolePrompt({
+			overstoryDir: tempDir,
+			agentName: "coordinator",
+			capability: "coordinator-mission",
+			roleLabel: "Mission Coordinator",
+			mission,
+		});
+
+		const context = await Bun.file(materialized.contextPath).text();
+		expect(context).toContain("canonical CLI agent name is `coordinator`");
+		expect(context).toContain("capability is `coordinator-mission`");
+	});
+
 	test("buildMissionRoleBeacon references context path and mission id", () => {
 		const beacon = buildMissionRoleBeacon({
 			agentName: "mission-analyst",

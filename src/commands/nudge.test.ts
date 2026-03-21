@@ -116,6 +116,20 @@ describe("nudgeAgent", () => {
 		expect(result.reason).toContain("not alive");
 	});
 
+	test("resolves coordinator-mission to the canonical coordinator session", async () => {
+		writeSessionsToStore(tempDir, [
+			makeSession({
+				agentName: "coordinator",
+				tmuxSession: "ov-mission-coordinator",
+				state: "working",
+			}),
+		]);
+
+		const { resolveTargetSession } = await importNudge();
+		const tmuxSession = await resolveTargetSession(tempDir, "coordinator-mission");
+		expect(tmuxSession).toBe("ov-mission-coordinator");
+	});
+
 	test("handles missing sessions.db gracefully", async () => {
 		// Create .overstory dir but no sessions.db — SessionStore will be created empty
 		mkdirSync(join(tempDir, ".overstory"), { recursive: true });

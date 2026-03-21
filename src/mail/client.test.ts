@@ -98,6 +98,20 @@ describe("createMailClient", () => {
 			expect(msg?.threadId).toBe("thread-abc");
 			expect(msg?.read).toBe(false);
 		});
+
+		test("canonicalizes coordinator mission mailbox names on send", () => {
+			const id = client.send({
+				from: "coordinator-mission",
+				to: "coordinator-mission",
+				subject: "Alias route",
+				body: "Normalize this mailbox",
+			});
+
+			const msg = store.getById(id);
+			expect(msg).not.toBeNull();
+			expect(msg?.from).toBe("coordinator");
+			expect(msg?.to).toBe("coordinator");
+		});
 	});
 
 	describe("check", () => {
@@ -159,6 +173,24 @@ describe("createMailClient", () => {
 			const messages = client.check("orchestrator");
 			expect(messages).toHaveLength(1);
 			expect(messages[0]?.subject).toBe("for-orch");
+		});
+
+		test("returns legacy alias-addressed messages for canonical coordinator inbox", () => {
+			store.insert({
+				id: "",
+				from: "mission-analyst",
+				to: "coordinator-mission",
+				subject: "Legacy alias",
+				body: "Queued under the old mailbox name",
+				type: "status",
+				priority: "normal",
+				threadId: null,
+			});
+
+			const messages = client.check("coordinator");
+			expect(messages).toHaveLength(1);
+			expect(messages[0]?.to).toBe("coordinator-mission");
+			expect(messages[0]?.subject).toBe("Legacy alias");
 		});
 	});
 
@@ -583,6 +615,23 @@ describe("createMailClient", () => {
 			expect(replyMsg?.from).toBe("agent-c");
 			// Third-party reply goes to original sender
 			expect(replyMsg?.to).toBe("agent-a");
+		});
+
+		test("reply to a legacy coordinator alias thread routes back to canonical coordinator", () => {
+			const original = store.insert({
+				id: "",
+				from: "coordinator-mission",
+				to: "mission-analyst",
+				subject: "Need findings",
+				body: "Send your latest analysis",
+				type: "question",
+				priority: "normal",
+				threadId: null,
+			});
+
+			const replyMsg = client.reply(original.id, "Here is the analysis", "mission-analyst");
+			expect(replyMsg.from).toBe("mission-analyst");
+			expect(replyMsg.to).toBe("coordinator");
 		});
 	});
 

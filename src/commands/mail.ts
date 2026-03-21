@@ -15,6 +15,7 @@ import { jsonOutput } from "../json.ts";
 import { accent, printHint, printSuccess } from "../logging/color.ts";
 import { isGroupAddress, resolveGroupAddress } from "../mail/broadcast.ts";
 import { createMailClient } from "../mail/client.ts";
+import { canonicalizeMailAgentName, expandMailAgentNames } from "../mail/identity.ts";
 import { createMailStore } from "../mail/store.ts";
 import { recordMissionEvent } from "../missions/events.ts";
 import { validateMissionIngress } from "../missions/ingress.ts";
@@ -250,7 +251,7 @@ async function writePendingNudge(
 		...nudge,
 		createdAt: new Date().toISOString(),
 	};
-	const filePath = join(dir, `${agentName}.json`);
+	const filePath = join(dir, `${canonicalizeMailAgentName(agentName)}.json`);
 	await Bun.write(filePath, `${JSON.stringify(marker, null, "\t")}\n`);
 }
 
@@ -264,27 +265,29 @@ async function readAndClearPendingNudge(
 	cwd: string,
 	agentName: string,
 ): Promise<PendingNudge | null> {
-	const filePath = join(pendingNudgeDir(cwd), `${agentName}.json`);
-	const file = Bun.file(filePath);
-	if (!(await file.exists())) {
-		return null;
-	}
-	try {
-		const text = await file.text();
-		const nudge = JSON.parse(text) as PendingNudge;
-		const { unlink } = await import("node:fs/promises");
-		await unlink(filePath);
-		return nudge;
-	} catch {
-		// Corrupt or race condition — clear it and move on
+	for (const mailboxName of expandMailAgentNames(agentName)) {
+		const filePath = join(pendingNudgeDir(cwd), `${mailboxName}.json`);
+		const file = Bun.file(filePath);
+		if (!(await file.exists())) {
+			continue;
+		}
 		try {
+			const text = await file.text();
+			const nudge = JSON.parse(text) as PendingNudge;
 			const { unlink } = await import("node:fs/promises");
 			await unlink(filePath);
+			return nudge;
 		} catch {
-			// Already gone
+			// Corrupt or race condition — clear it and move on
+			try {
+				const { unlink } = await import("node:fs/promises");
+				await unlink(filePath);
+			} catch {
+				// Already gone
+			}
 		}
-		return null;
 	}
+	return null;
 }
 
 /**
@@ -370,7 +373,7 @@ async function isMailCheckDebounced(
 	try {
 		const text = await file.text();
 		const state = JSON.parse(text) as Record<string, number>;
-		const lastCheck = state[agentName];
+		const lastCheck = state[canonicalizeMailAgentName(agentName)];
 		if (lastCheck === undefined) {
 			return false;
 		}
@@ -398,7 +401,7 @@ async function recordMailCheck(cwd: string, agentName: string): Promise<void> {
 			// Corrupt state file — start fresh
 		}
 	}
-	state[agentName] = Date.now();
+	state[canonicalizeMailAgentName(agentName)] = Date.now();
 	await Bun.write(statePath, `${JSON.stringify(state, null, "\t")}\n`);
 }
 
@@ -459,7 +462,7 @@ interface PurgeOpts {
 /** overstory mail send */
 async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 	const { to, subject, body } = opts;
-	const from = opts.agent ?? opts.from ?? "orchestrator";
+	const from = canonicalizeMailAgentName(opts.agent ?? opts.from ?? "orchestrator");
 	const rawPayload = opts.payload;
 	const VALID_PRIORITIES = ["low", "normal", "high", "urgent"] as const;
 
@@ -522,7 +525,9 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 
 		try {
 			const activeSessions = sessionStore.getActive();
-			const recipients = resolveGroupAddress(to, activeSessions, from);
+			const recipients = resolveGroupAddress(to, activeSessions, from).map((recipient) =>
+				canonicalizeMailAgentName(recipient),
+			);
 			validateMissionFindingRecipients(recipients);
 
 			const client = openClient(cwd);
@@ -640,13 +645,20 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 		}
 	}
 
-	validateMissionFindingRecipients([to]);
+	const canonicalTo = canonicalizeMailAgentName(to);
+	validateMissionFindingRecipients([canonicalTo]);
 
 	// Single-recipient message (existing logic)
 	const client = openClient(cwd);
 	try {
-		const id = client.send({ from, to, subject, body, type, priority, payload });
-		await syncMissionPendingInputFromMail(cwd, { id, from, to, type, subject });
+		const id = client.send({ from, to: canonicalTo, subject, body, type, priority, payload });
+		await syncMissionPendingInputFromMail(cwd, {
+			id,
+			from,
+			to: canonicalTo,
+			type,
+			subject,
+		});
 
 		// Record mail_sent event to EventStore (fire-and-forget)
 		try {
@@ -672,7 +684,7 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 					toolArgs: null,
 					toolDurationMs: null,
 					level: "info",
-					data: JSON.stringify({ to, subject, type, priority, messageId: id }),
+					data: JSON.stringify({ to: canonicalTo, subject, type, priority, messageId: id }),
 				});
 			} finally {
 				eventStore.close();
@@ -698,7 +710,7 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 		const shouldNudge = priority === "urgent" || priority === "high" || AUTO_NUDGE_TYPES.has(type);
 		if (shouldNudge) {
 			const nudgeReason = AUTO_NUDGE_TYPES.has(type) ? type : `${priority} priority`;
-			await writePendingNudge(cwd, to, {
+			await writePendingNudge(cwd, canonicalTo, {
 				from,
 				reason: nudgeReason,
 				subject,
@@ -706,14 +718,14 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 			});
 			if (!opts.json) {
 				process.stdout.write(
-					`Queued nudge for "${to}" (${nudgeReason}, delivered on next prompt)\n`,
+					`Queued nudge for "${canonicalTo}" (${nudgeReason}, delivered on next prompt)\n`,
 				);
 			}
 		}
 
 		// Always poke idle agents — if they're sitting at the prompt they won't
 		// fire UserPromptSubmit, so the pending marker alone can't reach them.
-		await nudgeIfIdle(cwd, to, `[MAIL] ${subject}`);
+		await nudgeIfIdle(cwd, canonicalTo, `[MAIL] ${subject}`);
 
 		// For dispatch messages, also send an immediate tmux nudge.
 		// Dispatch targets newly spawned agents that may be idle at the welcome
@@ -726,7 +738,7 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 				const nudgeMessage = `[DISPATCH] ${subject}: ${body.slice(0, 500)}`;
 				// Small delay to let the agent's TUI stabilize after sling
 				await Bun.sleep(3_000);
-				await nudgeAgent(cwd, to, nudgeMessage, true); // force=true to skip debounce
+				await nudgeAgent(cwd, canonicalTo, nudgeMessage, true); // force=true to skip debounce
 			} catch {
 				// Non-fatal: the file-based nudge is the fallback
 			}
@@ -770,7 +782,7 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 
 /** overstory mail check */
 async function handleCheck(opts: CheckOpts, cwd: string): Promise<void> {
-	const agent = opts.agent ?? "orchestrator";
+	const agent = canonicalizeMailAgentName(opts.agent ?? "orchestrator");
 	const inject = opts.inject ?? false;
 	const json = opts.json ?? false;
 	const debounceFlag = opts.debounce;
@@ -897,7 +909,7 @@ function handleRead(id: string, cwd: string): void {
 /** overstory mail reply */
 async function handleReply(id: string, opts: ReplyOpts, cwd: string): Promise<void> {
 	const body = opts.body;
-	const from = opts.agent ?? opts.from ?? "orchestrator";
+	const from = canonicalizeMailAgentName(opts.agent ?? opts.from ?? "orchestrator");
 
 	const client = openClient(cwd);
 	let reply: MailMessage;

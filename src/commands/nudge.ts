@@ -15,6 +15,7 @@ import { AgentError } from "../errors.ts";
 import { createEventStore } from "../events/store.ts";
 import { jsonOutput } from "../json.ts";
 import { printSuccess } from "../logging/color.ts";
+import { canonicalizeMailAgentName } from "../mail/identity.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import type { EventStore } from "../types.ts";
 import { isSessionAlive, sendKeys } from "../worktree/tmux.ts";
@@ -57,10 +58,11 @@ export async function resolveTargetSession(
 	projectRoot: string,
 	agentName: string,
 ): Promise<string | null> {
+	const canonicalAgentName = canonicalizeMailAgentName(agentName);
 	const overstoryDir = join(projectRoot, ".overstory");
 	const { store } = openSessionStore(overstoryDir);
 	try {
-		const session = store.getByName(agentName);
+		const session = store.getByName(canonicalAgentName);
 		if (session && session.state !== "zombie" && session.state !== "completed") {
 			return session.tmuxSession;
 		}
@@ -69,7 +71,7 @@ export async function resolveTargetSession(
 	}
 
 	// Fallback for orchestrator: check orchestrator-tmux.json
-	if (agentName === "orchestrator") {
+	if (canonicalAgentName === "orchestrator") {
 		return await loadOrchestratorTmuxSession(projectRoot);
 	}
 
@@ -88,7 +90,7 @@ async function isDebounced(statePath: string, agentName: string): Promise<boolea
 	try {
 		const text = await file.text();
 		const state = JSON.parse(text) as Record<string, number>;
-		const lastNudge = state[agentName];
+		const lastNudge = state[canonicalizeMailAgentName(agentName)];
 		if (lastNudge === undefined) {
 			return false;
 		}
@@ -112,7 +114,7 @@ async function recordNudge(statePath: string, agentName: string): Promise<void> 
 			// Corrupt state file — start fresh
 		}
 	}
-	state[agentName] = Date.now();
+	state[canonicalizeMailAgentName(agentName)] = Date.now();
 	await Bun.write(statePath, `${JSON.stringify(state, null, "\t")}\n`);
 }
 
@@ -211,19 +213,20 @@ export async function nudgeAgent(
 	message: string = DEFAULT_MESSAGE,
 	force = false,
 ): Promise<{ delivered: boolean; reason?: string }> {
+	const canonicalAgentName = canonicalizeMailAgentName(agentName);
 	let result: { delivered: boolean; reason?: string };
 
 	// Resolve tmux session (SessionStore for agents, orchestrator-tmux.json for orchestrator)
-	const tmuxSessionName = await resolveTargetSession(projectRoot, agentName);
+	const tmuxSessionName = await resolveTargetSession(projectRoot, canonicalAgentName);
 
 	if (!tmuxSessionName) {
-		result = { delivered: false, reason: `No active session for agent "${agentName}"` };
+		result = { delivered: false, reason: `No active session for agent "${canonicalAgentName}"` };
 	} else {
 		// Check debounce (unless forced)
 		let debounced = false;
 		if (!force) {
 			const statePath = join(projectRoot, ".overstory", "nudge-state.json");
-			debounced = await isDebounced(statePath, agentName);
+			debounced = await isDebounced(statePath, canonicalAgentName);
 		}
 
 		if (debounced) {
@@ -243,7 +246,7 @@ export async function nudgeAgent(
 				if (delivered) {
 					// Record nudge for debounce tracking
 					const statePath = join(projectRoot, ".overstory", "nudge-state.json");
-					await recordNudge(statePath, agentName);
+					await recordNudge(statePath, canonicalAgentName);
 					result = { delivered: true };
 				} else {
 					result = {
@@ -264,7 +267,7 @@ export async function nudgeAgent(
 			const runId = await readCurrentRunId(overstoryDir);
 			recordNudgeEvent(eventStore, {
 				runId,
-				agentName,
+				agentName: canonicalAgentName,
 				from: "orchestrator",
 				message,
 				delivered: result.delivered,
