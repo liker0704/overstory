@@ -14,6 +14,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createMetricsStore } from "../metrics/store.ts";
+import { createResilienceStore } from "../resilience/store.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import type { CollectSignalsParams, HealthSignals } from "./types.ts";
 
@@ -108,6 +109,28 @@ export function collectSignals(params: CollectSignalsParams): HealthSignals {
 		}
 	}
 
+	// --- Resilience state (from ResilienceStore) ---
+	let openBreakerCount = 0;
+	let activeRetryCount = 0;
+	let recentRerouteCount = 0;
+
+	const resilienceDb = join(overstoryDir, "resilience.db");
+	if (existsSync(resilienceDb)) {
+		try {
+			const store = createResilienceStore(resilienceDb);
+			const breakers = store.listOpenBreakers();
+			openBreakerCount = breakers.filter((b) => b.state === "open").length;
+			const retries = store.getPendingRetries(1000);
+			activeRetryCount = retries.length;
+			// Count reroutes from retry records with probe tasks in last hour
+			// (approximation — exact reroute count would need dedicated tracking)
+			recentRerouteCount = 0; // Safe default; will improve with reroute store
+			store.close();
+		} catch {
+			// DB unavailable
+		}
+	}
+
 	// --- Computed rates ---
 
 	// No sessions recorded → assume healthy (no evidence of failure)
@@ -138,6 +161,9 @@ export function collectSignals(params: CollectSignalsParams): HealthSignals {
 		completionRate,
 		stalledRate,
 		mergeSuccessRate,
+		openBreakerCount,
+		activeRetryCount,
+		recentRerouteCount,
 		collectedAt,
 	};
 }

@@ -29,6 +29,9 @@ function healthySignals(overrides: Partial<HealthSignals> = {}): HealthSignals {
 		completionRate: 1.0,
 		stalledRate: 0.0,
 		mergeSuccessRate: 1.0,
+		openBreakerCount: 0,
+		activeRetryCount: 0,
+		recentRerouteCount: 0,
 		collectedAt: new Date().toISOString(),
 		...overrides,
 	};
@@ -41,7 +44,7 @@ describe("computeScore", () => {
 		expect(score.grade).toBe("A");
 	});
 
-	it("includes all six factors", () => {
+	it("includes all seven factors", () => {
 		const score = computeScore(healthySignals());
 		const names = score.factors.map((f) => f.name);
 		expect(names).toContain("completion_rate");
@@ -50,7 +53,8 @@ describe("computeScore", () => {
 		expect(names).toContain("doctor_failures");
 		expect(names).toContain("merge_quality");
 		expect(names).toContain("runtime_stability");
-		expect(names).toHaveLength(6);
+		expect(names).toContain("resilience");
+		expect(names).toHaveLength(7);
 	});
 
 	it("factor weights sum to 1.0", () => {
@@ -215,6 +219,32 @@ describe("computeScore", () => {
 		});
 	});
 
+	describe("resilience factor", () => {
+		it("scores 100 with no resilience issues", () => {
+			const score = computeScore(healthySignals());
+			const factor = score.factors.find((f) => f.name === "resilience");
+			expect(factor?.score).toBe(100);
+		});
+
+		it("penalizes 30 per open breaker", () => {
+			const score = computeScore(healthySignals({ openBreakerCount: 2 }));
+			const factor = score.factors.find((f) => f.name === "resilience");
+			expect(factor?.score).toBe(40);
+		});
+
+		it("penalizes 10 per active retry", () => {
+			const score = computeScore(healthySignals({ activeRetryCount: 3 }));
+			const factor = score.factors.find((f) => f.name === "resilience");
+			expect(factor?.score).toBe(70);
+		});
+
+		it("floors at 0", () => {
+			const score = computeScore(healthySignals({ openBreakerCount: 5, activeRetryCount: 10 }));
+			const factor = score.factors.find((f) => f.name === "resilience");
+			expect(factor?.score).toBe(0);
+		});
+	});
+
 	describe("grade derivation", () => {
 		it("assigns A for score >= 85", () => {
 			expect(computeScore(healthySignals()).grade).toBe("A");
@@ -251,6 +281,8 @@ describe("computeScore", () => {
 				mergeSuccessRate: 0.0,
 				runtimeSwapCount: 100,
 				totalSessionsRecorded: 100,
+				openBreakerCount: 5,
+				activeRetryCount: 10,
 			}),
 		);
 		expect(lowScore.overall).toBeGreaterThanOrEqual(0);
