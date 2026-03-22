@@ -1113,5 +1113,18 @@
 		"status": "active",
 		"createdAt": "2026-03-22T22:47:48.007Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-2386292f",
+		"name": "rate-limit-dashboard-batch1",
+		"memberIssueIds": [
+			"overstory-b217",
+			"overstory-2c7b",
+			"overstory-3925",
+			"overstory-fdbd"
+		],
+		"status": "active",
+		"createdAt": "2026-03-22T23:44:30.791Z",
+		"completedAt": null
 	}
 ]
