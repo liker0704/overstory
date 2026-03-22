@@ -40,7 +40,7 @@ export interface RetryRecord {
 	taskId: string;
 	attempt: number;
 	outcome: "pending" | "success" | "failure";
-	agentName: string;
+	capability: string;
 	startedAt: string;
 	failedAt: string | null;
 	errorClass: "recoverable" | "structural" | "unknown";

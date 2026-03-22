@@ -95,7 +95,7 @@ export function handleTaskFailure(
 		taskId,
 		attempt: retryCount + 1,
 		outcome: "failure",
-		agentName: capability,
+		capability,
 		startedAt: new Date().toISOString(),
 		failedAt: new Date().toISOString(),
 		errorClass,

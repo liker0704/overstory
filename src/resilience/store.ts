@@ -30,7 +30,7 @@ interface RetryRow {
 	task_id: string;
 	attempt: number;
 	outcome: string;
-	agent_name: string;
+	capability: string;
 	started_at: string;
 	failed_at: string | null;
 	error_class: string;
@@ -54,7 +54,7 @@ function rowToRetry(row: RetryRow): RetryRecord {
 		taskId: row.task_id,
 		attempt: row.attempt,
 		outcome: row.outcome as RetryRecord["outcome"],
-		agentName: row.agent_name,
+		capability: row.capability,
 		startedAt: row.started_at,
 		failedAt: row.failed_at,
 		errorClass: row.error_class as RetryRecord["errorClass"],
@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS retry_records (
   task_id TEXT NOT NULL,
   attempt INTEGER NOT NULL,
   outcome TEXT NOT NULL DEFAULT 'pending' CHECK(outcome IN ('pending','success','failure')),
-  agent_name TEXT NOT NULL,
+  capability TEXT NOT NULL,
   started_at TEXT NOT NULL,
   failed_at TEXT,
   error_class TEXT NOT NULL,
@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS retry_records (
 
 const CREATE_INDEXES = `
 CREATE INDEX IF NOT EXISTS idx_retry_task_outcome ON retry_records(task_id, outcome);
-CREATE INDEX IF NOT EXISTS idx_retry_capability ON retry_records(agent_name, started_at)`;
+CREATE INDEX IF NOT EXISTS idx_retry_capability ON retry_records(capability, started_at)`;
 
 const RESILIENCE_MIGRATIONS: Migration[] = [
 	{
@@ -178,14 +178,14 @@ export function createResilienceStore(dbPath: string): ResilienceStore {
 			$task_id: string;
 			$attempt: number;
 			$outcome: string;
-			$agent_name: string;
+			$capability: string;
 			$started_at: string;
 			$failed_at: string | null;
 			$error_class: string;
 		}
 	>(`
-		INSERT INTO retry_records (task_id, attempt, outcome, agent_name, started_at, failed_at, error_class)
-		VALUES ($task_id, $attempt, $outcome, $agent_name, $started_at, $failed_at, $error_class)
+		INSERT INTO retry_records (task_id, attempt, outcome, capability, started_at, failed_at, error_class)
+		VALUES ($task_id, $attempt, $outcome, $capability, $started_at, $failed_at, $error_class)
 	`);
 
 	const getRetriesStmt = db.prepare<RetryRow, { $task_id: string }>(
@@ -198,9 +198,9 @@ export function createResilienceStore(dbPath: string): ResilienceStore {
 
 	const getRecentFailuresStmt = db.prepare<
 		{ cnt: number },
-		{ $agent_name: string; $cutoff: string }
+		{ $capability: string; $cutoff: string }
 	>(
-		"SELECT COUNT(*) as cnt FROM retry_records WHERE agent_name = $agent_name AND outcome = 'failure' AND started_at >= $cutoff",
+		"SELECT COUNT(*) as cnt FROM retry_records WHERE capability = $capability AND outcome = 'failure' AND started_at >= $cutoff",
 	);
 
 	const getPendingRetriesStmt = db.prepare<RetryRow, { $max_attempts: number }>(
@@ -256,7 +256,7 @@ export function createResilienceStore(dbPath: string): ResilienceStore {
 				$task_id: record.taskId,
 				$attempt: record.attempt,
 				$outcome: record.outcome,
-				$agent_name: record.agentName,
+				$capability: record.capability,
 				$started_at: record.startedAt,
 				$failed_at: record.failedAt,
 				$error_class: record.errorClass,
@@ -274,7 +274,7 @@ export function createResilienceStore(dbPath: string): ResilienceStore {
 
 		getRecentFailures(capability: string, windowMs: number): number {
 			const cutoff = new Date(Date.now() - windowMs).toISOString();
-			const row = getRecentFailuresStmt.get({ $agent_name: capability, $cutoff: cutoff });
+			const row = getRecentFailuresStmt.get({ $capability: capability, $cutoff: cutoff });
 			return row?.cnt ?? 0;
 		},
 

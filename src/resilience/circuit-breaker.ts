@@ -110,8 +110,9 @@ export function canDispatch(
 		return false;
 	}
 
-	// half_open: count pending retries for this capability
-	const pending = store.getPendingRetries(config.halfOpenMaxProbes);
-	const pendingForCapability = pending.filter((r) => r.agentName === capability);
+	// half_open: count pending probes for this capability
+	// Use Number.MAX_SAFE_INTEGER to get all pending retries regardless of attempt count
+	const pending = store.getPendingRetries(Number.MAX_SAFE_INTEGER);
+	const pendingForCapability = pending.filter((r) => r.capability === capability);
 	return pendingForCapability.length < config.halfOpenMaxProbes;
 }

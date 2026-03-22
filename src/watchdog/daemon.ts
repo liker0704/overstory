@@ -663,7 +663,7 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 
 				try {
 					const respawnProc = Bun.spawn(
-						["ov", "sling", retry.taskId, "--capability", retry.agentName, "--skip-task-check"],
+						["ov", "sling", retry.taskId, "--capability", retry.capability, "--skip-task-check"],
 						{ cwd: root, stdout: "pipe", stderr: "pipe" },
 					);
 					await respawnProc.exited;
@@ -1514,20 +1514,23 @@ async function handleRerouteDecision(ctx: {
 		// Clean old worktree before respawn
 		await cleanupWorktreeForRespawn({ root, agentName: session.agentName });
 
-		// Schedule respawn after delay
-		if (decision.delay > 0) {
-			await Bun.sleep(decision.delay);
-		}
+		// Schedule respawn non-blocking to avoid stalling the daemon tick
+		const doRespawn = async () => {
+			try {
+				const respawnProc = Bun.spawn(
+					["ov", "sling", session.taskId, "--capability", session.capability, "--skip-task-check"],
+					{ cwd: root, stdout: "pipe", stderr: "pipe" },
+				);
+				await respawnProc.exited;
+			} catch {
+				// Respawn failure logged but not fatal
+			}
+		};
 
-		// Respawn via sling
-		try {
-			const respawnProc = Bun.spawn(
-				["ov", "sling", session.taskId, "--capability", session.capability, "--skip-task-check"],
-				{ cwd: root, stdout: "pipe", stderr: "pipe" },
-			);
-			await respawnProc.exited;
-		} catch {
-			// Respawn failure logged but not fatal
+		if (decision.delay > 0) {
+			setTimeout(() => void doRespawn(), decision.delay);
+		} else {
+			void doRespawn();
 		}
 
 		recordEvent(ctx.eventStore, {
