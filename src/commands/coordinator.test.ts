@@ -591,8 +591,8 @@ describe("startCoordinator", () => {
 		const settingsPath = join(tempDir, ".claude", "settings.local.json");
 		const content = await Bun.file(settingsPath).text();
 
-		// The hooks should reference the coordinator agent name
-		expect(content).toContain("--agent coordinator");
+		// The hooks should use dynamic agent name via environment variable
+		expect(content).toContain('--agent \\"$OVERSTORY_AGENT_NAME\\"');
 	});
 
 	test("hooks include ENV_GUARD to avoid affecting user's Claude Code session", async () => {
