@@ -51,6 +51,7 @@ export interface CleanOptions {
 	branches?: boolean;
 	agents?: boolean;
 	specs?: boolean;
+	headroom?: boolean;
 	json?: boolean;
 }
 
@@ -133,6 +134,7 @@ interface CleanResult {
 	logsCleared: boolean;
 	agentsCleared: boolean;
 	specsCleared: boolean;
+	headroomWiped: boolean;
 	nudgeStateCleared: boolean;
 	currentRunCleared: boolean;
 	mulchHealth: {
@@ -586,6 +588,7 @@ export async function cleanCommand(opts: CleanOptions): Promise<void> {
 	const doLogs = all || (opts.logs ?? false);
 	const doAgents = all || (opts.agents ?? false);
 	const doSpecs = all || (opts.specs ?? false);
+	const doHeadroom = all || (opts.headroom ?? false);
 
 	const anySelected =
 		agentName ||
@@ -596,7 +599,8 @@ export async function cleanCommand(opts: CleanOptions): Promise<void> {
 		doMetrics ||
 		doLogs ||
 		doAgents ||
-		doSpecs;
+		doSpecs ||
+		doHeadroom;
 
 	if (!anySelected) {
 		throw new ValidationError(
@@ -639,6 +643,7 @@ export async function cleanCommand(opts: CleanOptions): Promise<void> {
 		logsCleared: false,
 		agentsCleared: false,
 		specsCleared: false,
+		headroomWiped: false,
 		nudgeStateCleared: false,
 		currentRunCleared: false,
 		mulchHealth: null,
@@ -687,6 +692,9 @@ export async function cleanCommand(opts: CleanOptions): Promise<void> {
 	}
 	if (doMetrics) {
 		result.metricsWiped = await wipeSqliteDb(join(overstoryDir, "metrics.db"));
+	}
+	if (doHeadroom) {
+		result.headroomWiped = await wipeSqliteDb(join(overstoryDir, "headroom.db"));
 	}
 
 	// 6. Wipe sessions.db + legacy sessions.json
@@ -744,6 +752,7 @@ export async function cleanCommand(opts: CleanOptions): Promise<void> {
 	}
 	if (result.mailWiped) lines.push("Wiped mail.db");
 	if (result.metricsWiped) lines.push("Wiped metrics.db");
+	if (result.headroomWiped) lines.push("Wiped headroom.db");
 	if (result.sessionsCleared) lines.push("Wiped sessions.db");
 	if (result.mergeQueueCleared) lines.push("Wiped merge-queue.db");
 	if (result.logsCleared) lines.push("Cleared logs/");
