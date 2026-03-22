@@ -10,6 +10,8 @@ domains:
   - tracker
   - evals
   - missions
+  - recovery
+  - worktree
 governance:
   max_entries: 100
   warn_entries: 150
