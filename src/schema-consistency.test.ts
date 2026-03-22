@@ -290,8 +290,8 @@ describe("SQL schema consistency", () => {
 
 			// Columns from RetryRow interface in src/resilience/store.ts
 			const expected = [
-				"agent_name",
 				"attempt",
+				"capability",
 				"created_at",
 				"error_class",
 				"failed_at",
