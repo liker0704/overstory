@@ -369,6 +369,7 @@ program
 	.option("--branches", "Delete all overstory/* branch refs")
 	.option("--agents", "Remove agent identity files")
 	.option("--specs", "Remove task spec files")
+	.option("--headroom", "Delete headroom.db")
 	.option("--json", "Output as JSON")
 	.action(async (opts) => {
 		await cleanCommand(opts);

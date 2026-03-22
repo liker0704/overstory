@@ -1,3 +1,4 @@
+import type { HeadroomConfig } from "./headroom/types.ts";
 import type { PlanReviewTier } from "./mail/types.ts";
 import type { ResilienceConfig } from "./resilience/types.ts";
 
@@ -205,4 +206,5 @@ export interface OverstoryConfig {
 		circuitBreaker?: Partial<ResilienceConfig["circuitBreaker"]>;
 		reroute?: Partial<ResilienceConfig["reroute"]>;
 	};
+	headroom?: HeadroomConfig;
 }

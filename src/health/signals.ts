@@ -143,7 +143,11 @@ export function collectSignals(params: CollectSignalsParams): HealthSignals {
 			const snapshots = store.getAll();
 			const CRITICAL_THRESHOLD = 10; // matches HeadroomConfig default
 			for (const snap of snapshots) {
-				if (snap.requestsRemaining !== null && snap.requestsLimit !== null && snap.requestsLimit > 0) {
+				if (
+					snap.requestsRemaining !== null &&
+					snap.requestsLimit !== null &&
+					snap.requestsLimit > 0
+				) {
 					const pct = (snap.requestsRemaining / snap.requestsLimit) * 100;
 					if (lowestHeadroomPercent === null || pct < lowestHeadroomPercent) {
 						lowestHeadroomPercent = pct;

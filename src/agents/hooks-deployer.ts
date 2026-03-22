@@ -263,7 +263,7 @@ function buildArtifactPathGuardScript(filePathField: string, agentName: string):
 		'[ -z "$FILE_PATH" ] && exit 0;',
 		'case "$FILE_PATH" in /*) ;; *) FILE_PATH="$(pwd)/$FILE_PATH" ;; esac;',
 		'case "$FILE_PATH" in */.overstory/*) exit 0 ;; esac;',
-		"echo '{\"decision\":\"block\",\"reason\":\"This agent can only write to .overstory/ artifact paths — source files are read-only\"}';",
+		'echo \'{"decision":"block","reason":"This agent can only write to .overstory/ artifact paths — source files are read-only"}\';',
 	].join(" ");
 	return script;
 }
