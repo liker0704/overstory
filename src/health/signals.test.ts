@@ -88,6 +88,10 @@ describe("collectSignals", () => {
 		expect(signals.completionRate).toBe(1.0);
 		expect(signals.stalledRate).toBe(0.0);
 		expect(signals.mergeSuccessRate).toBe(1.0);
+		// No resilience.db → defaults to 0
+		expect(signals.openBreakerCount).toBe(0);
+		expect(signals.activeRetryCount).toBe(0);
+		expect(signals.recentRerouteCount).toBe(0);
 		expect(signals.collectedAt).toBeDefined();
 	});
 

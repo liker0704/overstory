@@ -5,17 +5,18 @@
  *
  * Score model
  * -----------
- * Six factors, each scored 0–100, combined via fixed weights that sum to 1.0.
+ * Seven factors, each scored 0–100, combined via fixed weights that sum to 1.0.
  * The overall score is the weighted sum. A letter grade is derived from thresholds.
  *
  * Factor             Weight  Description
  * ────────────────── ──────  ──────────────────────────────────────────────────
- * completion_rate    0.25    % of recorded sessions that completed
- * stalled_rate       0.20    % of active sessions that are stalled (inverted)
- * zombie_count       0.15    Raw zombie count (penalised on a curve)
- * doctor_failures    0.20    Doctor check failure count (penalised per failure)
+ * completion_rate    0.20    % of recorded sessions that completed
+ * stalled_rate       0.18    % of active sessions that are stalled (inverted)
+ * zombie_count       0.13    Raw zombie count (penalised on a curve)
+ * doctor_failures    0.18    Doctor check failure count (penalised per failure)
  * merge_quality      0.10    % of merges that resolved cleanly
- * runtime_stability  0.10    Runtime swap rate (inverted)
+ * runtime_stability  0.08    Runtime swap rate (inverted)
+ * resilience         0.13    Circuit breaker and retry health
  *
  * Grade thresholds: A ≥ 85, B ≥ 70, C ≥ 55, D ≥ 40, F < 40.
  *
@@ -30,12 +31,13 @@ import type { HealthFactor, HealthGrade, HealthScore, HealthSignals } from "./ty
 
 /** Factor weight definitions. Must sum to 1.0. */
 const FACTOR_WEIGHTS = {
-	completion_rate: 0.25,
-	stalled_rate: 0.2,
-	zombie_count: 0.15,
-	doctor_failures: 0.2,
+	completion_rate: 0.2,
+	stalled_rate: 0.18,
+	zombie_count: 0.13,
+	doctor_failures: 0.18,
 	merge_quality: 0.1,
-	runtime_stability: 0.1,
+	runtime_stability: 0.08,
+	resilience: 0.13,
 } as const satisfies Record<string, number>;
 
 /** Grade thresholds (inclusive lower bound). */
@@ -228,6 +230,34 @@ function scoreRuntimeStability(signals: HealthSignals): HealthFactor {
 }
 
 /**
+ * Score the resilience factor.
+ * 100 base, -30 per open breaker, -10 per active retry. Floor at 0.
+ */
+function scoreResilience(signals: HealthSignals): HealthFactor {
+	const { openBreakerCount, activeRetryCount } = signals;
+	const score = clamp100(100 - openBreakerCount * 30 - activeRetryCount * 10);
+	let details: string;
+	if (openBreakerCount === 0 && activeRetryCount === 0) {
+		details = "No resilience issues";
+	} else {
+		const parts: string[] = [];
+		if (openBreakerCount > 0)
+			parts.push(`${openBreakerCount} open breaker${openBreakerCount > 1 ? "s" : ""}`);
+		if (activeRetryCount > 0)
+			parts.push(`${activeRetryCount} active retr${activeRetryCount > 1 ? "ies" : "y"}`);
+		details = parts.join(", ");
+	}
+	return {
+		name: "resilience",
+		label: "Resilience",
+		score,
+		weight: FACTOR_WEIGHTS.resilience,
+		contribution: score * FACTOR_WEIGHTS.resilience,
+		details,
+	};
+}
+
+/**
  * Compute a HealthScore from collected signals.
  *
  * @param signals  Raw signals from collectSignals().
@@ -241,6 +271,7 @@ export function computeScore(signals: HealthSignals): HealthScore {
 		scoreDoctorFailures(signals),
 		scoreMergeQuality(signals),
 		scoreRuntimeStability(signals),
+		scoreResilience(signals),
 	];
 
 	const overall = clamp100(Math.round(factors.reduce((sum, f) => sum + f.contribution, 0)));

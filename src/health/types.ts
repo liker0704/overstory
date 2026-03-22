@@ -58,6 +58,14 @@ export interface HealthSignals {
 	/** Fraction of merges that succeeded cleanly (0.0–1.0). Default 1.0 if no merges. */
 	mergeSuccessRate: number;
 
+	// --- Resilience state ---
+	/** Number of circuit breakers currently in open state. */
+	openBreakerCount: number;
+	/** Number of tasks currently being retried (outcome = 'pending'). */
+	activeRetryCount: number;
+	/** Number of reroutes in the last hour. */
+	recentRerouteCount: number;
+
 	/** ISO 8601 timestamp when signals were collected. */
 	collectedAt: string;
 }

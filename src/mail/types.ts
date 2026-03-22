@@ -27,7 +27,12 @@ export type MailProtocolType =
 	| "plan_critic_verdict"
 	| "plan_review_consolidated"
 	| "plan_revision_complete"
-	| "decision_gate";
+	| "decision_gate"
+	| "task_retried"
+	| "breaker_tripped"
+	| "breaker_reset"
+	| "task_rerouted"
+	| "reroute_recommendation";
 
 /** All valid mail message types. */
 export type MailMessageType = MailSemanticType | MailProtocolType;
@@ -58,6 +63,11 @@ export const MAIL_MESSAGE_TYPES: readonly MailMessageType[] = [
 	"plan_review_consolidated",
 	"plan_revision_complete",
 	"decision_gate",
+	"task_retried",
+	"breaker_tripped",
+	"breaker_reset",
+	"task_rerouted",
+	"reroute_recommendation",
 ] as const;
 
 /** Delivery state for mail reliability v2 (claim/ack semantics). */
@@ -336,6 +346,46 @@ export interface DecisionGatePayload {
 	deadline?: string;
 }
 
+/** Agent reports a task retry attempt. */
+export interface TaskRetriedPayload {
+	taskId: string;
+	attempt: number;
+	delay: number;
+	agentName: string;
+	capability: string;
+}
+
+/** Circuit breaker tripped to open state. */
+export interface BreakerTrippedPayload {
+	capability: string;
+	failureCount: number;
+	threshold: number;
+	cooldownMs: number;
+}
+
+/** Circuit breaker reset (closed after cooldown). */
+export interface BreakerResetPayload {
+	capability: string;
+	previousState: string;
+}
+
+/** Task rerouted to different capability/runtime. */
+export interface TaskReroutedPayload {
+	taskId: string;
+	fromCapability: string;
+	toCapability: string;
+	fromRuntime: string;
+	toRuntime: string;
+	reason: string;
+}
+
+/** Reroute engine recommendation for a task. */
+export interface RerouteRecommendationPayload {
+	taskId: string;
+	capability: string;
+	decision: import("../resilience/types.ts").RerouteDecision;
+}
+
 /** Maps protocol message types to their payload interfaces. */
 export interface MailPayloadMap {
 	worker_done: WorkerDonePayload;
@@ -358,4 +408,9 @@ export interface MailPayloadMap {
 	plan_review_consolidated: PlanReviewConsolidatedPayload;
 	plan_revision_complete: PlanRevisionCompletePayload;
 	decision_gate: DecisionGatePayload;
+	task_retried: TaskRetriedPayload;
+	breaker_tripped: BreakerTrippedPayload;
+	breaker_reset: BreakerResetPayload;
+	task_rerouted: TaskReroutedPayload;
+	reroute_recommendation: RerouteRecommendationPayload;
 }

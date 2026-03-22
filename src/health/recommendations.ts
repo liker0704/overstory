@@ -168,6 +168,22 @@ const RULES: RecommendationRule[] = [
 			verificationStep: "Compare completion rate in `ov health` across the next three runs.",
 		}),
 	},
+
+	// --- resilience ---
+	{
+		factor: "resilience",
+		threshold: 70,
+		priority: "high",
+		build: (f) => ({
+			title: "Investigate open circuit breakers",
+			whyNow: `${f.details}. Open breakers prevent task dispatch to affected capabilities.`,
+			expectedImpact: "Restore full capability coverage and unblock pending tasks.",
+			action:
+				"Run `ov status` to see which breakers are open. Check provider health and error patterns. Consider adjusting `resilience.circuitBreaker.failureThreshold` in config.yaml if breakers are tripping too aggressively.",
+			verificationStep:
+				"Run `ov health` and confirm resilience score has improved. Check `ov status` for breaker state.",
+		}),
+	},
 ];
 
 /**
