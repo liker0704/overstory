@@ -782,6 +782,114 @@ describe("ClaudeRuntime integration: registry resolves 'claude' as default", () 
 	});
 });
 
+describe("ClaudeRuntime queryHeadroom", () => {
+	const runtime = new ClaudeRuntime();
+
+	test("returns unavailable when ANTHROPIC_API_KEY is not set", async () => {
+		const original = process.env.ANTHROPIC_API_KEY;
+		delete process.env.ANTHROPIC_API_KEY;
+		try {
+			const snapshot = await runtime.queryHeadroom();
+			expect(snapshot.state).toBe("unavailable");
+			expect(snapshot.runtime).toBe("claude");
+			expect(snapshot.message).toContain("ANTHROPIC_API_KEY");
+			expect(snapshot.requestsRemaining).toBeNull();
+		} finally {
+			if (original !== undefined) process.env.ANTHROPIC_API_KEY = original;
+		}
+	});
+
+	test("returns unavailable when fetch fails", async () => {
+		const original = process.env.ANTHROPIC_API_KEY;
+		process.env.ANTHROPIC_API_KEY = "sk-test-fake-key";
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = (() =>
+			Promise.reject(new Error("network error"))) as unknown as typeof globalThis.fetch;
+		try {
+			const snapshot = await runtime.queryHeadroom();
+			expect(snapshot.state).toBe("unavailable");
+			expect(snapshot.runtime).toBe("claude");
+			expect(snapshot.message).toBe("API probe failed");
+		} finally {
+			globalThis.fetch = originalFetch;
+			if (original !== undefined) {
+				process.env.ANTHROPIC_API_KEY = original;
+			} else {
+				delete process.env.ANTHROPIC_API_KEY;
+			}
+		}
+	});
+
+	test("returns exact snapshot when API returns rate limit headers", async () => {
+		const original = process.env.ANTHROPIC_API_KEY;
+		process.env.ANTHROPIC_API_KEY = "sk-test-fake-key";
+		const originalFetch = globalThis.fetch;
+
+		globalThis.fetch = (() =>
+			Promise.resolve(
+				new Response(
+					JSON.stringify({ id: "msg_test", content: [], model: "claude-haiku-4-5-20251001" }),
+					{
+						status: 200,
+						headers: {
+							"anthropic-ratelimit-requests-remaining": "750",
+							"anthropic-ratelimit-requests-limit": "1000",
+							"anthropic-ratelimit-requests-reset": "2026-03-22T23:00:00Z",
+							"anthropic-ratelimit-tokens-remaining": "80000",
+							"anthropic-ratelimit-tokens-limit": "100000",
+						},
+					},
+				),
+			)) as unknown as typeof globalThis.fetch;
+
+		try {
+			const snapshot = await runtime.queryHeadroom();
+			expect(snapshot.state).toBe("exact");
+			expect(snapshot.runtime).toBe("claude");
+			expect(snapshot.requestsRemaining).toBe(750);
+			expect(snapshot.requestsLimit).toBe(1000);
+			expect(snapshot.tokensRemaining).toBe(80000);
+			expect(snapshot.tokensLimit).toBe(100000);
+			expect(snapshot.windowResetsAt).toBe("2026-03-22T23:00:00Z");
+			expect(snapshot.message).toContain("75%");
+		} finally {
+			globalThis.fetch = originalFetch;
+			if (original !== undefined) {
+				process.env.ANTHROPIC_API_KEY = original;
+			} else {
+				delete process.env.ANTHROPIC_API_KEY;
+			}
+		}
+	});
+
+	test("returns unavailable when headers are missing from response", async () => {
+		const original = process.env.ANTHROPIC_API_KEY;
+		process.env.ANTHROPIC_API_KEY = "sk-test-fake-key";
+		const originalFetch = globalThis.fetch;
+
+		globalThis.fetch = (() =>
+			Promise.resolve(
+				new Response(JSON.stringify({ id: "msg_test" }), {
+					status: 200,
+					headers: {},
+				}),
+			)) as unknown as typeof globalThis.fetch;
+
+		try {
+			const snapshot = await runtime.queryHeadroom();
+			expect(snapshot.state).toBe("unavailable");
+			expect(snapshot.message).toContain("headers not present");
+		} finally {
+			globalThis.fetch = originalFetch;
+			if (original !== undefined) {
+				process.env.ANTHROPIC_API_KEY = original;
+			} else {
+				delete process.env.ANTHROPIC_API_KEY;
+			}
+		}
+	});
+});
+
 describe("ClaudeRuntime detectRateLimit", () => {
 	const runtime = new ClaudeRuntime();
 
