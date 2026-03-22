@@ -150,6 +150,25 @@ export const DEFAULT_CONFIG: OverstoryConfig = {
 			backoffMaxMs: 60_000,
 		},
 	},
+	resilience: {
+		retry: {
+			maxAttempts: 3,
+			backoffBaseMs: 5_000,
+			backoffMaxMs: 120_000,
+			backoffMultiplier: 2,
+			globalMaxConcurrent: 5,
+		},
+		circuitBreaker: {
+			failureThreshold: 5,
+			windowMs: 600_000,
+			cooldownMs: 300_000,
+			halfOpenMaxProbes: 2,
+		},
+		reroute: {
+			enabled: false,
+			maxReroutes: 2,
+		},
+	},
 };
 
 const CONFIG_FILENAME = "config.yaml";
@@ -442,6 +461,108 @@ function validateConfig(config: OverstoryConfig): void {
 				throw new ValidationError(`runtime.capabilities.${cap} must be a non-empty string`, {
 					field: `runtime.capabilities.${cap}`,
 					value: runtimeName,
+				});
+			}
+		}
+	}
+
+	// resilience: validate fields if section is present
+	if (config.resilience !== undefined) {
+		const r = config.resilience;
+		if (r.retry !== undefined) {
+			const rt = r.retry;
+			if (rt.maxAttempts !== undefined && (!Number.isInteger(rt.maxAttempts) || rt.maxAttempts < 1)) {
+				throw new ValidationError("resilience.retry.maxAttempts must be a positive integer", {
+					field: "resilience.retry.maxAttempts",
+					value: rt.maxAttempts,
+				});
+			}
+			if (rt.backoffBaseMs !== undefined && (typeof rt.backoffBaseMs !== "number" || rt.backoffBaseMs <= 0)) {
+				throw new ValidationError("resilience.retry.backoffBaseMs must be a positive number", {
+					field: "resilience.retry.backoffBaseMs",
+					value: rt.backoffBaseMs,
+				});
+			}
+			if (rt.backoffMaxMs !== undefined && (typeof rt.backoffMaxMs !== "number" || rt.backoffMaxMs <= 0)) {
+				throw new ValidationError("resilience.retry.backoffMaxMs must be a positive number", {
+					field: "resilience.retry.backoffMaxMs",
+					value: rt.backoffMaxMs,
+				});
+			}
+			if (
+				rt.backoffBaseMs !== undefined &&
+				rt.backoffMaxMs !== undefined &&
+				rt.backoffMaxMs < rt.backoffBaseMs
+			) {
+				throw new ValidationError(
+					"resilience.retry.backoffMaxMs must be >= resilience.retry.backoffBaseMs",
+					{
+						field: "resilience.retry.backoffMaxMs",
+						value: rt.backoffMaxMs,
+					},
+				);
+			}
+			if (rt.backoffMultiplier !== undefined && (typeof rt.backoffMultiplier !== "number" || rt.backoffMultiplier <= 0)) {
+				throw new ValidationError("resilience.retry.backoffMultiplier must be a positive number", {
+					field: "resilience.retry.backoffMultiplier",
+					value: rt.backoffMultiplier,
+				});
+			}
+			if (
+				rt.globalMaxConcurrent !== undefined &&
+				(!Number.isInteger(rt.globalMaxConcurrent) || rt.globalMaxConcurrent < 1)
+			) {
+				throw new ValidationError("resilience.retry.globalMaxConcurrent must be a positive integer", {
+					field: "resilience.retry.globalMaxConcurrent",
+					value: rt.globalMaxConcurrent,
+				});
+			}
+		}
+		if (r.circuitBreaker !== undefined) {
+			const cb = r.circuitBreaker;
+			if (
+				cb.failureThreshold !== undefined &&
+				(!Number.isInteger(cb.failureThreshold) || cb.failureThreshold < 1)
+			) {
+				throw new ValidationError("resilience.circuitBreaker.failureThreshold must be a positive integer", {
+					field: "resilience.circuitBreaker.failureThreshold",
+					value: cb.failureThreshold,
+				});
+			}
+			if (cb.windowMs !== undefined && (typeof cb.windowMs !== "number" || cb.windowMs <= 0)) {
+				throw new ValidationError("resilience.circuitBreaker.windowMs must be a positive number", {
+					field: "resilience.circuitBreaker.windowMs",
+					value: cb.windowMs,
+				});
+			}
+			if (cb.cooldownMs !== undefined && (typeof cb.cooldownMs !== "number" || cb.cooldownMs <= 0)) {
+				throw new ValidationError("resilience.circuitBreaker.cooldownMs must be a positive number", {
+					field: "resilience.circuitBreaker.cooldownMs",
+					value: cb.cooldownMs,
+				});
+			}
+			if (
+				cb.halfOpenMaxProbes !== undefined &&
+				(!Number.isInteger(cb.halfOpenMaxProbes) || cb.halfOpenMaxProbes < 1)
+			) {
+				throw new ValidationError(
+					"resilience.circuitBreaker.halfOpenMaxProbes must be a positive integer",
+					{
+						field: "resilience.circuitBreaker.halfOpenMaxProbes",
+						value: cb.halfOpenMaxProbes,
+					},
+				);
+			}
+		}
+		if (r.reroute !== undefined) {
+			const rr = r.reroute;
+			if (
+				rr.maxReroutes !== undefined &&
+				(!Number.isInteger(rr.maxReroutes) || rr.maxReroutes < 0)
+			) {
+				throw new ValidationError("resilience.reroute.maxReroutes must be a non-negative integer", {
+					field: "resilience.reroute.maxReroutes",
+					value: rr.maxReroutes,
 				});
 			}
 		}

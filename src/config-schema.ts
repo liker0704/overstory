@@ -32,6 +32,7 @@ export const KNOWN_FIELDS = {
 		"runtime",
 		"mission",
 		"mail",
+		"resilience",
 	]),
 	project: new Set(["name", "root", "canonicalBranch", "qualityGates"]),
 	qualityGateItem: new Set(["name", "command", "description"]),
@@ -83,4 +84,8 @@ export const KNOWN_FIELDS = {
 	missionPlanReview: new Set(["enabled", "tier", "maxRounds", "criticModel"]),
 	mail: new Set(["reliability"]),
 	mailReliability: new Set(["leaseTimeoutSec", "maxRetries", "backoffBaseMs", "backoffMaxMs"]),
+	resilience: new Set(["retry", "circuitBreaker", "reroute"]),
+	resilienceRetry: new Set(["maxAttempts", "backoffBaseMs", "backoffMaxMs", "backoffMultiplier", "globalMaxConcurrent"]),
+	resilienceCircuitBreaker: new Set(["failureThreshold", "windowMs", "cooldownMs", "halfOpenMaxProbes"]),
+	resilienceReroute: new Set(["enabled", "maxReroutes", "fallbackCapability"]),
 } as const;
