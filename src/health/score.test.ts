@@ -32,6 +32,8 @@ function healthySignals(overrides: Partial<HealthSignals> = {}): HealthSignals {
 		openBreakerCount: 0,
 		activeRetryCount: 0,
 		recentRerouteCount: 0,
+		lowestHeadroomPercent: null,
+		criticalHeadroomCount: 0,
 		collectedAt: new Date().toISOString(),
 		...overrides,
 	};
