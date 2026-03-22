@@ -55,6 +55,13 @@ export type {
 	StoredEvent,
 	ToolStats,
 } from "./events/types.ts";
+// Headroom types
+export type {
+	HeadroomConfig,
+	HeadroomSnapshot,
+	HeadroomState,
+	HeadroomStore,
+} from "./headroom/types.ts";
 // Mail types
 export type {
 	AnalystRecommendationPayload,
