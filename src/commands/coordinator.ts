@@ -28,10 +28,10 @@ import { jsonOutput } from "../json.ts";
 import { printHint, printSuccess, printWarning } from "../logging/color.ts";
 import { createMailClient } from "../mail/client.ts";
 import { createMailStore } from "../mail/store.ts";
+import { isProcessRunning } from "../process/util.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import { createSessionStore } from "../sessions/store.ts";
 import { resolveBackend, trackerCliName } from "../tracker/factory.ts";
-import { isProcessRunning } from "../watchdog/health.ts";
 import type { SessionState } from "../worktree/tmux.ts";
 import {
 	attachOrSwitch,

@@ -30,8 +30,11 @@
  * table are always up-to-date because they reflect real kernel state.
  */
 
+import { isProcessRunning } from "../process/util.ts";
 import type { RateLimitState } from "../runtimes/types.ts";
 import type { AgentSession, AgentState, HealthCheck } from "../types.ts";
+
+export { isProcessRunning } from "../process/util.ts";
 
 /**
  * Agent capabilities that run as persistent interactive sessions.
@@ -57,25 +60,6 @@ const STATE_ORDER: Record<AgentState, number> = {
 	stalled: 3,
 	zombie: 4,
 };
-
-/**
- * Check whether a process with the given PID is still running.
- *
- * Uses signal 0 which does not kill the process — it only checks
- * whether it exists and we have permission to signal it.
- *
- * @param pid - The process ID to check
- * @returns true if the process exists, false otherwise
- */
-export function isProcessRunning(pid: number): boolean {
-	try {
-		// Signal 0 doesn't kill the process — just checks if it exists
-		process.kill(pid, 0);
-		return true;
-	} catch {
-		return false;
-	}
-}
 
 /**
  * Detect whether a session is a headless agent.

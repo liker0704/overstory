@@ -12,9 +12,9 @@ import { loadConfig } from "../config.ts";
 import { OverstoryError } from "../errors.ts";
 import { jsonOutput } from "../json.ts";
 import { printError, printHint, printSuccess } from "../logging/color.ts";
+import { isProcessRunning } from "../process/util.ts";
 import type { HealthCheck } from "../types.ts";
 import { startDaemon } from "../watchdog/daemon.ts";
-import { isProcessRunning } from "../watchdog/health.ts";
 
 /**
  * Format a health check for display.
@@ -36,7 +36,7 @@ function formatCheck(check: HealthCheck): string {
 	return line;
 }
 
-// isProcessRunning is imported from ../watchdog/health.ts (ZFC shared utility)
+// isProcessRunning is imported from ../process/util.ts (shared process utility)
 
 /**
  * Read the PID from the watchdog PID file.

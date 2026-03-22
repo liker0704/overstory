@@ -3,8 +3,8 @@
 
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { tailReadLines } from "../process/util.ts";
 import type { PiRuntimeConfig, ResolvedModel } from "../types.ts";
-import { tailReadLines } from "../watchdog/swap.ts";
 import { generatePiGuardExtension } from "./pi-guards.ts";
 import type {
 	AgentRuntime,

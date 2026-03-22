@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { isProcessRunning } from "../process/util.ts";
 import type { AgentSession } from "../types.ts";
-import { evaluateHealth, isProcessRunning, transitionState } from "./health.ts";
+import { evaluateHealth, transitionState } from "./health.ts";
 
 /**
  * Tests for the ZFC-based health evaluation and state machine.

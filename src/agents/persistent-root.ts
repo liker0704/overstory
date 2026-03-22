@@ -20,11 +20,11 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { loadConfig } from "../config.ts";
 import { AgentError } from "../errors.ts";
+import { isProcessRunning } from "../process/util.ts";
 import { getRuntime } from "../runtimes/registry.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import { createRunStore } from "../sessions/store.ts";
 import type { AgentSession } from "../types.ts";
-import { isProcessRunning } from "../watchdog/health.ts";
 import type { SessionState } from "../worktree/tmux.ts";
 import {
 	capturePaneContent,

@@ -12,8 +12,8 @@
 import { mkdir, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { tailReadLines } from "../process/util.ts";
 import type { ResolvedModel } from "../types.ts";
-import { tailReadLines } from "../watchdog/swap.ts";
 import type {
 	AgentRuntime,
 	HooksDef,

@@ -242,21 +242,7 @@ export async function swapRuntime(options: SwapOptions): Promise<SwapResult> {
 
 // ─── Shared Helpers ──────────────────────────────────────────────────────────
 
-/**
- * Read only the last `maxBytes` of a file and split into lines.
- * Drops the first line (likely truncated by byte boundary).
- * Safe to call on nonexistent files — returns [].
- */
-export async function tailReadLines(filePath: string, maxBytes = 100_000): Promise<string[]> {
-	const file = Bun.file(filePath);
-	if (!(await file.exists())) return [];
-	const size = file.size;
-	const blob = size > maxBytes ? file.slice(size - maxBytes) : file;
-	const text = await blob.text();
-	const lines = text.split("\n").filter((l) => l.trim().length > 0);
-	if (size > maxBytes) lines.shift();
-	return lines;
-}
+export { tailReadLines } from "../process/util.ts";
 
 // ─── Private Helpers ─────────────────────────────────────────────────────────
 

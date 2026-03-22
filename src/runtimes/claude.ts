@@ -8,8 +8,8 @@ import { join } from "node:path";
 import { deployHooks } from "../agents/hooks-deployer.ts";
 import { estimateCost } from "../metrics/pricing.ts";
 import { parseTranscriptUsage } from "../metrics/transcript.ts";
+import { tailReadLines } from "../process/util.ts";
 import type { ResolvedModel } from "../types.ts";
-import { tailReadLines } from "../watchdog/swap.ts";
 import type {
 	AgentRuntime,
 	HooksDef,
