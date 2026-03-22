@@ -1,6 +1,7 @@
 // Runtime abstraction types for multi-provider agent support.
 // See docs/runtime-abstraction.md for design rationale and coupling inventory.
 
+import type { HeadroomSnapshot } from "../headroom/types.ts";
 import type { QualityGate, ResolvedModel } from "../types.ts";
 
 // === Spawn ===
@@ -283,4 +284,11 @@ export interface AgentRuntime {
 	 * Runtimes that omit this method fall back to tmux pane capture.
 	 */
 	extractConversation?(worktreePath: string, sessionId: string, maxTurns: number): Promise<string>;
+
+	/**
+	 * Query current quota/headroom from the provider API.
+	 * Returns a snapshot with remaining capacity, or state: "unavailable" on failure.
+	 * Runtimes that omit this method are assumed to have no headroom reporting.
+	 */
+	queryHeadroom?(): Promise<HeadroomSnapshot>;
 }

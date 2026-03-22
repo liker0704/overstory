@@ -6,6 +6,7 @@ import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { deployHooks } from "../agents/hooks-deployer.ts";
+import type { HeadroomSnapshot } from "../headroom/types.ts";
 import { estimateCost } from "../metrics/pricing.ts";
 import { parseTranscriptUsage } from "../metrics/transcript.ts";
 import { tailReadLines } from "../process/util.ts";
@@ -415,6 +416,103 @@ export class ClaudeRuntime implements AgentRuntime {
 		}
 
 		return { limited: false };
+	}
+
+	async queryHeadroom(): Promise<HeadroomSnapshot> {
+		const apiKey = process.env.ANTHROPIC_API_KEY;
+		if (!apiKey) {
+			return {
+				runtime: this.id,
+				state: "unavailable",
+				capturedAt: new Date().toISOString(),
+				requestsRemaining: null,
+				requestsLimit: null,
+				tokensRemaining: null,
+				tokensLimit: null,
+				windowResetsAt: null,
+				message: "ANTHROPIC_API_KEY not set",
+			};
+		}
+
+		try {
+			const controller = new AbortController();
+			const timeout = setTimeout(() => controller.abort(), 5000);
+
+			const response = await fetch("https://api.anthropic.com/v1/messages", {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					"x-api-key": apiKey,
+					"anthropic-version": "2023-06-01",
+				},
+				body: JSON.stringify({
+					model: "claude-haiku-4-5-20251001",
+					max_tokens: 1,
+					messages: [{ role: "user", content: "hi" }],
+				}),
+				signal: controller.signal,
+			});
+
+			clearTimeout(timeout);
+
+			const reqRemaining = response.headers.get("anthropic-ratelimit-requests-remaining");
+			const reqLimit = response.headers.get("anthropic-ratelimit-requests-limit");
+			const reqReset = response.headers.get("anthropic-ratelimit-requests-reset");
+			const tokRemaining = response.headers.get("anthropic-ratelimit-tokens-remaining");
+			const tokLimit = response.headers.get("anthropic-ratelimit-tokens-limit");
+
+			if (reqRemaining === null && tokRemaining === null) {
+				return {
+					runtime: this.id,
+					state: "unavailable",
+					capturedAt: new Date().toISOString(),
+					requestsRemaining: null,
+					requestsLimit: null,
+					tokensRemaining: null,
+					tokensLimit: null,
+					windowResetsAt: null,
+					message: "Rate limit headers not present in response",
+				};
+			}
+
+			const requestsRemaining = reqRemaining !== null ? parseInt(reqRemaining, 10) : null;
+			const requestsLimit = reqLimit !== null ? parseInt(reqLimit, 10) : null;
+			const tokensRemaining = tokRemaining !== null ? parseInt(tokRemaining, 10) : null;
+			const tokensLimit = tokLimit !== null ? parseInt(tokLimit, 10) : null;
+
+			let pct = "";
+			if (requestsRemaining !== null && requestsLimit !== null && requestsLimit > 0) {
+				pct = `${Math.round((requestsRemaining / requestsLimit) * 100)}% of request quota remaining`;
+			} else if (tokensRemaining !== null && tokensLimit !== null && tokensLimit > 0) {
+				pct = `${Math.round((tokensRemaining / tokensLimit) * 100)}% of token quota remaining`;
+			} else {
+				pct = "Headroom data available";
+			}
+
+			return {
+				runtime: this.id,
+				state: "exact",
+				capturedAt: new Date().toISOString(),
+				requestsRemaining,
+				requestsLimit,
+				tokensRemaining,
+				tokensLimit,
+				windowResetsAt: reqReset,
+				message: pct,
+			};
+		} catch {
+			return {
+				runtime: this.id,
+				state: "unavailable",
+				capturedAt: new Date().toISOString(),
+				requestsRemaining: null,
+				requestsLimit: null,
+				tokensRemaining: null,
+				tokensLimit: null,
+				windowResetsAt: null,
+				message: "API probe failed",
+			};
+		}
 	}
 }
 
