@@ -15,12 +15,17 @@ import { jsonOutput } from "../json.ts";
 import { accent, printHint, printSuccess } from "../logging/color.ts";
 import { isGroupAddress, resolveGroupAddress } from "../mail/broadcast.ts";
 import { createMailClient } from "../mail/client.ts";
-import { canonicalizeMailAgentName, expandMailAgentNames } from "../mail/identity.ts";
+import { canonicalizeMailAgentName } from "../mail/identity.ts";
+import {
+	AUTO_NUDGE_TYPES,
+	isDispatchNudge,
+	readAndClearPendingNudge,
+	shouldAutoNudge,
+	writePendingNudge,
+} from "../mail/nudge.ts";
 import { createMailStore } from "../mail/store.ts";
-import { recordMissionEvent } from "../missions/events.ts";
+import { parseMissionFindingPayload, syncMissionPendingInputFromMail } from "../missions/mail-bridge.ts";
 import { validateMissionIngress } from "../missions/ingress.ts";
-import { resolveActiveMissionContext } from "../missions/runtime-context.ts";
-import { createMissionStore } from "../missions/store.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import {
 	MAIL_DELIVERY_STATES,
@@ -31,34 +36,8 @@ import {
 	type MissionFindingPayload,
 } from "../types.ts";
 
-/**
- * Protocol message types that require immediate recipient attention.
- * These trigger auto-nudge regardless of priority level.
- */
-export const AUTO_NUDGE_TYPES: ReadonlySet<MailMessageType> = new Set([
-	"worker_done",
-	"merge_ready",
-	"error",
-	"escalation",
-	"merge_failed",
-]);
-
-/**
- * Check if a message type/priority combination should trigger a pending nudge.
- * Exported for testability.
- */
-export function shouldAutoNudge(type: MailMessageType, priority: MailMessage["priority"]): boolean {
-	return priority === "urgent" || priority === "high" || AUTO_NUDGE_TYPES.has(type);
-}
-
-/**
- * Check if a message type should trigger an immediate tmux dispatch nudge.
- * Dispatch nudges target newly spawned agents at the welcome screen.
- * Exported for testability.
- */
-export function isDispatchNudge(type: MailMessageType): boolean {
-	return type === "dispatch";
-}
+// Re-export for backward compatibility (consumed by mail.test.ts)
+export { AUTO_NUDGE_TYPES, shouldAutoNudge, isDispatchNudge } from "../mail/nudge.ts";
 
 /** Format a single message for human-readable output. */
 function formatMessage(msg: MailMessage): string {
@@ -91,203 +70,6 @@ function formatMessage(msg: MailMessage): string {
 function openStore(cwd: string) {
 	const dbPath = join(cwd, ".overstory", "mail.db");
 	return createMailStore(dbPath);
-}
-
-// === Pending Nudge Markers ===
-//
-// Instead of sending tmux keys (which corrupt tool I/O), auto-nudge writes
-// a JSON marker file per agent. The `mail check --inject` flow reads and
-// clears these markers, prepending a priority banner to the injected output.
-
-/** Directory where pending nudge markers are stored. */
-function pendingNudgeDir(cwd: string): string {
-	return join(cwd, ".overstory", "pending-nudges");
-}
-
-/** Shape of a pending nudge marker file. */
-interface PendingNudge {
-	from: string;
-	reason: string;
-	subject: string;
-	messageId: string;
-	createdAt: string;
-}
-
-const MISSION_PENDING_SENDERS = new Set([
-	"mission-analyst",
-	"execution-director",
-	"coordinator-mission",
-	"coordinator",
-]);
-
-async function syncMissionPendingInputFromMail(
-	cwd: string,
-	msg: {
-		id: string;
-		from: string;
-		to: string;
-		type: MailMessageType;
-		subject: string;
-	},
-): Promise<void> {
-	if (msg.to !== "operator" || msg.type !== "question" || !MISSION_PENDING_SENDERS.has(msg.from)) {
-		return;
-	}
-
-	const overstoryDir = join(cwd, ".overstory");
-	const dbPath = join(overstoryDir, "sessions.db");
-	const missionStore = createMissionStore(dbPath);
-	try {
-		const missionContext = await resolveActiveMissionContext(overstoryDir);
-		let mission = missionContext ? missionStore.getById(missionContext.missionId) : null;
-		if (!mission) {
-			mission = missionStore.getActive();
-		}
-		if (!mission) {
-			return;
-		}
-
-		missionStore.freeze(mission.id, "question", msg.id);
-		recordMissionEvent({
-			overstoryDir,
-			mission,
-			agentName: msg.from,
-			data: {
-				kind: "pending_input",
-				detail: `${msg.from} asked operator: ${msg.subject}`,
-				threadId: msg.id,
-			},
-		});
-		recordMissionEvent({
-			overstoryDir,
-			mission,
-			agentName: msg.from,
-			data: { kind: "state_change", from: mission.state, to: "frozen" },
-		});
-	} finally {
-		missionStore.close();
-	}
-}
-
-function parseMissionFindingPayload(rawPayload: string | undefined): MissionFindingPayload {
-	if (!rawPayload) {
-		throw new ValidationError(
-			"mission_finding mail to mission-analyst requires --payload with MissionFindingPayload JSON",
-			{ field: "payload", value: rawPayload },
-		);
-	}
-
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(rawPayload);
-	} catch {
-		throw new ValidationError("--payload must be valid JSON", {
-			field: "payload",
-			value: rawPayload,
-		});
-	}
-
-	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-		throw new ValidationError("mission_finding payload must be a JSON object", {
-			field: "payload",
-			value: rawPayload,
-		});
-	}
-
-	const payload = parsed as Record<string, unknown>;
-	if (typeof payload["workstreamId"] !== "string" || payload["workstreamId"].trim().length === 0) {
-		throw new ValidationError("mission_finding payload.workstreamId must be a non-empty string", {
-			field: "payload.workstreamId",
-			value: payload["workstreamId"],
-		});
-	}
-	if (typeof payload["category"] !== "string" || payload["category"].trim().length === 0) {
-		throw new ValidationError("mission_finding payload.category must be a non-empty string", {
-			field: "payload.category",
-			value: payload["category"],
-		});
-	}
-	if (typeof payload["summary"] !== "string" || payload["summary"].trim().length === 0) {
-		throw new ValidationError("mission_finding payload.summary must be a non-empty string", {
-			field: "payload.summary",
-			value: payload["summary"],
-		});
-	}
-	if (
-		!Array.isArray(payload["affectedWorkstreams"]) ||
-		!payload["affectedWorkstreams"].every((value) => typeof value === "string")
-	) {
-		throw new ValidationError("mission_finding payload.affectedWorkstreams must be a string[]", {
-			field: "payload.affectedWorkstreams",
-			value: payload["affectedWorkstreams"],
-		});
-	}
-
-	return {
-		workstreamId: payload["workstreamId"],
-		category: payload["category"] as MissionFindingPayload["category"],
-		summary: payload["summary"],
-		affectedWorkstreams: payload["affectedWorkstreams"] as string[],
-	};
-}
-
-/**
- * Write a pending nudge marker for an agent.
- *
- * Creates `.overstory/pending-nudges/{agent}.json` so that the next
- * `mail check --inject` call surfaces a priority banner for this message.
- * Overwrites any existing marker (only the latest nudge matters).
- */
-async function writePendingNudge(
-	cwd: string,
-	agentName: string,
-	nudge: Omit<PendingNudge, "createdAt">,
-): Promise<void> {
-	const dir = pendingNudgeDir(cwd);
-	const { mkdir } = await import("node:fs/promises");
-	await mkdir(dir, { recursive: true });
-
-	const marker: PendingNudge = {
-		...nudge,
-		createdAt: new Date().toISOString(),
-	};
-	const filePath = join(dir, `${canonicalizeMailAgentName(agentName)}.json`);
-	await Bun.write(filePath, `${JSON.stringify(marker, null, "\t")}\n`);
-}
-
-/**
- * Read and clear pending nudge markers for an agent.
- *
- * Returns the pending nudge (if any) and removes the marker file.
- * Called by `mail check --inject` to prepend a priority banner.
- */
-async function readAndClearPendingNudge(
-	cwd: string,
-	agentName: string,
-): Promise<PendingNudge | null> {
-	for (const mailboxName of expandMailAgentNames(agentName)) {
-		const filePath = join(pendingNudgeDir(cwd), `${mailboxName}.json`);
-		const file = Bun.file(filePath);
-		if (!(await file.exists())) {
-			continue;
-		}
-		try {
-			const text = await file.text();
-			const nudge = JSON.parse(text) as PendingNudge;
-			const { unlink } = await import("node:fs/promises");
-			await unlink(filePath);
-			return nudge;
-		} catch {
-			// Corrupt or race condition — clear it and move on
-			try {
-				const { unlink } = await import("node:fs/promises");
-				await unlink(filePath);
-			} catch {
-				// Already gone
-			}
-		}
-	}
-	return null;
 }
 
 /**

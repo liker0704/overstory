@@ -262,3 +262,51 @@ export async function stopMissionRole(
 		completeRun: opts.completeRun,
 	});
 }
+
+/**
+ * Stop all descendant agents for a mission run, excluding specified agent names.
+ * Stops in reverse depth order (deepest first).
+ */
+export async function stopMissionRunDescendants(opts: {
+	overstoryDir: string;
+	projectRoot: string;
+	runId: string | null;
+	excludedAgentNames: ReadonlySet<string>;
+	stopAgentCommand: (agentName: string, opts: { force: boolean }) => Promise<void>;
+}): Promise<string[]> {
+	if (!opts.runId) {
+		return [];
+	}
+
+	const { openSessionStore } = await import("../sessions/compat.ts");
+	const { store } = openSessionStore(opts.overstoryDir);
+	try {
+		const descendants = store
+			.getByRun(opts.runId)
+			.filter((session) => !opts.excludedAgentNames.has(session.agentName))
+			.sort((left, right) => {
+				if (right.depth !== left.depth) {
+					return right.depth - left.depth;
+				}
+				return left.agentName.localeCompare(right.agentName);
+			});
+		const stopped: string[] = [];
+		const originalCwd = process.cwd();
+		process.chdir(opts.projectRoot);
+		try {
+			for (const session of descendants) {
+				try {
+					await opts.stopAgentCommand(session.agentName, { force: true });
+					stopped.push(session.agentName);
+				} catch {
+					// Completed descendants without a live runtime do not need additional cleanup.
+				}
+			}
+		} finally {
+			process.chdir(originalCwd);
+		}
+		return stopped;
+	} finally {
+		store.close();
+	}
+}

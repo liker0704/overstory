@@ -182,3 +182,65 @@ export async function exportBundle(opts: BundleOptions): Promise<BundleResult> {
 
 	return { outputDir, manifest, filesWritten };
 }
+
+// === ov mission bundle (CLI handler) ===
+
+interface BundleOpts {
+	missionId?: string;
+	force?: boolean;
+	json?: boolean;
+}
+
+export async function missionBundle(overstoryDir: string, opts: BundleOpts): Promise<void> {
+	const { jsonError, jsonOutput } = await import("../json.ts");
+	const { printError, printHint, printSuccess } = await import("../logging/color.ts");
+	const { resolveCurrentMissionId } = await import("./lifecycle.ts");
+
+	const dbPath = join(overstoryDir, "sessions.db");
+
+	let missionId = opts.missionId ?? null;
+	if (!missionId) {
+		missionId = await resolveCurrentMissionId(overstoryDir);
+	}
+	if (!missionId) {
+		if (opts.json) {
+			jsonError("mission bundle", "No active mission and no --mission-id provided");
+		} else {
+			printError("No active mission and no --mission-id provided");
+		}
+		process.exitCode = 1;
+		return;
+	}
+
+	try {
+		const result = await exportBundle({
+			overstoryDir,
+			dbPath,
+			missionId,
+			force: opts.force,
+		});
+
+		if (opts.json) {
+			jsonOutput("mission bundle", {
+				outputDir: result.outputDir,
+				manifest: result.manifest,
+				filesWritten: result.filesWritten,
+			});
+		} else if (result.filesWritten.length === 0) {
+			printHint("Bundle is already up to date");
+			process.stdout.write(`  Path: ${result.outputDir}\n`);
+		} else {
+			printSuccess("Bundle exported", result.outputDir);
+			for (const file of result.filesWritten) {
+				process.stdout.write(`  ${file}\n`);
+			}
+		}
+	} catch (err) {
+		if (opts.json) {
+			jsonError("mission bundle", String(err));
+		} else {
+			printError("Bundle export failed", String(err));
+		}
+		process.exitCode = 1;
+	}
+}
