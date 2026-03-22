@@ -31,6 +31,8 @@ import {
 } from "../events/tailer.ts";
 import { pollHeadroom } from "../headroom/adapter.ts";
 import { createHeadroomStore } from "../headroom/store.ts";
+import { evaluateThrottlePolicy } from "../headroom/throttle.ts";
+import type { ThrottlePolicy } from "../headroom/throttle-types.ts";
 import type { HeadroomConfig, HeadroomStore } from "../headroom/types.ts";
 import { sanitize } from "../logging/sanitizer.ts";
 import { createMailClient } from "../mail/client.ts";
@@ -1285,6 +1287,45 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 									type: "headroom_warn",
 									runtime: snap.runtime,
 									percent: Math.round(pct),
+								},
+							});
+						}
+					}
+				}
+
+				// === Throttle policy enforcement ===
+				const throttleConfig = headroomConfig?.throttle;
+				if (throttleConfig) {
+					const throttlePolicy: ThrottlePolicy = {
+						slowThresholdPercent: throttleConfig.slowThresholdPercent ?? 20,
+						pauseThresholdPercent: throttleConfig.pauseThresholdPercent ?? 10,
+						blockSpawnsOnPause: throttleConfig.blockSpawnsOnPause ?? true,
+					};
+					const activeSessions = sessions.filter(
+						(s) => s.state === "working" || s.state === "booting",
+					);
+					const throttleActions = evaluateThrottlePolicy(snapshots, activeSessions, throttlePolicy);
+					for (const action of throttleActions) {
+						if (action.level === "pause" || action.level === "slow") {
+							const eventType = action.level === "pause" ? "throttle_pause" : "throttle_slow";
+							nudge(
+								options.root,
+								action.targetAgent,
+								`THROTTLE PAUSE: ${action.reason}. Reduce activity.`,
+								true,
+							).catch(() => {
+								// Fire-and-forget: nudge failure is non-fatal
+							});
+							recordEvent(eventStore, {
+								runId,
+								agentName: "watchdog",
+								eventType: "custom",
+								level: action.level === "pause" ? "error" : "warn",
+								data: {
+									type: eventType,
+									targetAgent: action.targetAgent,
+									runtime: action.runtime,
+									reason: action.reason,
 								},
 							});
 						}
