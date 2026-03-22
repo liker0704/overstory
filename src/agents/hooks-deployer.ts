@@ -4,6 +4,7 @@ import { DEFAULT_QUALITY_GATES } from "../config.ts";
 import { AgentError } from "../errors.ts";
 import type { QualityGate } from "../types.ts";
 import {
+	ARTIFACT_WRITE_CAPABILITIES,
 	DANGEROUS_BASH_PATTERNS,
 	INTERACTIVE_TOOLS,
 	NATIVE_TEAM_TOOLS,
@@ -242,6 +243,29 @@ function blockGuardForAgent(toolName: string, reason: string, agentName: string)
 			},
 		],
 	};
+}
+
+/**
+ * Build a PreToolUse guard that restricts Write/Edit to .overstory/ artifact paths.
+ *
+ * Used for capabilities like mission-analyst that need to write mission artifacts
+ * (mission.md, decisions.md, open-questions.md, research/) but must not modify
+ * source files. Agent-scoped via agentGuard() so it only fires for the intended agent.
+ *
+ * @param filePathField - The JSON field containing the file path ("file_path" or "notebook_path")
+ * @param agentName - The agent name for scoping
+ */
+function buildArtifactPathGuardScript(filePathField: string, agentName: string): string {
+	const script = [
+		agentGuard(agentName),
+		"read -r INPUT;",
+		`FILE_PATH=$(echo "$INPUT" | sed -n 's/.*"${filePathField}": *"\\([^"]*\\)".*/\\1/p');`,
+		'[ -z "$FILE_PATH" ] && exit 0;',
+		'case "$FILE_PATH" in /*) ;; *) FILE_PATH="$(pwd)/$FILE_PATH" ;; esac;',
+		'case "$FILE_PATH" in */.overstory/*) exit 0 ;; esac;',
+		"echo '{\"decision\":\"block\",\"reason\":\"This agent can only write to .overstory/ artifact paths — source files are read-only\"}';",
+	].join(" ");
+	return script;
 }
 
 /**
@@ -546,17 +570,43 @@ export function getCapabilityGuards(
 	guards.push(...interactiveGuards);
 
 	if (NON_IMPLEMENTATION_CAPABILITIES.has(capability)) {
-		// Use agent-scoped guards so these restrictions only apply to THIS agent,
-		// not other agents sharing the same settings.local.json (e.g. coordinator
-		// and mission-analyst both deploy to project root).
-		const toolGuards = WRITE_TOOLS.map((tool) =>
-			blockGuardForAgent(
-				tool,
-				`${capability} agents cannot modify files — ${tool} is not allowed`,
-				agentName,
-			),
-		);
-		guards.push(...toolGuards);
+		if (ARTIFACT_WRITE_CAPABILITIES.has(capability)) {
+			// Path-scoped: allow Write/Edit to .overstory/ artifact paths only
+			const artifactGuards: HookEntry[] = [
+				{
+					matcher: "Write",
+					hooks: [
+						{ type: "command", command: buildArtifactPathGuardScript("file_path", agentName) },
+					],
+				},
+				{
+					matcher: "Edit",
+					hooks: [
+						{ type: "command", command: buildArtifactPathGuardScript("file_path", agentName) },
+					],
+				},
+				{
+					matcher: "NotebookEdit",
+					hooks: [
+						{
+							type: "command",
+							command: buildArtifactPathGuardScript("notebook_path", agentName),
+						},
+					],
+				},
+			];
+			guards.push(...artifactGuards);
+		} else {
+			// Full block for other non-implementation capabilities
+			const toolGuards = WRITE_TOOLS.map((tool) =>
+				blockGuardForAgent(
+					tool,
+					`${capability} agents cannot modify files — ${tool} is not allowed`,
+					agentName,
+				),
+			);
+			guards.push(...toolGuards);
+		}
 
 		// Coordination capabilities get git add/commit whitelisted for task/mulch sync
 		const extraSafe = COORDINATION_CAPABILITIES.has(capability)
