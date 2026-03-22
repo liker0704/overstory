@@ -8,6 +8,7 @@ import { HierarchyError } from "../errors.ts";
 import { computeBriefRevision } from "../missions/brief-refresh.ts";
 import { writeSpecMeta } from "../missions/spec-meta.ts";
 import { createMissionStore } from "../missions/store.ts";
+import { createResilienceStore } from "../resilience/store.ts";
 import { ClaudeRuntime } from "../runtimes/claude.ts";
 import { getRuntime } from "../runtimes/registry.ts";
 import { cleanupTempDir, createTempGitRepo } from "../test-helpers.ts";
@@ -1663,6 +1664,153 @@ describe("getCurrentBranch", () => {
 			expect(branch).toBeNull();
 		} finally {
 			await cleanupTempDir(tmpDir);
+		}
+	});
+});
+
+describe("slingCommand circuit breaker gate", () => {
+	let repoDir: string;
+	let originalCwd: string;
+
+	async function writeBreakerConfig(root: string, withResilience: boolean): Promise<void> {
+		await mkdir(join(root, ".overstory", "agent-defs"), { recursive: true });
+		const resilienceBlock = withResilience
+			? [
+					"resilience:",
+					"  circuitBreaker:",
+					"    failureThreshold: 3",
+					"    windowMs: 60000",
+					"    cooldownMs: 30000",
+					"    halfOpenMaxProbes: 1",
+				].join("\n")
+			: "";
+		await Bun.write(
+			join(root, ".overstory", "config.yaml"),
+			[
+				"project:",
+				"  name: sling-breaker-test",
+				`  root: ${root}`,
+				"  canonicalBranch: main",
+				"agents:",
+				"  manifestPath: .overstory/agent-manifest.json",
+				"  baseDir: .overstory/agent-defs",
+				"taskTracker:",
+				"  enabled: false",
+				resilienceBlock,
+			]
+				.filter((l) => l.length > 0)
+				.join("\n"),
+		);
+		await Bun.write(
+			join(root, ".overstory", "agent-manifest.json"),
+			JSON.stringify(
+				{
+					version: "1",
+					agents: {
+						builder: {
+							file: "builder.md",
+							model: "sonnet",
+							tools: [],
+							capabilities: ["builder"],
+							canSpawn: false,
+							constraints: [],
+						},
+					},
+				},
+				null,
+				2,
+			),
+		);
+		await Bun.write(join(root, ".overstory", "agent-defs", "builder.md"), "# Builder\n");
+	}
+
+	beforeEach(async () => {
+		repoDir = realpathSync(await createTempGitRepo());
+		originalCwd = process.cwd();
+		process.chdir(repoDir);
+	});
+
+	afterEach(async () => {
+		process.chdir(originalCwd);
+		await cleanupTempDir(repoDir);
+	});
+
+	test("blocks dispatch and throws AgentError when circuit breaker is open", async () => {
+		await writeBreakerConfig(repoDir, true);
+
+		// Seed an open breaker for "builder" capability
+		const resilienceStore = createResilienceStore(join(repoDir, ".overstory", "resilience.db"));
+		try {
+			resilienceStore.upsertBreaker(
+				{
+					capability: "builder",
+					state: "open",
+					failureCount: 3,
+					lastFailureAt: new Date().toISOString(),
+					openedAt: new Date().toISOString(),
+					halfOpenAt: null,
+				},
+				"closed",
+			);
+		} finally {
+			resilienceStore.close();
+		}
+
+		await expect(slingCommand("task-cb-001", { capability: "builder" })).rejects.toThrow(
+			"Circuit breaker is open for capability",
+		);
+	});
+
+	test("allows dispatch when circuit breaker is closed", async () => {
+		await writeBreakerConfig(repoDir, true);
+
+		// No breaker record = defaults to closed state; command should fail later (tmux), not at breaker
+		await expect(slingCommand("task-cb-002", { capability: "builder" })).rejects.not.toThrow(
+			"Circuit breaker is open for capability",
+		);
+	});
+
+	test("skips breaker check when config.resilience is absent", async () => {
+		await writeBreakerConfig(repoDir, false);
+
+		// No resilience config = no breaker check; command should fail later (tmux), not at breaker
+		await expect(slingCommand("task-cb-003", { capability: "builder" })).rejects.not.toThrow(
+			"Circuit breaker is open for capability",
+		);
+	});
+
+	test("sends error mail to coordinator when breaker is tripped with no parent", async () => {
+		await writeBreakerConfig(repoDir, true);
+
+		const resilienceStore = createResilienceStore(join(repoDir, ".overstory", "resilience.db"));
+		try {
+			resilienceStore.upsertBreaker(
+				{
+					capability: "builder",
+					state: "open",
+					failureCount: 3,
+					lastFailureAt: new Date().toISOString(),
+					openedAt: new Date().toISOString(),
+					halfOpenAt: null,
+				},
+				"closed",
+			);
+		} finally {
+			resilienceStore.close();
+		}
+
+		await expect(slingCommand("task-cb-004", { capability: "builder" })).rejects.toThrow(
+			"Circuit breaker is open",
+		);
+
+		// Verify mail was sent to the default recipient (coordinator)
+		const { createMailStore: makeMailStore } = await import("../mail/store.ts");
+		const mailStore = makeMailStore(join(repoDir, ".overstory", "mail.db"));
+		try {
+			const messages = mailStore.getAll({ to: "coordinator" });
+			expect(messages.some((m) => m.subject.includes("breaker_tripped"))).toBe(true);
+		} finally {
+			mailStore.close();
 		}
 	});
 });
