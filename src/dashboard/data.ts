@@ -15,6 +15,7 @@ import { createMergeQueue, type MergeQueue } from "../merge/queue.ts";
 import { createMetricsStore, type MetricsStore } from "../metrics/store.ts";
 import { type MissionRoleStates, resolveMissionRoleStates } from "../missions/runtime-context.ts";
 import { createMissionStore } from "../missions/store.ts";
+import { createResilienceStore } from "../resilience/store.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import type { SessionStore } from "../sessions/store.ts";
 import { createTrackerClient, resolveBackend } from "../tracker/factory.ts";
@@ -204,6 +205,10 @@ export interface DashboardData {
 	/** Runtime config for resolving per-capability runtime names in the agent panel. */
 	runtimeConfig?: OverstoryConfig["runtime"];
 	mission?: Mission | null;
+	resilience?: {
+		openBreakers: Array<{ capability: string; failureCount: number }>;
+		activeRetryCount: number;
+	};
 }
 
 /**
@@ -460,6 +465,26 @@ export async function loadDashboardData(
 	status.mission = mission;
 	status.missionRoles = missionRoles;
 
+	let resilience: DashboardData["resilience"];
+	try {
+		const resilienceDbPath = join(root, ".overstory", "resilience.db");
+		if (existsSync(resilienceDbPath)) {
+			const resilienceStore = createResilienceStore(resilienceDbPath);
+			try {
+				const openBreakers = resilienceStore.listOpenBreakers().map((b) => ({
+					capability: b.capability,
+					failureCount: b.failureCount,
+				}));
+				const retries = resilienceStore.getPendingRetries(100);
+				resilience = { openBreakers, activeRetryCount: retries.length };
+			} finally {
+				resilienceStore.close();
+			}
+		}
+	} catch {
+		// resilience db unavailable
+	}
+
 	return {
 		currentRunId: runId,
 		status,
@@ -471,5 +496,6 @@ export async function loadDashboardData(
 		feedColorMap,
 		runtimeConfig,
 		mission,
+		resilience,
 	};
 }
