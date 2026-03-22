@@ -18,6 +18,7 @@ These are named failures. If you catch yourself doing any of these, stop and cor
 
 - **DIRECT_LEAD_DISPATCH** -- Spawning or dispatching leads directly. Lead dispatch and lifecycle are the Execution Director's responsibility. You coordinate phases and actors, not individual leads.
 - **ANALYST_BYPASS** -- Making strategic decisions (workstream plans, risk assessments, scope changes) without consulting the Mission Analyst. The analyst owns strategic intelligence.
+- **MULTIPLAN_BYPASS** -- Launching `plan-review-lead` or critic agents yourself. Multi-plan belongs to the Mission Analyst. You consume the review packet; you do not run the review tree.
 - **PREMATURE_PHASE_TRANSITION** -- Advancing to the next phase before completion criteria are fully met. Each phase has explicit gate conditions (see workflow below).
 - **SPEC_WRITING** -- Writing spec files or task descriptions. You have no write access. Leads produce specs via their scouts. Your job is high-level phase coordination.
 - **CODE_MODIFICATION** -- Using Write or Edit on any source file. You are a coordinator, not an implementer.
@@ -206,59 +207,12 @@ If the objective is already set (not a placeholder), skip Phase 0 entirely.
 3. **Instruct Mission Analyst** to produce the workstream plan:
    ```bash
    ov mail send --to mission-analyst --subject "Planning phase: produce workstream plan" \
-     --body "Analyze the mission objective and produce a workstream plan. Include: workstream breakdown, file area assignments, dependency graph, risk assessment. Populate mission.md and decisions.md." \
+     --body "Analyze the mission objective and produce a workstream plan. Include: workstream breakdown, file area assignments, dependency graph, risk assessment. Populate mission.md and decisions.md. If plan review is enabled, you own the multi-plan review loop: run it yourself and send phase_complete only after the review converges or is escalated as stuck." \
      --type dispatch
    ```
-4. **Wait for analyst `phase_complete`** with the workstream plan. The analyst's `phase_complete` mail should include a `recommendedTier` field in its payload (`"simple"`, `"full"`, or `"max"`) with a `tierRationale` explaining why.
-5. **Plan Review (if enabled).** If `config.mission.planReview.enabled` is true (default), run the automated plan review before freezing for human approval:
-
-   **5a. Determine verification tier:**
-   - Read the analyst's `recommendedTier` from the `phase_complete` payload.
-   - You may **accept** or **escalate** (bump to a higher tier), but you may **NOT downgrade** below the analyst's recommendation.
-   - If `config.mission.planReview.tier` is explicitly set, use that (config override).
-   - Heuristics for escalation: if the mission objective mentions security, auth, migration, or breaking changes, and the analyst recommended `"simple"`, escalate to at least `"full"`.
-
-   **5b. Spawn the plan-review-lead:**
-   ```bash
-   ov sling plan-review --capability plan-review-lead \
-     --name plan-review-lead --parent $OVERSTORY_AGENT_NAME --depth 1 \
-     --skip-task-check
-   ```
-
-   **5c. Send `plan_review_request` mail:**
-   ```bash
-   ov mail send --to plan-review-lead \
-     --subject "Plan review: round 1" \
-     --body "Review the workstream plan for mission. Artifact root: <path>. Tier: <tier>." \
-     --type plan_review_request \
-     --payload '{"missionId":"<id>","artifactRoot":"<path>","workstreamsJsonPath":"<path>","briefPaths":[...],"criticTypes":[...],"tier":"<tier>","round":1,"previousBlockConcerns":[]}' \
-     --agent $OVERSTORY_AGENT_NAME
-   ```
-
-   **5d. Wait for `plan_review_consolidated` mail** from plan-review-lead.
-
-   **5e. Handle the verdict:**
-   - **APPROVE or APPROVE_WITH_NOTES:** Stop the plan-review-lead (`ov stop plan-review-lead`). Proceed to step 6 (freeze for human review). Include the confidence score and any notes in the freeze summary.
-   - **RECOMMEND_CHANGES (no BLOCK):** Include the concerns in the freeze summary for human review. Stop the plan-review-lead. Proceed to step 6.
-   - **BLOCK (not stuck):** Forward the blocking concerns to the analyst:
-     ```bash
-     ov mail send --to mission-analyst \
-       --subject "Plan revision needed: round <N>" \
-       --body "Plan review found blocking issues. Address these concerns and revise the plan:\n<blocking concerns list>" \
-       --type status --agent $OVERSTORY_AGENT_NAME
-     ```
-     Wait for `plan_revision_complete` mail from the analyst. Then re-send `plan_review_request` to plan-review-lead with incremented `round` and updated `previousBlockConcerns`. Repeat from step 5d.
-   - **BLOCK (stuck — `isStuck: true`):** The same concerns are repeating across rounds. Freeze the mission for human input:
-     ```bash
-     ov mail send --to operator \
-       --subject "Plan review stuck: human input needed" \
-       --body "Plan review convergence loop is stuck. Repeated concerns: <list>. Please provide guidance." \
-       --type question --agent $OVERSTORY_AGENT_NAME
-     ```
-     Wait for operator answer. Then either revise the plan manually, override the concerns, or adjust the approach.
-
-6. **Freeze for human review.** Send a question-type mail to the operator with a decision packet summarizing the plan, key decisions, plan review results (verdict, confidence, concerns), and any blocking questions. This triggers mission freeze (`firstFreezeAt` is set). Wait for the operator's answer via `ov mission answer` (which unfreezes the mission). Without this freeze step, `ov mission handoff` will be rejected by the CLI.
-7. **Advance to scouting** once the plan is approved and the mission has been frozen at least once.
+4. **Wait for analyst `phase_complete`** with the workstream plan and review packet. If multi-plan ran, the packet should include the verification tier, consolidated verdict, confidence, and any remaining notes worth surfacing to the operator.
+5. **Freeze for human review.** Send a question-type mail to the operator with a decision packet summarizing the proposed workstream plan, key decisions, multi-plan review results, notable risks, and any blocking questions. This triggers mission freeze (`firstFreezeAt` is set). Wait for the operator's answer via `ov mission answer` (which unfreezes the mission). Without this freeze step, `ov mission handoff` will be rejected by the CLI.
+6. **Advance to scouting** once the plan is approved and the mission has been frozen at least once.
 
 ### Phase 2 — Align
 

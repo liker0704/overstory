@@ -39,12 +39,30 @@ interface ToolResult {
 	latestError?: string;
 }
 
+async function isShellAvailable(cli: string): Promise<boolean> {
+	try {
+		const proc = Bun.spawn(["/bin/sh", "-c", `command -v ${cli} >/dev/null 2>&1`], {
+			stdout: "ignore",
+			stderr: "ignore",
+			env: { ...process.env, PATH: process.env.PATH ?? "" },
+		});
+		return (await proc.exited) === 0;
+	} catch {
+		return false;
+	}
+}
+
 async function getInstalledVersion(cli: string): Promise<string | null> {
+	if (!(await isShellAvailable(cli))) {
+		return null;
+	}
+
 	// Try --version --json first
 	try {
-		const proc = Bun.spawn([cli, "--version", "--json"], {
+		const proc = Bun.spawn(["/bin/sh", "-c", `${cli} --version --json`], {
 			stdout: "pipe",
 			stderr: "pipe",
+			env: { ...process.env, PATH: process.env.PATH ?? "" },
 		});
 		const exitCode = await proc.exited;
 		if (exitCode === 0) {
@@ -62,9 +80,10 @@ async function getInstalledVersion(cli: string): Promise<string | null> {
 
 	// Fallback: --version plain text
 	try {
-		const proc = Bun.spawn([cli, "--version"], {
+		const proc = Bun.spawn(["/bin/sh", "-c", `${cli} --version`], {
 			stdout: "pipe",
 			stderr: "pipe",
+			env: { ...process.env, PATH: process.env.PATH ?? "" },
 		});
 		const exitCode = await proc.exited;
 		if (exitCode === 0) {

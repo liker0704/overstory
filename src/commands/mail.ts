@@ -24,8 +24,11 @@ import {
 	writePendingNudge,
 } from "../mail/nudge.ts";
 import { createMailStore } from "../mail/store.ts";
-import { parseMissionFindingPayload, syncMissionPendingInputFromMail } from "../missions/mail-bridge.ts";
 import { validateMissionIngress } from "../missions/ingress.ts";
+import {
+	parseMissionFindingPayload,
+	syncMissionPendingInputFromMail,
+} from "../missions/mail-bridge.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import {
 	MAIL_DELIVERY_STATES,
@@ -37,7 +40,7 @@ import {
 } from "../types.ts";
 
 // Re-export for backward compatibility (consumed by mail.test.ts)
-export { AUTO_NUDGE_TYPES, shouldAutoNudge, isDispatchNudge } from "../mail/nudge.ts";
+export { AUTO_NUDGE_TYPES, isDispatchNudge, shouldAutoNudge } from "../mail/nudge.ts";
 
 /** Format a single message for human-readable output. */
 function formatMessage(msg: MailMessage): string {

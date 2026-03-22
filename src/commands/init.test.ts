@@ -3,7 +3,13 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { cleanupTempDir, createTempGitRepo, runGitInDir } from "../test-helpers.ts";
 import type { Spawner } from "./init.ts";
-import { initCommand, OVERSTORY_GITIGNORE, OVERSTORY_README, resolveToolSet } from "./init.ts";
+import {
+	buildAgentManifest,
+	initCommand,
+	OVERSTORY_GITIGNORE,
+	OVERSTORY_README,
+	resolveToolSet,
+} from "./init.ts";
 
 /**
  * Tests for `overstory init` -- agent definition deployment.
@@ -85,6 +91,24 @@ describe("initCommand: agent-defs deployment", () => {
 			const targetContent = await Bun.file(targetPath).text();
 
 			expect(targetContent).toBe(sourceContent);
+		}
+	});
+
+	test("starter manifest includes mission and multi-plan runtime agents", () => {
+		const manifest = buildAgentManifest();
+		for (const agentName of [
+			"coordinator-mission",
+			"mission-analyst",
+			"execution-director",
+			"lead-mission",
+			"plan-review-lead",
+			"plan-devil-advocate",
+			"plan-security-critic",
+			"plan-performance-critic",
+			"plan-second-opinion",
+			"plan-simulator",
+		]) {
+			expect(manifest.agents[agentName]).toBeDefined();
 		}
 	});
 

@@ -17,6 +17,7 @@ describe("NATIVE_TEAM_TOOLS", () => {
 
 	test("contains all expected Claude Code team/task tools", () => {
 		const expected = [
+			"Agent",
 			"Task",
 			"TeamCreate",
 			"TeamDelete",
@@ -33,8 +34,8 @@ describe("NATIVE_TEAM_TOOLS", () => {
 		}
 	});
 
-	test("has exactly 10 entries", () => {
-		expect(NATIVE_TEAM_TOOLS.length).toBe(10);
+	test("has exactly 11 entries", () => {
+		expect(NATIVE_TEAM_TOOLS.length).toBe(11);
 	});
 
 	test("has no duplicate entries", () => {

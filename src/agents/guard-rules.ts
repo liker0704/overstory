@@ -11,6 +11,7 @@
  * All overstory agents must use `overstory sling` for delegation, not these.
  */
 export const NATIVE_TEAM_TOOLS = [
+	"Agent",
 	"Task",
 	"TeamCreate",
 	"TeamDelete",
