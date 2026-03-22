@@ -186,6 +186,8 @@ export function renderAgentPanel(
 	const maxRows = panelHeight - 4; // header + col headers + separator + border
 	const visibleAgents = agents.slice(0, maxRows);
 
+	const openBreakerCaps = new Set((data.resilience?.openBreakers ?? []).map((b) => b.capability));
+
 	for (let i = 0; i < visibleAgents.length; i++) {
 		const agent = visibleAgents[i];
 		if (!agent) continue;
@@ -212,8 +214,9 @@ export function renderAgentPanel(
 			? agent.pid !== null && isProcessAlive(agent.pid)
 			: data.status.tmuxSessions.some((s) => s.name === agent.tmuxSession);
 		const aliveDot = alive ? color.green(">") : color.red("x");
+		const breakerMarker = openBreakerCaps.has(agent.capability) ? color.red(" ⚡") : "";
 
-		const lineContent = `${dimBox.vertical} ${stateColorFn(icon)}  ${name} ${capability} ${color.dim(runtime)} ${stateColorFn(state)} ${statusCol} ${durationPadded} ${aliveDot}    `;
+		const lineContent = `${dimBox.vertical} ${stateColorFn(icon)}  ${name} ${capability} ${color.dim(runtime)} ${stateColorFn(state)} ${statusCol} ${durationPadded} ${aliveDot}${breakerMarker}   `;
 		const linePadding = " ".repeat(
 			Math.max(0, leftWidth - visibleLength(lineContent) - visibleLength(dimBox.vertical)),
 		);

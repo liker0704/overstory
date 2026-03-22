@@ -19,6 +19,7 @@ import { createMetricsStore } from "../metrics/store.ts";
 import type { MissionRoleStates } from "../missions/runtime-context.ts";
 import { resolveMissionRoleStates } from "../missions/runtime-context.ts";
 import { createMissionStore } from "../missions/store.ts";
+import { createResilienceStore } from "../resilience/store.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import type { AgentSession, Mission } from "../types.ts";
 import { evaluateHealth } from "../watchdog/health.ts";
@@ -92,6 +93,11 @@ export interface StatusData {
 	verboseDetails?: Record<string, VerboseAgentDetail>;
 	mission?: Mission | null;
 	missionRoles?: MissionRoleStates | null;
+	resilience?: {
+		openBreakers: Array<{ capability: string; since: string | null; failureCount: number }>;
+		activeRetries: Array<{ taskId: string; attempt: number; startedAt: string }>;
+		recentReroutes: number;
+	};
 }
 
 async function readCurrentRunId(overstoryDir: string): Promise<string | null> {
@@ -255,6 +261,32 @@ export async function gatherStatus(
 			// mission store unavailable
 		}
 
+		let resilience: StatusData["resilience"];
+		try {
+			const resilienceDbPath = join(root, ".overstory", "resilience.db");
+			const resilienceFile = Bun.file(resilienceDbPath);
+			if (await resilienceFile.exists()) {
+				const resilienceStore = createResilienceStore(resilienceDbPath);
+				try {
+					const openBreakers = resilienceStore.listOpenBreakers().map((b) => ({
+						capability: b.capability,
+						since: b.openedAt,
+						failureCount: b.failureCount,
+					}));
+					const activeRetries = resilienceStore.getPendingRetries(100).map((r) => ({
+						taskId: r.taskId,
+						attempt: r.attempt,
+						startedAt: r.startedAt,
+					}));
+					resilience = { openBreakers, activeRetries, recentReroutes: 0 };
+				} finally {
+					resilienceStore.close();
+				}
+			}
+		} catch {
+			// resilience db unavailable
+		}
+
 		return {
 			currentRunId: runId,
 			agents: sessions,
@@ -266,6 +298,7 @@ export async function gatherStatus(
 			verboseDetails,
 			mission,
 			missionRoles,
+			resilience,
 		};
 	} finally {
 		store.close();
@@ -374,6 +407,29 @@ export function printStatus(data: StatusData): void {
 
 	// Metrics
 	w(`Sessions recorded: ${data.recentMetricsCount}\n`);
+
+	// Resilience
+	if (data.resilience) {
+		const r = data.resilience;
+		w("\n");
+		w(`Resilience:\n`);
+		if (r.openBreakers.length > 0) {
+			w("  Open breakers:\n");
+			for (const b of r.openBreakers) {
+				w(`    ${color.red("●")} ${accent(b.capability)} — ${b.failureCount} failures`);
+				if (b.since) w(` (since ${b.since})`);
+				w("\n");
+			}
+		} else {
+			w("  Breakers: all closed\n");
+		}
+		if (r.activeRetries.length > 0) {
+			w(`  Active retries: ${r.activeRetries.length}\n`);
+			for (const rt of r.activeRetries) {
+				w(`    ${accent(rt.taskId)} — attempt ${rt.attempt}\n`);
+			}
+		}
+	}
 }
 
 interface StatusOpts {
