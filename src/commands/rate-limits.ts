@@ -10,9 +10,9 @@ import { join } from "node:path";
 import { Command } from "commander";
 import { loadConfig } from "../config.ts";
 import { ValidationError } from "../errors.ts";
-import { jsonOutput } from "../json.ts";
 import { createHeadroomStore } from "../headroom/store.ts";
 import type { HeadroomSnapshot } from "../headroom/types.ts";
+import { jsonOutput } from "../json.ts";
 import { color } from "../logging/color.ts";
 import { renderHeader, separator } from "../logging/theme.ts";
 
@@ -97,8 +97,12 @@ export function printRateLimits(snapshots: HeadroomSnapshot[]): void {
 
 	for (const s of snapshots) {
 		const isUnavailable = s.state === "unavailable";
-		const reqPct = isUnavailable ? color.dim("—") : formatPercent(s.requestsRemaining, s.requestsLimit);
-		const reqQuota = isUnavailable ? color.dim("—") : formatQuota(s.requestsRemaining, s.requestsLimit);
+		const reqPct = isUnavailable
+			? color.dim("—")
+			: formatPercent(s.requestsRemaining, s.requestsLimit);
+		const reqQuota = isUnavailable
+			? color.dim("—")
+			: formatQuota(s.requestsRemaining, s.requestsLimit);
 		const tokPct = isUnavailable ? color.dim("—") : formatPercent(s.tokensRemaining, s.tokensLimit);
 		const tokQuota = isUnavailable ? color.dim("—") : formatQuota(s.tokensRemaining, s.tokensLimit);
 		const resets = isUnavailable ? color.dim("—") : formatResetIn(s.windowResetsAt);

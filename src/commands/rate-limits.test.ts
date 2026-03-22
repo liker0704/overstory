@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createHeadroomStore } from "../headroom/store.ts";
 import type { HeadroomSnapshot } from "../headroom/types.ts";
 import { buildJsonOutput, printRateLimits } from "./rate-limits.ts";
