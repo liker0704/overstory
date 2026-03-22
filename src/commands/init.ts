@@ -13,166 +13,26 @@ import { Database } from "bun:sqlite";
 import { mkdir, readdir, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { DEFAULT_CONFIG } from "../config.ts";
+import { serializeConfigToYaml } from "../config-yaml.ts";
+import type { OnboardStatus, Spawner, ToolStatus } from "../ecosystem/bootstrap.ts";
+import {
+	defaultSpawner,
+	initSiblingTool,
+	onboardTool,
+	resolveToolSet,
+	SIBLING_TOOLS,
+	setupGitattributes,
+} from "../ecosystem/bootstrap.ts";
 import { ValidationError } from "../errors.ts";
 import { jsonOutput } from "../json.ts";
 import { printHint, printSuccess, printWarning } from "../logging/color.ts";
-import type { AgentManifest, OverstoryConfig } from "../types.ts";
+import type { AgentManifest } from "../types.ts";
 
 const OVERSTORY_DIR = ".overstory";
 
-// ---- Ecosystem Bootstrap ----
-
-/**
- * Spawner abstraction for testability.
- * Wraps Bun.spawn for running sibling CLI tools.
- */
-export type Spawner = (
-	args: string[],
-	opts?: { cwd?: string },
-) => Promise<{ exitCode: number; stdout: string; stderr: string }>;
-
-const defaultSpawner: Spawner = async (args, opts) => {
-	try {
-		const proc = Bun.spawn(args, {
-			cwd: opts?.cwd,
-			stdout: "pipe",
-			stderr: "pipe",
-		});
-		const exitCode = await proc.exited;
-		const stdout = await new Response(proc.stdout).text();
-		const stderr = await new Response(proc.stderr).text();
-		return { exitCode, stdout, stderr };
-	} catch (err) {
-		// Binary not found (ENOENT) or other spawn failure — treat as non-zero exit
-		const message = err instanceof Error ? err.message : String(err);
-		return { exitCode: 1, stdout: "", stderr: message };
-	}
-};
-
-interface SiblingTool {
-	name: string;
-	cli: string;
-	dotDir: string;
-	initCmd: string[];
-	onboardCmd: string[];
-}
-
-const SIBLING_TOOLS: SiblingTool[] = [
-	{ name: "mulch", cli: "ml", dotDir: ".mulch", initCmd: ["init"], onboardCmd: ["onboard"] },
-	{ name: "seeds", cli: "sd", dotDir: ".seeds", initCmd: ["init"], onboardCmd: ["onboard"] },
-	{ name: "canopy", cli: "cn", dotDir: ".canopy", initCmd: ["init"], onboardCmd: ["onboard"] },
-];
-
-type ToolStatus = "initialized" | "already_initialized" | "skipped";
-type OnboardStatus = "appended" | "current";
-
-/**
- * Resolve the set of sibling tools to bootstrap.
- *
- * If opts.tools is set (comma-separated list of names), filter to those.
- * Otherwise start with all three and remove any skipped via skip flags.
- */
-export function resolveToolSet(opts: InitOptions): SiblingTool[] {
-	if (opts.tools) {
-		const requested = opts.tools.split(",").map((t) => t.trim());
-		return SIBLING_TOOLS.filter((t) => requested.includes(t.name));
-	}
-	return SIBLING_TOOLS.filter((t) => {
-		if (t.name === "mulch" && opts.skipMulch) return false;
-		if (t.name === "seeds" && opts.skipSeeds) return false;
-		if (t.name === "canopy" && opts.skipCanopy) return false;
-		return true;
-	});
-}
-
-async function isToolInstalled(cli: string, spawner: Spawner): Promise<boolean> {
-	try {
-		const result = await spawner([cli, "--version"]);
-		return result.exitCode === 0;
-	} catch {
-		return false;
-	}
-}
-
-async function initSiblingTool(
-	tool: SiblingTool,
-	projectRoot: string,
-	spawner: Spawner,
-): Promise<ToolStatus> {
-	const installed = await isToolInstalled(tool.cli, spawner);
-	if (!installed) {
-		printWarning(
-			`${tool.name} not installed — skipping`,
-			`install: npm i -g @os-eco/${tool.name}-cli`,
-		);
-		return "skipped";
-	}
-
-	let result: { exitCode: number; stdout: string; stderr: string };
-	try {
-		result = await spawner([tool.cli, ...tool.initCmd], { cwd: projectRoot });
-	} catch (err) {
-		// Spawn failure (e.g. ENOENT) — treat as not installed
-		const message = err instanceof Error ? err.message : String(err);
-		printWarning(`${tool.name} init failed`, message);
-		return "skipped";
-	}
-	if (result.exitCode !== 0) {
-		// Check if dot directory already exists (already initialized)
-		try {
-			await stat(join(projectRoot, tool.dotDir));
-			return "already_initialized";
-		} catch {
-			// Directory doesn't exist — real failure
-			printWarning(`${tool.name} init failed`, result.stderr.trim() || result.stdout.trim());
-			return "skipped";
-		}
-	}
-
-	printSuccess(`Bootstrapped ${tool.name}`);
-	return "initialized";
-}
-
-async function onboardTool(
-	tool: SiblingTool,
-	projectRoot: string,
-	spawner: Spawner,
-): Promise<OnboardStatus> {
-	const installed = await isToolInstalled(tool.cli, spawner);
-	if (!installed) return "current";
-
-	try {
-		const result = await spawner([tool.cli, ...tool.onboardCmd], { cwd: projectRoot });
-		return result.exitCode === 0 ? "appended" : "current";
-	} catch {
-		return "current";
-	}
-}
-
-/**
- * Set up .gitattributes with merge=union entries for JSONL files.
- *
- * Only adds entries not already present. Returns true if file was modified.
- */
-async function setupGitattributes(projectRoot: string): Promise<boolean> {
-	const entries = [".mulch/expertise/*.jsonl merge=union", ".seeds/issues.jsonl merge=union"];
-
-	const gitattrsPath = join(projectRoot, ".gitattributes");
-	let existing = "";
-
-	try {
-		existing = await Bun.file(gitattrsPath).text();
-	} catch {
-		// File doesn't exist yet — will be created
-	}
-
-	const missing = entries.filter((e) => !existing.includes(e));
-	if (missing.length === 0) return false;
-
-	const separator = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
-	await Bun.write(gitattrsPath, `${existing}${separator}${missing.join("\n")}\n`);
-	return true;
-}
+// Re-export types and functions that external consumers import from this module.
+export type { Spawner } from "../ecosystem/bootstrap.ts";
+export { resolveToolSet } from "../ecosystem/bootstrap.ts";
 
 /**
  * Detect the project name from git or fall back to directory name.
@@ -246,104 +106,6 @@ async function detectCanonicalBranch(root: string): Promise<string> {
 }
 
 /**
- * Serialize an OverstoryConfig to YAML format.
- *
- * Handles nested objects with indentation, scalar values,
- * arrays with `- item` syntax, and empty arrays as `[]`.
- */
-function serializeConfigToYaml(config: OverstoryConfig): string {
-	const lines: string[] = [];
-	lines.push("# Overstory configuration");
-	lines.push("# See: https://github.com/overstory/overstory");
-	lines.push("");
-
-	serializeObject(config as unknown as Record<string, unknown>, lines, 0);
-
-	return `${lines.join("\n")}\n`;
-}
-
-/**
- * Recursively serialize an object to YAML lines.
- */
-function serializeObject(obj: Record<string, unknown>, lines: string[], depth: number): void {
-	const indent = "  ".repeat(depth);
-
-	for (const [key, value] of Object.entries(obj)) {
-		if (value === null || value === undefined) {
-			lines.push(`${indent}${key}: null`);
-		} else if (typeof value === "object" && !Array.isArray(value)) {
-			lines.push(`${indent}${key}:`);
-			serializeObject(value as Record<string, unknown>, lines, depth + 1);
-		} else if (Array.isArray(value)) {
-			if (value.length === 0) {
-				lines.push(`${indent}${key}: []`);
-			} else {
-				lines.push(`${indent}${key}:`);
-				const itemIndent = "  ".repeat(depth + 1);
-				const propIndent = "  ".repeat(depth + 2);
-				for (const item of value) {
-					if (item !== null && typeof item === "object" && !Array.isArray(item)) {
-						// Object array item: "- firstKey: firstVal\n  otherKey: otherVal"
-						const entries = Object.entries(item as Record<string, unknown>);
-						if (entries.length > 0) {
-							const [firstKey, firstVal] = entries[0] ?? [];
-							lines.push(`${itemIndent}- ${firstKey}: ${formatYamlValue(firstVal)}`);
-							for (let j = 1; j < entries.length; j++) {
-								const [k, v] = entries[j] ?? [];
-								lines.push(`${propIndent}${k}: ${formatYamlValue(v)}`);
-							}
-						}
-					} else {
-						lines.push(`${itemIndent}- ${formatYamlValue(item)}`);
-					}
-				}
-			}
-		} else {
-			lines.push(`${indent}${key}: ${formatYamlValue(value)}`);
-		}
-	}
-}
-
-/**
- * Format a scalar value for YAML output.
- */
-function formatYamlValue(value: unknown): string {
-	if (typeof value === "string") {
-		// Quote strings that could be misinterpreted
-		if (
-			value === "" ||
-			value === "true" ||
-			value === "false" ||
-			value === "null" ||
-			value.includes(":") ||
-			value.includes("#") ||
-			value.includes("'") ||
-			value.includes('"') ||
-			value.includes("\n") ||
-			/^\d/.test(value)
-		) {
-			// Use double quotes, escaping inner double quotes
-			return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-		}
-		return value;
-	}
-
-	if (typeof value === "number") {
-		return String(value);
-	}
-
-	if (typeof value === "boolean") {
-		return value ? "true" : "false";
-	}
-
-	if (value === null || value === undefined) {
-		return "null";
-	}
-
-	return String(value);
-}
-
-/**
  * Build the starter agent manifest.
  */
 export function buildAgentManifest(): AgentManifest {
@@ -394,6 +156,86 @@ export function buildAgentManifest(): AgentManifest {
 			tools: ["Read", "Glob", "Grep", "Bash"],
 			capabilities: ["coordinate", "dispatch", "escalate"],
 			canSpawn: true,
+			constraints: ["read-only", "no-worktree"],
+		},
+		"coordinator-mission": {
+			file: "coordinator-mission.md",
+			model: "opus",
+			tools: ["Read", "Glob", "Grep", "Bash"],
+			capabilities: ["coordinate", "dispatch", "escalate", "mission"],
+			canSpawn: true,
+			constraints: ["read-only", "no-worktree"],
+		},
+		"mission-analyst": {
+			file: "mission-analyst.md",
+			model: "opus",
+			tools: ["Read", "Glob", "Grep", "Bash"],
+			capabilities: ["research", "analyze", "synthesize", "mission"],
+			canSpawn: true,
+			constraints: ["read-only", "no-worktree"],
+		},
+		"execution-director": {
+			file: "execution-director.md",
+			model: "opus",
+			tools: ["Read", "Glob", "Grep", "Bash"],
+			capabilities: ["dispatch", "coordinate", "execute", "mission"],
+			canSpawn: true,
+			constraints: ["read-only", "no-worktree"],
+		},
+		"lead-mission": {
+			file: "lead-mission.md",
+			model: "opus",
+			tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "Task"],
+			capabilities: ["coordinate", "implement", "review", "mission-workstream"],
+			canSpawn: true,
+			constraints: [],
+		},
+		"plan-review-lead": {
+			file: "plan-review-lead.md",
+			model: "opus",
+			tools: ["Read", "Glob", "Grep", "Bash"],
+			capabilities: ["review", "coordinate", "plan-review"],
+			canSpawn: true,
+			constraints: ["read-only", "no-worktree"],
+		},
+		"plan-devil-advocate": {
+			file: "plan-devil-advocate.md",
+			model: "sonnet",
+			tools: ["Read", "Glob", "Grep", "Bash"],
+			capabilities: ["review", "plan-critic", "plan-risk"],
+			canSpawn: false,
+			constraints: ["read-only", "no-worktree"],
+		},
+		"plan-security-critic": {
+			file: "plan-security-critic.md",
+			model: "sonnet",
+			tools: ["Read", "Glob", "Grep", "Bash"],
+			capabilities: ["review", "plan-critic", "security"],
+			canSpawn: false,
+			constraints: ["read-only", "no-worktree"],
+		},
+		"plan-performance-critic": {
+			file: "plan-performance-critic.md",
+			model: "sonnet",
+			tools: ["Read", "Glob", "Grep", "Bash"],
+			capabilities: ["review", "plan-critic", "performance"],
+			canSpawn: false,
+			constraints: ["read-only", "no-worktree"],
+		},
+		"plan-second-opinion": {
+			file: "plan-second-opinion.md",
+			model: "sonnet",
+			tools: ["Read", "Glob", "Grep", "Bash"],
+			capabilities: ["review", "plan-critic", "independent-validation"],
+			canSpawn: false,
+			constraints: ["read-only", "no-worktree"],
+		},
+		"plan-simulator": {
+			file: "plan-simulator.md",
+			model: "sonnet",
+			tools: ["Read", "Glob", "Grep", "Bash"],
+			capabilities: ["review", "plan-critic", "simulation"],
+			canSpawn: false,
 			constraints: ["read-only", "no-worktree"],
 		},
 		monitor: {
@@ -768,7 +610,7 @@ export async function initCommand(opts: InitOptions): Promise<void> {
 	config.project.root = projectRoot;
 	config.project.canonicalBranch = canonicalBranch;
 
-	const configYaml = serializeConfigToYaml(config);
+	const configYaml = serializeConfigToYaml(config as unknown as Record<string, unknown>);
 	const configPath = join(overstoryPath, "config.yaml");
 	await Bun.write(configPath, configYaml);
 	printCreated(`${OVERSTORY_DIR}/config.yaml`);

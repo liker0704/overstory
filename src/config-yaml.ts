@@ -241,6 +241,106 @@ function findLastKey(obj: Record<string, unknown>): string | null {
 	return keys[keys.length - 1] ?? null;
 }
 
+// ---- YAML Serialization ----
+
+/**
+ * Serialize an OverstoryConfig to YAML format.
+ *
+ * Handles nested objects with indentation, scalar values,
+ * arrays with `- item` syntax, and empty arrays as `[]`.
+ */
+export function serializeConfigToYaml(config: Record<string, unknown>): string {
+	const lines: string[] = [];
+	lines.push("# Overstory configuration");
+	lines.push("# See: https://github.com/overstory/overstory");
+	lines.push("");
+
+	serializeObject(config, lines, 0);
+
+	return `${lines.join("\n")}\n`;
+}
+
+/**
+ * Recursively serialize an object to YAML lines.
+ */
+function serializeObject(obj: Record<string, unknown>, lines: string[], depth: number): void {
+	const indent = "  ".repeat(depth);
+
+	for (const [key, value] of Object.entries(obj)) {
+		if (value === null || value === undefined) {
+			lines.push(`${indent}${key}: null`);
+		} else if (typeof value === "object" && !Array.isArray(value)) {
+			lines.push(`${indent}${key}:`);
+			serializeObject(value as Record<string, unknown>, lines, depth + 1);
+		} else if (Array.isArray(value)) {
+			if (value.length === 0) {
+				lines.push(`${indent}${key}: []`);
+			} else {
+				lines.push(`${indent}${key}:`);
+				const itemIndent = "  ".repeat(depth + 1);
+				const propIndent = "  ".repeat(depth + 2);
+				for (const item of value) {
+					if (item !== null && typeof item === "object" && !Array.isArray(item)) {
+						// Object array item: "- firstKey: firstVal\n  otherKey: otherVal"
+						const entries = Object.entries(item as Record<string, unknown>);
+						if (entries.length > 0) {
+							const [firstKey, firstVal] = entries[0] ?? [];
+							lines.push(`${itemIndent}- ${firstKey}: ${formatYamlValue(firstVal)}`);
+							for (let j = 1; j < entries.length; j++) {
+								const [k, v] = entries[j] ?? [];
+								lines.push(`${propIndent}${k}: ${formatYamlValue(v)}`);
+							}
+						}
+					} else {
+						lines.push(`${itemIndent}- ${formatYamlValue(item)}`);
+					}
+				}
+			}
+		} else {
+			lines.push(`${indent}${key}: ${formatYamlValue(value)}`);
+		}
+	}
+}
+
+/**
+ * Format a scalar value for YAML output.
+ */
+function formatYamlValue(value: unknown): string {
+	if (typeof value === "string") {
+		// Quote strings that could be misinterpreted
+		if (
+			value === "" ||
+			value === "true" ||
+			value === "false" ||
+			value === "null" ||
+			value.includes(":") ||
+			value.includes("#") ||
+			value.includes("'") ||
+			value.includes('"') ||
+			value.includes("\n") ||
+			/^\d/.test(value)
+		) {
+			// Use double quotes, escaping inner double quotes
+			return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+		}
+		return value;
+	}
+
+	if (typeof value === "number") {
+		return String(value);
+	}
+
+	if (typeof value === "boolean") {
+		return value ? "true" : "false";
+	}
+
+	if (value === null || value === undefined) {
+		return "null";
+	}
+
+	return String(value);
+}
+
 /**
  * Deep merge source into target. Source values override target values.
  * Arrays from source replace (not append) target arrays.
