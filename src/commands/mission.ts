@@ -12,7 +12,6 @@ import { loadConfig } from "../config.ts";
 import { missionRefreshBriefsCommand } from "../missions/brief-refresh.ts";
 import { missionBundle } from "../missions/bundle.ts";
 import {
-	type MissionCommandDeps,
 	missionAnswer,
 	missionComplete,
 	missionExtractLearnings,
@@ -21,7 +20,6 @@ import {
 	missionStart,
 	missionStop,
 	missionUpdate,
-	resolveCurrentMissionId,
 } from "../missions/lifecycle.ts";
 import {
 	missionArtifacts,
@@ -31,9 +29,9 @@ import {
 	missionShow,
 	missionStatus,
 } from "../missions/render.ts";
-import { missionResume } from "../missions/workstream-control.ts";
-import { missionHandoff } from "../missions/workstream-control.ts";
+import { missionHandoff, missionResume } from "../missions/workstream-control.ts";
 
+export { missionRefreshBriefsCommand } from "../missions/brief-refresh.ts";
 // Re-export for backward compatibility (consumed by tests)
 export {
 	type MissionCommandDeps,
@@ -48,7 +46,6 @@ export {
 	resolveCurrentMissionId,
 } from "../missions/lifecycle.ts";
 export { missionHandoff, missionResume } from "../missions/workstream-control.ts";
-export { missionRefreshBriefsCommand } from "../missions/brief-refresh.ts";
 
 interface MissionDefaultOpts {
 	json?: boolean;

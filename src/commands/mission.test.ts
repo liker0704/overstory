@@ -45,7 +45,8 @@ describe("createMissionCommand", () => {
 		expect(names).toContain("bundle");
 		expect(names).toContain("graph");
 		expect(names).toContain("update");
-		expect(names).toHaveLength(16);
+		expect(names).toContain("extract-learnings");
+		expect(names).toHaveLength(17);
 	});
 
 	test("answer subcommand supports --body and --file", () => {

@@ -7,33 +7,17 @@
  */
 
 import { join } from "node:path";
+import { nudgeAgent } from "../commands/nudge.ts";
 import { createMailClient } from "../mail/client.ts";
 import { canonicalizeMailAgentName } from "../mail/identity.ts";
 import { createMailStore } from "../mail/store.ts";
 import { openSessionStore } from "../sessions/compat.ts";
+import type { Mission } from "../types.ts";
+import { buildMissionRoleBeacon, materializeMissionRolePrompt } from "./context.ts";
 import { recordMissionEvent } from "./events.ts";
-import {
-	buildMissionRoleBeacon,
-	materializeMissionRolePrompt,
-} from "./context.ts";
-import {
-	startExecutionDirector,
-	startMissionAnalyst,
-	startMissionCoordinator,
-} from "./roles.ts";
+import type { MissionCommandDeps } from "./lifecycle.ts";
+import { startExecutionDirector, startMissionAnalyst, startMissionCoordinator } from "./roles.ts";
 import { createMissionStore } from "./store.ts";
-import type { Mission, MissionStore } from "../types.ts";
-import { nudgeAgent } from "../commands/nudge.ts";
-
-export interface MissionCommandDeps {
-	startMissionCoordinator?: typeof startMissionCoordinator;
-	startMissionAnalyst?: typeof startMissionAnalyst;
-	startExecutionDirector?: typeof startExecutionDirector;
-	stopMissionRole?: typeof import("./roles.ts").stopMissionRole;
-	stopAgentCommand?: typeof import("../commands/stop.ts").stopCommand;
-	ensureCanonicalWorkstreamTasks?: typeof import("./workstreams.ts").ensureCanonicalWorkstreamTasks;
-	nudgeAgent?: typeof nudgeAgent;
-}
 
 function openMailClient(overstoryDir: string) {
 	return createMailClient(createMailStore(join(overstoryDir, "mail.db")));
