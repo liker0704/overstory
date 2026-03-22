@@ -1543,7 +1543,6 @@ async function handleRerouteDecision(ctx: {
 		});
 	} else if (decision.action === "recommend_reroute") {
 		// Send reroute recommendation mail to parent/coordinator
-		// reroute_recommendation is not a MailProtocolType — use 'status' as fallback
 		try {
 			const rerouteMailStore = createMailStore(join(overstoryDir, "mail.db"));
 			const mailClient = createMailClient(rerouteMailStore);
@@ -1555,7 +1554,7 @@ async function handleRerouteDecision(ctx: {
 				body: sanitize(
 					`Task ${session.taskId} failed (${decision.reason}). Recommending reroute to ${decision.targetCapability ?? "alternate capability"}.`,
 				),
-				type: "status",
+				type: "reroute_recommendation",
 				priority: "high",
 			});
 			rerouteMailStore.close();

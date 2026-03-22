@@ -825,7 +825,7 @@ describe("createMailClient", () => {
 			expect(claimed).toHaveLength(1);
 			expect(claimed[0]?.state).toBe("claimed");
 
-			client.ack(claimed[0]?.id);
+			client.ack(claimed[0]!.id);
 
 			// Should not appear in subsequent claims
 			const secondClaim = client.claim("orchestrator");
@@ -858,7 +858,7 @@ describe("createMailClient", () => {
 			});
 
 			const claimed = client.claim("orchestrator");
-			const result = client.nack(claimed[0]?.id, "transient error");
+			const result = client.nack(claimed[0]!.id, "transient error");
 			expect(result.deadLettered).toBe(false);
 		});
 	});
@@ -893,13 +893,13 @@ describe("createMailClient", () => {
 			// Claim and nack until dead-lettered (maxAttempts defaults to 3 in store)
 			const claimed = client.claim("orchestrator");
 			// Force dead-letter via store directly since client.nack uses default maxAttempts
-			store.nack(claimed[0]?.id, { maxAttempts: 1, reason: "permanent failure" });
+			store.nack(claimed[0]!.id, { maxAttempts: 1, reason: "permanent failure" });
 
 			const dlq = client.getDlq();
 			expect(dlq).toHaveLength(1);
 			expect(dlq[0]?.id).toBe(claimed[0]?.id);
 
-			client.replayDlq(dlq[0]?.id);
+			client.replayDlq(dlq[0]!.id);
 
 			// Should now be claimable again
 			const reClaimed = client.claim("orchestrator");
