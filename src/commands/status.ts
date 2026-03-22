@@ -9,9 +9,11 @@ import { join } from "node:path";
 import { Command } from "commander";
 import { loadConfig } from "../config.ts";
 import { ValidationError } from "../errors.ts";
+import { createHeadroomStore } from "../headroom/store.ts";
+import type { HeadroomSnapshot } from "../headroom/types.ts";
 import { jsonOutput } from "../json.ts";
 import { accent, color } from "../logging/color.ts";
-import { formatDuration } from "../logging/format.ts";
+import { formatDuration, formatRelativeTime } from "../logging/format.ts";
 import { renderHeader } from "../logging/theme.ts";
 import { createMailStore } from "../mail/store.ts";
 import { createMergeQueue } from "../merge/queue.ts";
@@ -98,6 +100,7 @@ export interface StatusData {
 		activeRetries: Array<{ taskId: string; attempt: number; startedAt: string }>;
 		recentReroutes: number;
 	};
+	headroom?: HeadroomSnapshot[];
 }
 
 async function readCurrentRunId(overstoryDir: string): Promise<string | null> {
@@ -287,6 +290,22 @@ export async function gatherStatus(
 			// resilience db unavailable
 		}
 
+		let headroom: HeadroomSnapshot[] | undefined;
+		try {
+			const headroomDbPath = join(root, ".overstory", "headroom.db");
+			const headroomFile = Bun.file(headroomDbPath);
+			if (await headroomFile.exists()) {
+				const headroomStore = createHeadroomStore(headroomDbPath);
+				try {
+					headroom = headroomStore.getAll();
+				} finally {
+					headroomStore.close();
+				}
+			}
+		} catch {
+			// headroom db unavailable
+		}
+
 		return {
 			currentRunId: runId,
 			agents: sessions,
@@ -299,6 +318,7 @@ export async function gatherStatus(
 			mission,
 			missionRoles,
 			resilience,
+			headroom,
 		};
 	} finally {
 		store.close();
@@ -427,6 +447,29 @@ export function printStatus(data: StatusData): void {
 			w(`  Active retries: ${r.activeRetries.length}\n`);
 			for (const rt of r.activeRetries) {
 				w(`    ${accent(rt.taskId)} — attempt ${rt.attempt}\n`);
+			}
+		}
+	}
+
+	// Headroom
+	if (data.headroom && data.headroom.length > 0) {
+		w("\n");
+		w("Quota Headroom:\n");
+		for (const snap of data.headroom) {
+			if (snap.state === "unavailable") {
+				w(`  ${accent(snap.runtime)}  unavailable\n`);
+			} else {
+				let pctStr = "?%";
+				if (
+					snap.requestsRemaining !== null &&
+					snap.requestsLimit !== null &&
+					snap.requestsLimit > 0
+				) {
+					const pct = Math.round((snap.requestsRemaining / snap.requestsLimit) * 100);
+					pctStr = `${pct}%`;
+				}
+				const age = formatRelativeTime(snap.capturedAt);
+				w(`  ${accent(snap.runtime)}  ${pctStr} requests remaining (${snap.state}, ${age})\n`);
 			}
 		}
 	}

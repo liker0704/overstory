@@ -9,6 +9,8 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { getCachedTmuxSessions, getCachedWorktrees, type StatusData } from "../commands/status.ts";
 import { createEventStore } from "../events/store.ts";
+import { createHeadroomStore } from "../headroom/store.ts";
+import type { HeadroomSnapshot, HeadroomStore } from "../headroom/types.ts";
 import { extendAgentColorMap } from "../logging/format.ts";
 import { createMailStore, type MailStore } from "../mail/store.ts";
 import { createMergeQueue, type MergeQueue } from "../merge/queue.ts";
@@ -41,6 +43,7 @@ export interface DashboardStores {
 	mergeQueue: MergeQueue | null;
 	metricsStore: MetricsStore | null;
 	eventStore: EventStore | null;
+	headroomStore?: HeadroomStore | null;
 }
 
 /**
@@ -91,7 +94,17 @@ export function openDashboardStores(root: string): DashboardStores {
 		// events db might not be openable
 	}
 
-	return { sessionStore, mailStore, mergeQueue, metricsStore, eventStore };
+	let headroomStore: HeadroomStore | null = null;
+	try {
+		const headroomDbPath = join(overstoryDir, "headroom.db");
+		if (existsSync(headroomDbPath)) {
+			headroomStore = createHeadroomStore(headroomDbPath);
+		}
+	} catch {
+		// headroom db might not be openable
+	}
+
+	return { sessionStore, mailStore, mergeQueue, metricsStore, eventStore, headroomStore };
 }
 
 /**
@@ -120,6 +133,11 @@ export function closeDashboardStores(stores: DashboardStores): void {
 	}
 	try {
 		stores.eventStore?.close();
+	} catch {
+		/* best effort */
+	}
+	try {
+		stores.headroomStore?.close();
 	} catch {
 		/* best effort */
 	}
@@ -209,6 +227,7 @@ export interface DashboardData {
 		openBreakers: Array<{ capability: string; failureCount: number }>;
 		activeRetryCount: number;
 	};
+	headroom?: HeadroomSnapshot[];
 }
 
 /**
@@ -485,6 +504,15 @@ export async function loadDashboardData(
 		// resilience db unavailable
 	}
 
+	let headroom: HeadroomSnapshot[] | undefined;
+	if (stores.headroomStore) {
+		try {
+			headroom = stores.headroomStore.getAll();
+		} catch {
+			// best effort
+		}
+	}
+
 	return {
 		currentRunId: runId,
 		status,
@@ -497,5 +525,6 @@ export async function loadDashboardData(
 		runtimeConfig,
 		mission,
 		resilience,
+		headroom,
 	};
 }

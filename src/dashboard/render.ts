@@ -6,6 +6,7 @@
  */
 
 import { resolve } from "node:path";
+import type { HeadroomSnapshot } from "../headroom/types.ts";
 import { accent, brand, color, visibleLength } from "../logging/color.ts";
 import {
 	buildAgentColorMap,
@@ -546,6 +547,62 @@ function missionStateColor(state: string): (s: string) => string {
 }
 
 /**
+ * Render a compact headroom strip (2-3 rows: header + content + separator).
+ */
+export function renderHeadroomStrip(
+	headroom: HeadroomSnapshot[],
+	width: number,
+	startRow: number,
+): string {
+	let output = "";
+	const headerLine = `${dimBox.vertical} ${brand.bold("Quota Headroom")}`;
+	const headerPadding = " ".repeat(
+		Math.max(0, width - visibleLength(headerLine) - visibleLength(dimBox.vertical)),
+	);
+	output += `${CURSOR.cursorTo(startRow, 1)}${headerLine}${headerPadding}${dimBox.vertical}\n`;
+
+	if (headroom.length === 0) {
+		const emptyMsg = color.dim("No headroom data");
+		const emptyLine = `${dimBox.vertical} ${emptyMsg}`;
+		const emptyPadding = " ".repeat(
+			Math.max(0, width - visibleLength(emptyLine) - visibleLength(dimBox.vertical)),
+		);
+		output += `${CURSOR.cursorTo(startRow + 1, 1)}${emptyLine}${emptyPadding}${dimBox.vertical}\n`;
+	} else {
+		const parts: string[] = [];
+		for (const snap of headroom) {
+			if (snap.state === "unavailable") {
+				parts.push(`${snap.runtime}: ${color.dim("unavailable")}`);
+			} else {
+				let pctStr = "?%";
+				let colorFn = color.dim;
+				if (
+					snap.requestsRemaining !== null &&
+					snap.requestsLimit !== null &&
+					snap.requestsLimit > 0
+				) {
+					const pct = Math.round((snap.requestsRemaining / snap.requestsLimit) * 100);
+					pctStr = `${pct}%`;
+					if (pct > 50) colorFn = color.green;
+					else if (pct > 20) colorFn = color.yellow;
+					else colorFn = color.red;
+				}
+				parts.push(`${snap.runtime}: ${colorFn(pctStr)} requests remaining (${snap.state})`);
+			}
+		}
+		const contentLine = `${dimBox.vertical} ${parts.join("  |  ")}`;
+		const contentPadding = " ".repeat(
+			Math.max(0, width - visibleLength(contentLine) - visibleLength(dimBox.vertical)),
+		);
+		output += `${CURSOR.cursorTo(startRow + 1, 1)}${contentLine}${contentPadding}${dimBox.vertical}\n`;
+	}
+
+	const sep = dimHorizontalLine(width, dimBox.tee, dimBox.teeRight);
+	output += `${CURSOR.cursorTo(startRow + 2, 1)}${sep}\n`;
+	return output;
+}
+
+/**
  * Render a compact mission strip (2 rows: content line + separator).
  */
 export function renderMissionStrip(
@@ -597,6 +654,12 @@ export function renderDashboard(data: DashboardData, interval: number): void {
 	if (data.mission) {
 		output += renderMissionStrip(data.mission, data.status.missionRoles, width, 3);
 		agentPanelStart = 5;
+	}
+
+	// Headroom strip (2-3 rows if headroom data exists)
+	if (data.headroom && data.headroom.length > 0) {
+		output += renderHeadroomStrip(data.headroom, width, agentPanelStart);
+		agentPanelStart += 3;
 	}
 
 	// Agent panel: full width, capped at 35% of height
