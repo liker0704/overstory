@@ -129,6 +129,13 @@ export function validateUnknownFields(raw: Record<string, unknown>): void {
 		}
 	}
 
+	if (isObj(raw.headroom)) {
+		assertKnownKeys(raw.headroom, KNOWN_FIELDS.headroom, "headroom");
+		if (isObj(raw.headroom.throttle)) {
+			assertKnownKeys(raw.headroom.throttle, KNOWN_FIELDS.headroomThrottle, "headroom.throttle");
+		}
+	}
+
 	if (isObj(raw.runtime)) {
 		assertKnownKeys(raw.runtime, KNOWN_FIELDS.runtime, "runtime");
 		if (isObj(raw.runtime.pi)) {
