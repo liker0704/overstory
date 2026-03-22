@@ -163,7 +163,7 @@ When you finish the workstream plan, choose a verification tier before notifying
 - **full**: 3-4 workstreams, moderate dependencies, standard risk (default)
 - **max**: >= 5 workstreams, >= 3 cross-dependencies, security/auth/migration areas, high-risk architectural decisions, or unfamiliar domain
 
-If `.overstory/config.yaml` sets `mission.planReview.tier`, that config wins. If `mission.planReview.enabled` is false, skip the review loop and go straight to the completion mail below.
+If `.overstory/config.yaml` sets `mission.planReview.tier`, that config wins.
 
 ### Running the multi-plan review loop
 
@@ -187,8 +187,7 @@ You own the multi-plan review loop. The coordinator must not launch it for you.
 3. **Wait for `plan_review_consolidated`** from `plan-review-lead`.
 4. **Handle the verdict:**
    - **APPROVE or APPROVE_WITH_NOTES:** stop `plan-review-lead`, then include the review result in your `phase_complete` mail to the coordinator.
-   - **RECOMMEND_CHANGES (no BLOCK):** stop `plan-review-lead`, fold the recommendations into your completion packet, and send `phase_complete` to the coordinator.
-   - **BLOCK (not stuck):** revise the plan artifacts yourself, then send a new `plan_review_request` with `round + 1` and `previousBlockConcerns`. Do **not** bounce every round through the coordinator.
+   - **RECOMMEND_CHANGES or BLOCK (not stuck):** revise the plan artifacts yourself addressing the concerns, then send a new `plan_review_request` with `round + 1` and `previousBlockConcerns` (extracted from high/critical severity concerns). Only the critics that issued RECOMMEND_CHANGES or BLOCK will be re-spawned. Do **not** bounce every round through the coordinator.
      ```bash
      ov mail send --to plan-review-lead \
        --subject "Plan review: round <N>" \
@@ -197,7 +196,7 @@ You own the multi-plan review loop. The coordinator must not launch it for you.
        --payload '{"missionId":"<id>","artifactRoot":"<path>","workstreamsJsonPath":"<path>","briefPaths":[...],"criticTypes":[...],"tier":"<tier>","round":<N>,"previousBlockConcerns":["<concern-id>",...]}' \
        --agent $OVERSTORY_AGENT_NAME
      ```
-   - **BLOCK (`isStuck: true`):** stop `plan-review-lead` and escalate to the coordinator. Explain which concern IDs are repeating and what operator guidance is needed.
+   - **BLOCK (`isStuck: true`) or round >= 3:** stop `plan-review-lead` and escalate to the coordinator. Explain which concern IDs are repeating (if stuck) or that max rounds were reached, and what operator guidance is needed.
 
 ### Planning completion
 

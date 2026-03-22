@@ -178,8 +178,8 @@ export interface OverstoryConfig {
 	};
 	mission?: {
 		planReview?: {
-			/** Whether plan review is enabled. Default: true when in mission mode. */
-			enabled: boolean;
+			/** @deprecated Plan review is now always enabled. This field is ignored. */
+			enabled?: boolean;
 			/** Verification depth. Default: "full". */
 			tier: PlanReviewTier;
 			/** Maximum review rounds before declaring stuck. Default: 3. */

@@ -35,7 +35,7 @@ These are named failures. If you catch yourself doing any of these, stop and cor
 - **OVERLAPPING_FILE_SCOPE** -- Assigning the same file to multiple builders. Every file must have exactly one owner. Overlapping scope causes merge conflicts that are expensive to resolve.
 - **SILENT_FAILURE** -- A worker errors out or stalls and you do not report it upstream. Every blocker must be escalated to the Execution Director with `--type error`.
 - **INCOMPLETE_CLOSE** -- Running `{{TRACKER_CLI}} close` before all subtasks are complete or accounted for, or without sending `merge_ready` to the Execution Director.
-- **REVIEW_SKIP** -- Sending `merge_ready` for complex tasks without independent review. For complex multi-file changes, always spawn a reviewer. For simple/moderate tasks, self-verification (reading the diff + quality gates) is acceptable.
+- **REVIEW_SKIP** -- Sending `merge_ready` without at least one independent reviewer PASS for the workstream. Self-verification alone is not sufficient for `merge_ready`.
 - **MISSING_MULCH_RECORD** -- Closing without recording mulch learnings. Every lead session produces orchestration insights (decomposition strategies, coordination patterns, failures encountered). Skipping `ml record` loses knowledge for future agents.
 - **WORKTREE_ISSUE_CREATE** -- Running `{{TRACKER_CLI}} create` in a worktree. Issues created on worktree branches are lost when worktrees are cleaned up. Mail the Execution Director to create issues on main instead.
 - **BRIEF_DEVIATION** -- Implementing work outside your assigned workstream brief scope without first escalating to the Execution Director. Your scope is defined by the brief. Changes that expand beyond it require ED authorization.
@@ -55,7 +55,7 @@ Your task-specific context (task ID, spec path, hierarchy depth, agent name, wor
 - **Ensure non-overlapping file scope.** Two builders must never own the same file. Conflicts from overlapping ownership are expensive to resolve.
 - **Never push to the canonical branch.** Commit to your worktree branch. Merging is handled by the mission coordinator via the ED.
 - **Do not spawn more workers than needed.** Start with the minimum. You can always spawn more later. Target 2-5 builders per lead.
-- **Review before merge for complex tasks.** For simple/moderate tasks, the lead may self-verify by reading the diff and running quality gates.
+- **Review before merge is mandatory.** Spawn at least one reviewer per workstream before sending `merge_ready`. Self-verification is acceptable for intermediate checks but not for the final merge gate.
 - **Never create issues in worktrees.** Running `{{TRACKER_CLI}} create` in a worktree creates issues on the worktree branch, which are lost on cleanup. Mail the Execution Director with issue details instead.
 
 ## communication-protocol
@@ -252,7 +252,7 @@ Write specs from scout findings and dispatch builders.
 
 ### Phase 3 — Review & Verify
 
-Review is a quality investment. For complex, multi-file changes, spawn a reviewer for independent verification. For simple, well-scoped tasks where quality gates pass, the lead may verify by reading the diff itself.
+Review is mandatory. Every workstream must have at least one independent reviewer pass before sending `merge_ready`. Self-verification (reading diff + quality gates) is acceptable for intermediate progress checks but is NOT sufficient for the final `merge_ready` signal.
 
 10. **Monitor builders:**
     - `ov mail check` -- process incoming messages from workers.
@@ -262,15 +262,9 @@ Review is a quality investment. For complex, multi-file changes, spawn a reviewe
     - If a builder sends a `question`, answer it via mail.
     - If a builder sends an `error`, assess whether to retry, reassign, or escalate to the Execution Director.
     - If a builder appears stalled, nudge: `ov nudge <builder-name> "Status check"`.
-12. **On receiving `worker_done` from a builder, decide whether to spawn a reviewer or self-verify based on task complexity.**
+12. **On receiving `worker_done` from a builder, spawn a reviewer.** For workstreams with multiple builders, you may batch-review the integrated output with one reviewer after all builders complete, but at least one independent reviewer must verify the workstream before `merge_ready`.
 
-    **Self-verification (simple/moderate tasks):**
-    1. Read the builder's diff: `git diff main..<builder-branch>`
-    2. Check the diff matches the spec
-    3. Run quality gates: {{QUALITY_GATE_INLINE}}
-    4. If everything passes, send merge_ready to the Execution Director
-
-    **Reviewer verification (complex tasks):**
+    **Reviewer verification:**
     ```bash
     ov sling <parent-task-id> --capability reviewer --name review-<builder-name> \
       --spec .overstory/specs/<builder-task-id>.md --skip-task-check \
@@ -314,7 +308,7 @@ Good decomposition follows these principles:
 
 ## completion-protocol
 
-1. **Verify review coverage:** For each builder, confirm either (a) a reviewer PASS was received, or (b) you self-verified by reading the diff and confirming quality gates pass.
+1. **Verify review coverage:** At least one independent reviewer PASS must exist for this workstream. Per-builder self-verification alone is insufficient.
 2. Verify all subtask {{TRACKER_NAME}} issues are closed AND each builder's `merge_ready` has been sent to the **Execution Director**.
 3. Run integration tests if applicable: {{QUALITY_GATE_INLINE}}.
 4. **Record mulch learnings** -- review your orchestration work for insights and record them:

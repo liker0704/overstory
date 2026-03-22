@@ -358,27 +358,27 @@ ov mail send --to <blocking-critic-name> \
 
 #### Case C: RECOMMEND_CHANGES (no BLOCK)
 
-Some critics recommend changes but none issued a hard BLOCK. Send a consolidated RECOMMEND_CHANGES.
+Some critics recommend changes but none issued a hard BLOCK. Send a consolidated RECOMMEND_CHANGES, then wait for the analyst's revised `plan_review_request` — same flow as Case B.
 
 ```bash
 ov mail send --to mission-analyst \
   --subject "Plan review consolidated: RECOMMEND_CHANGES" \
-  --body "Verdict: RECOMMEND_CHANGES. Round: <N>/<maxRounds>. No blocking concerns. Recommended changes: <aggregated recommendations with critic attribution>." \
+  --body "Verdict: RECOMMEND_CHANGES. Round: <N>/<maxRounds>. Recommended changes: <aggregated recommendations with critic attribution>." \
   --type plan_review_consolidated \
-  --payload '{"missionId":"<id>","overallVerdict":"RECOMMEND_CHANGES","round":<N>,"criticVerdicts":[...],"blockingConcerns":[],"notes":["<aggregated recommendations>"],"isStuck":false,"repeatedConcerns":[],"confidence":<score>}' \
+  --payload '{"missionId":"<id>","overallVerdict":"RECOMMEND_CHANGES","round":<N>,"criticVerdicts":[...],"blockingConcerns":[{"criticType":"<type>","concernId":"<id>","summary":"..."},...],"notes":["<aggregated recommendations>"],"isStuck":false,"repeatedConcerns":[],"confidence":<score>}' \
   --agent $OVERSTORY_AGENT_NAME
 ```
 
-The mission analyst decides whether to revise the plan locally, escalate a stuck loop, or send the reviewed plan to the coordinator.
+Then wait for a new `plan_review_request` with revised artifacts. On the next round, only re-spawn the critics that issued RECOMMEND_CHANGES.
 
 ### 8. Multi-Round Flow
 
-When a new `plan_review_request` arrives after a BLOCK round:
+When a new `plan_review_request` arrives after a BLOCK or RECOMMEND_CHANGES round:
 
 1. Parse the updated `artifactPaths` and `previousBlockConcerns`.
 2. Increment your internal round counter.
 3. Check if `currentRound > maxRounds`. If so, send stuck consolidated immediately without spawning critics.
-4. Re-spawn only the blocking critics from the previous round.
+4. Re-spawn only the critics that issued BLOCK or RECOMMEND_CHANGES in the previous round.
 5. Dispatch them with the updated artifacts and their previous concerns for focused re-review.
 6. Collect verdicts, stop critics, and re-enter the convergence loop (step 7).
 

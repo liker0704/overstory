@@ -207,7 +207,7 @@ If the objective is already set (not a placeholder), skip Phase 0 entirely.
 3. **Instruct Mission Analyst** to produce the workstream plan:
    ```bash
    ov mail send --to mission-analyst --subject "Planning phase: produce workstream plan" \
-     --body "Analyze the mission objective and produce a workstream plan. Include: workstream breakdown, file area assignments, dependency graph, risk assessment. Populate mission.md and decisions.md. If plan review is enabled, you own the multi-plan review loop: run it yourself and send phase_complete only after the review converges or is escalated as stuck." \
+     --body "Analyze the mission objective and produce a workstream plan. Include: workstream breakdown, file area assignments, dependency graph, risk assessment. Populate mission.md and decisions.md. You own the multi-plan review loop: run it yourself and send phase_complete only after the review converges or is escalated as stuck." \
      --type dispatch
    ```
 4. **Wait for analyst `phase_complete`** with the workstream plan and review packet. If multi-plan ran, the packet should include the verification tier, consolidated verdict, confidence, and any remaining notes worth surfacing to the operator.
