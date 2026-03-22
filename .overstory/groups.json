@@ -1093,5 +1093,15 @@
 		"status": "active",
 		"createdAt": "2026-03-22T14:34:35.397Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-d4df29c4",
+		"name": "task-resilience-batch-2",
+		"memberIssueIds": [
+			"overstory-47ba"
+		],
+		"status": "active",
+		"createdAt": "2026-03-22T14:43:15.659Z",
+		"completedAt": null
 	}
 ]

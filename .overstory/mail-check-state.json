@@ -39,8 +39,8 @@
 	"fix-errors-builder": 1773351794375,
 	"fix-errors-tests-lead": 1773352762554,
 	"fix-roles-test-builder": 1773354104466,
-	"mission-analyst": 1774190458821,
-	"execution-director": 1774190545707,
+	"mission-analyst": 1774191092038,
+	"execution-director": 1774191314489,
 	"e2e-verify-lead": 1773414340183,
 	"lead-child-e2e": 1773414344523,
 	"builder-child-e2e": 1773414337660,
@@ -89,6 +89,8 @@
 	"plan-second-opinion": 1774187490616,
 	"plan-security-critic": 1774187277132,
 	"plan-performance-critic": 1774187335398,
-	"lead-overstory-f949": 1774190549947,
-	"build-resilience-types": 1774190401474
+	"lead-overstory-f949": 1774190580995,
+	"build-resilience-types": 1774190401474,
+	"lead-overstory-47ba": 1774191309776,
+	"build-resilience-store": 1774191225200
 }
