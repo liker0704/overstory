@@ -19,6 +19,8 @@ import { createSpawnService, type SpawnDeps } from "../agents/spawn.ts";
 import { createCanopyClient } from "../canopy/client.ts";
 import { loadConfig } from "../config.ts";
 import { AgentError, HierarchyError, ValidationError } from "../errors.ts";
+import { checkHeadroomForSpawn, type SpawnGuardPolicy } from "../headroom/guard.ts";
+import { createHeadroomStore } from "../headroom/store.ts";
 import { inferDomain } from "../insights/analyzer.ts";
 import { jsonOutput } from "../json.ts";
 import { printSuccess } from "../logging/color.ts";
@@ -825,6 +827,25 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 				}
 			} finally {
 				resilienceStore.close();
+			}
+		}
+
+		// 5g. Headroom guard: block non-persistent spawns when headroom is critically low.
+		const headroomDbPath = join(overstoryDir, "headroom.db");
+		if (await Bun.file(headroomDbPath).exists()) {
+			const headroomStore = createHeadroomStore(headroomDbPath);
+			try {
+				const policy: SpawnGuardPolicy = {
+					pauseThresholdPercent: config.headroom?.criticalThresholdPercent ?? 10,
+					blockSpawnsOnPause: true, // default; will be wired to throttle config after throttle-types merges
+				};
+				const runtimeName = opts.runtime ?? config.runtime?.default ?? "claude";
+				const guard = checkHeadroomForSpawn(headroomStore, capability, runtimeName, policy);
+				if (!guard.allowed) {
+					throw new AgentError(guard.reason ?? "Headroom guard blocked spawn", { agentName: name });
+				}
+			} finally {
+				headroomStore.close();
 			}
 		}
 
