@@ -4,6 +4,7 @@
 // === Value re-exports (runtime constants — MUST NOT use `export type`) ===
 export { SUPPORTED_CAPABILITIES } from "./agents/types.ts";
 export { EVENT_LEVELS } from "./events/types.ts";
+export { getThrottlePriority, PERSISTENT_CAPABILITIES } from "./headroom/priority.ts";
 export {
 	MAIL_DELIVERY_STATES,
 	MAIL_MESSAGE_TYPES,
@@ -55,6 +56,12 @@ export type {
 	StoredEvent,
 	ToolStats,
 } from "./events/types.ts";
+export type {
+	ThrottleAction,
+	ThrottleLevel,
+	ThrottlePolicy,
+	ThrottleState,
+} from "./headroom/throttle-types.ts";
 // Headroom types
 export type {
 	HeadroomConfig,

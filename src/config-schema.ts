@@ -33,6 +33,7 @@ export const KNOWN_FIELDS = {
 		"mission",
 		"mail",
 		"resilience",
+		"headroom",
 	]),
 	project: new Set(["name", "root", "canonicalBranch", "qualityGates"]),
 	qualityGateItem: new Set(["name", "command", "description"]),
@@ -99,4 +100,17 @@ export const KNOWN_FIELDS = {
 		"halfOpenMaxProbes",
 	]),
 	resilienceReroute: new Set(["enabled", "maxReroutes", "fallbackCapability"]),
+	headroom: new Set([
+		"enabled",
+		"pollIntervalMs",
+		"cacheTtlMs",
+		"warnThresholdPercent",
+		"criticalThresholdPercent",
+		"throttle",
+	]),
+	headroomThrottle: new Set([
+		"slowThresholdPercent",
+		"pauseThresholdPercent",
+		"blockSpawnsOnPause",
+	]),
 } as const;

@@ -592,6 +592,52 @@ function validateConfig(config: OverstoryConfig): void {
 		}
 	}
 
+	// headroom.throttle: validate thresholds if present
+	if (config.headroom?.throttle !== undefined) {
+		const t = config.headroom.throttle;
+		if (
+			t.slowThresholdPercent !== undefined &&
+			(typeof t.slowThresholdPercent !== "number" ||
+				t.slowThresholdPercent < 0 ||
+				t.slowThresholdPercent > 100)
+		) {
+			throw new ValidationError(
+				"headroom.throttle.slowThresholdPercent must be a number between 0 and 100",
+				{
+					field: "headroom.throttle.slowThresholdPercent",
+					value: t.slowThresholdPercent,
+				},
+			);
+		}
+		if (
+			t.pauseThresholdPercent !== undefined &&
+			(typeof t.pauseThresholdPercent !== "number" ||
+				t.pauseThresholdPercent < 0 ||
+				t.pauseThresholdPercent > 100)
+		) {
+			throw new ValidationError(
+				"headroom.throttle.pauseThresholdPercent must be a number between 0 and 100",
+				{
+					field: "headroom.throttle.pauseThresholdPercent",
+					value: t.pauseThresholdPercent,
+				},
+			);
+		}
+		if (
+			t.slowThresholdPercent !== undefined &&
+			t.pauseThresholdPercent !== undefined &&
+			t.pauseThresholdPercent >= t.slowThresholdPercent
+		) {
+			throw new ValidationError(
+				"headroom.throttle.pauseThresholdPercent must be less than slowThresholdPercent",
+				{
+					field: "headroom.throttle.pauseThresholdPercent",
+					value: t.pauseThresholdPercent,
+				},
+			);
+		}
+	}
+
 	// models: validate each value.
 	// - Standard runtimes: aliases (sonnet/opus/haiku) or provider-prefixed refs.
 	// - Codex runtime: also allow bare model refs (e.g. gpt-5.3-codex).

@@ -45,4 +45,9 @@ export interface HeadroomConfig {
 	warnThresholdPercent?: number;
 	/** Headroom percentage below which to take action (throttle spawning). Default: 10. */
 	criticalThresholdPercent?: number;
+	throttle?: {
+		slowThresholdPercent?: number; // default 20
+		pauseThresholdPercent?: number; // default 10
+		blockSpawnsOnPause?: boolean; // default true
+	};
 }
