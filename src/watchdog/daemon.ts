@@ -32,10 +32,14 @@ import {
 import { createMailClient } from "../mail/client.ts";
 import { createMailStore, type MailStore } from "../mail/store.ts";
 import { createMulchClient } from "../mulch/client.ts";
+import { handleTaskFailure } from "../resilience/engine.ts";
+import { createResilienceStore, type ResilienceStore } from "../resilience/store.ts";
+import type { RerouteDecision, ResilienceConfig } from "../resilience/types.ts";
 import { getConnection, removeConnection } from "../runtimes/connections.ts";
 import { getRuntime } from "../runtimes/registry.ts";
 import type { RateLimitState, RuntimeConnection } from "../runtimes/types.ts";
 import { openSessionStore } from "../sessions/compat.ts";
+import { sanitize } from "../logging/sanitizer.ts";
 import type { AgentSession, EventStore, HealthCheck, OverstoryConfig } from "../types.ts";
 import {
 	capturePaneContent,
@@ -46,6 +50,7 @@ import {
 	removeAgentEnvFile,
 	sendKeys,
 } from "../worktree/tmux.ts";
+import { cleanupWorktreeForRespawn } from "../worktree/cleanup.ts";
 import { evaluateHealth, transitionState } from "./health.ts";
 import { swapRuntime } from "./swap.ts";
 import { triageAgent } from "./triage.ts";
@@ -479,6 +484,8 @@ export interface DaemonOptions {
 	_capturePaneContent?: (name: string, lines?: number) => Promise<string | null>;
 	/** Dependency injection for testing. Overrides MailStore creation for decision gate detection. */
 	_mailStore?: MailStore | null;
+	/** DI for resilience store. If not provided, created from resilience.db when config.resilience exists. */
+	_resilienceStore?: ResilienceStore | null;
 }
 
 /**
@@ -624,6 +631,51 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 		runId = await readCurrentRunId(overstoryDir);
 	} catch {
 		// Reading run ID failure is non-fatal
+	}
+
+	// Open ResilienceStore if resilience config is present
+	let resilienceStore: ResilienceStore | null = null;
+	let ownResilienceStore = false;
+	const rawResilienceConfig = options.config?.resilience;
+	let resilienceConfig: ResilienceConfig | null = null;
+	if (options._resilienceStore !== undefined) {
+		resilienceStore = options._resilienceStore;
+		if (resilienceStore && rawResilienceConfig) {
+			resilienceConfig = buildResilienceConfig(rawResilienceConfig);
+		}
+	} else if (rawResilienceConfig) {
+		try {
+			resilienceStore = createResilienceStore(join(overstoryDir, "resilience.db"));
+			ownResilienceStore = true;
+			resilienceConfig = buildResilienceConfig(rawResilienceConfig);
+		} catch {
+			// Non-fatal: resilience features disabled for this tick
+		}
+	}
+
+	// Recover pending retries on daemon init
+	if (resilienceStore && resilienceConfig) {
+		try {
+			const pendingRetries = resilienceStore.getPendingRetries(
+				resilienceConfig.retry.maxAttempts,
+			);
+			for (const retry of pendingRetries) {
+				const activeSessions = store.getActive();
+				if (activeSessions.length >= (options.config?.agents.maxConcurrent ?? 10)) break;
+
+				try {
+					const respawnProc = Bun.spawn(
+						["ov", "sling", retry.taskId, "--capability", retry.agentName, "--skip-task-check"],
+						{ cwd: root, stdout: "pipe", stderr: "pipe" },
+					);
+					await respawnProc.exited;
+				} catch {
+					// Respawn failure is non-fatal — will retry next tick
+				}
+			}
+		} catch {
+			// Pending retry recovery failure is non-fatal
+		}
 	}
 
 	try {
@@ -1016,10 +1068,33 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 				const reason = check.reconciliationNote ?? "Process terminated";
 				await recordFailureFn(root, session, reason, 0);
 
-				// Kill the agent: headless agents are killed via PID, TUI agents via tmux
-				await killAgent({ session, tmuxAlive, tmux, process: proc });
-				// Clean up .agent-env to prevent hook pollution in user sessions
-				removeAgentEnvFile(session.worktreePath);
+				// Consult resilience engine if configured
+				if (resilienceStore && resilienceConfig) {
+					const decision = handleTaskFailure(
+						session.taskId,
+						session.capability,
+						"unknown",
+						resilienceStore,
+						resilienceConfig,
+					);
+					await handleRerouteDecision({
+						decision,
+						session,
+						root,
+						overstoryDir,
+						config: options.config,
+						eventStore,
+						runId,
+						tmux,
+						process: proc,
+						tmuxAlive,
+					});
+				} else {
+					// No resilience config — existing terminate behavior
+					await killAgent({ session, tmuxAlive, tmux, process: proc });
+					removeAgentEnvFile(session.worktreePath);
+				}
+
 				store.updateState(session.agentName, "zombie");
 				// Reset escalation tracking on terminal state
 				store.updateEscalation(session.agentName, 0, null);
@@ -1074,6 +1149,7 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 				const actionResult = await executeEscalationAction({
 					session,
 					root,
+					overstoryDir,
 					tmuxAlive,
 					tier1Enabled,
 					tmux,
@@ -1083,6 +1159,9 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 					eventStore,
 					runId,
 					recordFailure: recordFailureFn,
+					resilienceStore,
+					resilienceConfig,
+					config: options.config,
 				});
 
 				if (actionResult.terminated) {
@@ -1141,6 +1220,14 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 				// Non-fatal
 			}
 		}
+		// Close ResilienceStore only if we created it (not injected)
+		if (resilienceStore && ownResilienceStore) {
+			try {
+				resilienceStore.close();
+			} catch {
+				// Non-fatal
+			}
+		}
 		// Close EventStore only if we created it (not injected)
 		if (eventStore && !useInjectedEventStore) {
 			try {
@@ -1165,6 +1252,7 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 async function executeEscalationAction(ctx: {
 	session: AgentSession;
 	root: string;
+	overstoryDir: string;
 	tmuxAlive: boolean;
 	tier1Enabled: boolean;
 	tmux: {
@@ -1194,10 +1282,14 @@ async function executeEscalationAction(ctx: {
 		tier: 0 | 1,
 		triageSuggestion?: string,
 	) => Promise<void>;
+	resilienceStore: ResilienceStore | null;
+	resilienceConfig: ResilienceConfig | null;
+	config?: OverstoryConfig;
 }): Promise<{ terminated: boolean; stateChanged: boolean }> {
 	const {
 		session,
 		root,
+		overstoryDir,
 		tmuxAlive,
 		tier1Enabled,
 		tmux,
@@ -1207,6 +1299,8 @@ async function executeEscalationAction(ctx: {
 		eventStore,
 		runId,
 		recordFailure,
+		resilienceStore,
+		resilienceConfig,
 	} = ctx;
 
 	switch (session.escalationLevel) {
@@ -1271,7 +1365,30 @@ async function executeEscalationAction(ctx: {
 				// Record the failure via mulch (Tier 1 AI triage)
 				await recordFailure(root, session, "AI triage classified as terminal failure", 1, verdict);
 
-				await killAgent({ session, tmuxAlive, tmux, process: proc });
+				// Consult resilience engine if configured
+				if (resilienceStore && resilienceConfig) {
+					const decision = handleTaskFailure(
+						session.taskId,
+						session.capability,
+						"unknown",
+						resilienceStore,
+						resilienceConfig,
+					);
+					await handleRerouteDecision({
+						decision,
+						session,
+						root,
+						overstoryDir,
+						config: ctx.config,
+						eventStore,
+						runId,
+						tmux,
+						process: proc,
+						tmuxAlive,
+					});
+				} else {
+					await killAgent({ session, tmuxAlive, tmux, process: proc });
+				}
 				return { terminated: true, stateChanged: true };
 			}
 
@@ -1307,10 +1424,179 @@ async function executeEscalationAction(ctx: {
 			// Record the failure via mulch (Tier 0: progressive escalation to terminal level)
 			await recordFailure(root, session, "Progressive escalation reached terminal level", 0);
 
-			await killAgent({ session, tmuxAlive, tmux, process: proc });
-			// Clean up .agent-env to prevent hook pollution in user sessions
-			removeAgentEnvFile(session.worktreePath);
+			// Consult resilience engine if configured
+			if (resilienceStore && resilienceConfig) {
+				const decision = handleTaskFailure(
+					session.taskId,
+					session.capability,
+					"unknown",
+					resilienceStore,
+					resilienceConfig,
+				);
+				await handleRerouteDecision({
+					decision,
+					session,
+					root,
+					overstoryDir,
+					config: ctx.config,
+					eventStore,
+					runId,
+					tmux,
+					process: proc,
+					tmuxAlive,
+				});
+			} else {
+				await killAgent({ session, tmuxAlive, tmux, process: proc });
+				// Clean up .agent-env to prevent hook pollution in user sessions
+				removeAgentEnvFile(session.worktreePath);
+			}
 			return { terminated: true, stateChanged: true };
 		}
+	}
+}
+
+/**
+ * Build a full ResilienceConfig from the partial config stored in OverstoryConfig.
+ * Fills in sensible defaults for any missing fields.
+ */
+function buildResilienceConfig(
+	raw: NonNullable<OverstoryConfig["resilience"]>,
+): ResilienceConfig {
+	return {
+		retry: {
+			maxAttempts: raw.retry?.maxAttempts ?? 3,
+			backoffBaseMs: raw.retry?.backoffBaseMs ?? 1_000,
+			backoffMaxMs: raw.retry?.backoffMaxMs ?? 30_000,
+			backoffMultiplier: raw.retry?.backoffMultiplier ?? 2,
+			globalMaxConcurrent: raw.retry?.globalMaxConcurrent ?? 5,
+		},
+		circuitBreaker: {
+			failureThreshold: raw.circuitBreaker?.failureThreshold ?? 3,
+			windowMs: raw.circuitBreaker?.windowMs ?? 60_000,
+			cooldownMs: raw.circuitBreaker?.cooldownMs ?? 10_000,
+			halfOpenMaxProbes: raw.circuitBreaker?.halfOpenMaxProbes ?? 2,
+		},
+		reroute: {
+			enabled: raw.reroute?.enabled ?? false,
+			maxReroutes: raw.reroute?.maxReroutes ?? 2,
+			fallbackCapability: raw.reroute?.fallbackCapability,
+		},
+	};
+}
+
+/**
+ * Handle a reroute decision from the resilience engine.
+ * Always kills the current agent first, then acts based on decision:
+ *   retry             → clean worktree + respawn via sling
+ *   recommend_reroute → send mail to parent/coordinator
+ *   abandon           → kill only (existing terminate behavior)
+ */
+async function handleRerouteDecision(ctx: {
+	decision: RerouteDecision;
+	session: AgentSession;
+	root: string;
+	overstoryDir: string;
+	config?: OverstoryConfig;
+	eventStore: EventStore | null;
+	runId: string | null;
+	tmux: { killSession: (name: string) => Promise<void> };
+	process: { killTree: (pid: number) => Promise<void> };
+	tmuxAlive: boolean;
+}): Promise<void> {
+	const { decision, session, root, overstoryDir } = ctx;
+
+	// Always kill the current agent first
+	await killAgent({
+		session,
+		tmuxAlive: ctx.tmuxAlive,
+		tmux: ctx.tmux,
+		process: ctx.process,
+	});
+	removeAgentEnvFile(session.worktreePath);
+
+	if (decision.action === "retry") {
+		// Clean old worktree before respawn
+		await cleanupWorktreeForRespawn({ root, agentName: session.agentName });
+
+		// Schedule respawn after delay
+		if (decision.delay > 0) {
+			await Bun.sleep(decision.delay);
+		}
+
+		// Respawn via sling
+		try {
+			const respawnProc = Bun.spawn(
+				[
+					"ov",
+					"sling",
+					session.taskId,
+					"--capability",
+					session.capability,
+					"--skip-task-check",
+				],
+				{ cwd: root, stdout: "pipe", stderr: "pipe" },
+			);
+			await respawnProc.exited;
+		} catch {
+			// Respawn failure logged but not fatal
+		}
+
+		recordEvent(ctx.eventStore, {
+			runId: ctx.runId,
+			agentName: session.agentName,
+			eventType: "custom",
+			level: "info",
+			data: {
+				type: "resilience_retry",
+				taskId: session.taskId,
+				delay: decision.delay,
+			},
+		});
+	} else if (decision.action === "recommend_reroute") {
+		// Send reroute recommendation mail to parent/coordinator
+		// reroute_recommendation is not a MailProtocolType — use 'status' as fallback
+		try {
+			const rerouteMailStore = createMailStore(join(overstoryDir, "mail.db"));
+			const mailClient = createMailClient(rerouteMailStore);
+			const recipient = session.parentAgent ?? "coordinator";
+			mailClient.send({
+				from: "watchdog",
+				to: recipient,
+				subject: `reroute_recommendation: ${session.taskId}`,
+				body: sanitize(
+					`Task ${session.taskId} failed (${decision.reason}). Recommending reroute to ${decision.targetCapability ?? "alternate capability"}.`,
+				),
+				type: "status",
+				priority: "high",
+			});
+			rerouteMailStore.close();
+		} catch {
+			// Mail failure non-fatal
+		}
+
+		recordEvent(ctx.eventStore, {
+			runId: ctx.runId,
+			agentName: session.agentName,
+			eventType: "custom",
+			level: "warn",
+			data: {
+				type: "resilience_reroute",
+				taskId: session.taskId,
+				targetCapability: decision.targetCapability,
+			},
+		});
+	} else {
+		// abandon — agent already killed above, record event only
+		recordEvent(ctx.eventStore, {
+			runId: ctx.runId,
+			agentName: session.agentName,
+			eventType: "custom",
+			level: "error",
+			data: {
+				type: "resilience_abandon",
+				taskId: session.taskId,
+				reason: decision.reason,
+			},
+		});
 	}
 }
