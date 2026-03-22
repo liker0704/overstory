@@ -277,6 +277,123 @@ describe("buildHandoffDocument", () => {
 	});
 });
 
+// ─── buildHandoffDocument — failure_reroute ──────────────────────────────────
+
+describe("buildHandoffDocument failure_reroute", () => {
+	test("includes failure reroute label in header", () => {
+		const doc = buildHandoffDocument({
+			fromRuntime: "claude",
+			toRuntime: "codex",
+			taskId: "T-1",
+			branchName: "main",
+			gitContext: { diffStat: "", logOneline: "", modifiedFiles: [] },
+			conversationContext: "",
+			paneContext: null,
+			reason: "failure_reroute",
+		});
+
+		expect(doc).toContain("failure reroute");
+		expect(doc).not.toContain("rate limit swap");
+	});
+
+	test("includes Failure Context section with errorContext", () => {
+		const doc = buildHandoffDocument({
+			fromRuntime: "claude",
+			toRuntime: "codex",
+			taskId: "T-1",
+			branchName: "main",
+			gitContext: { diffStat: "", logOneline: "", modifiedFiles: [] },
+			conversationContext: "",
+			paneContext: null,
+			reason: "failure_reroute",
+			errorContext: "Error: connection refused after 3 retries",
+		});
+
+		expect(doc).toContain("## Failure Context");
+		expect(doc).toContain("connection refused after 3 retries");
+	});
+
+	test("omits Failure Context section when errorContext is absent", () => {
+		const doc = buildHandoffDocument({
+			fromRuntime: "claude",
+			toRuntime: "codex",
+			taskId: "T-1",
+			branchName: "main",
+			gitContext: { diffStat: "", logOneline: "", modifiedFiles: [] },
+			conversationContext: "",
+			paneContext: null,
+			reason: "failure_reroute",
+		});
+
+		expect(doc).not.toContain("## Failure Context");
+	});
+
+	test("sanitizes secrets in errorContext", () => {
+		const doc = buildHandoffDocument({
+			fromRuntime: "claude",
+			toRuntime: "codex",
+			taskId: "T-1",
+			branchName: "main",
+			gitContext: { diffStat: "", logOneline: "", modifiedFiles: [] },
+			conversationContext: "",
+			paneContext: null,
+			reason: "failure_reroute",
+			errorContext: "API call failed: sk-ant-api03-supersecrettoken123 returned 429",
+		});
+
+		expect(doc).toContain("## Failure Context");
+		expect(doc).not.toContain("sk-ant-api03-supersecrettoken123");
+		expect(doc).toContain("[REDACTED]");
+	});
+
+	test("sanitizes secrets in conversationContext", () => {
+		const doc = buildHandoffDocument({
+			fromRuntime: "claude",
+			toRuntime: "codex",
+			taskId: "T-1",
+			branchName: "main",
+			gitContext: { diffStat: "", logOneline: "", modifiedFiles: [] },
+			conversationContext: "User sent token: sk-ant-api03-convtoken99 in message",
+			paneContext: null,
+			reason: "rate_limit_swap",
+		});
+
+		expect(doc).not.toContain("sk-ant-api03-convtoken99");
+		expect(doc).toContain("[REDACTED]");
+	});
+
+	test("sanitizes secrets in paneContext", () => {
+		const doc = buildHandoffDocument({
+			fromRuntime: "claude",
+			toRuntime: "codex",
+			taskId: "T-1",
+			branchName: "main",
+			gitContext: { diffStat: "", logOneline: "", modifiedFiles: [] },
+			conversationContext: "",
+			paneContext: "ANTHROPIC_API_KEY=sk-ant-pane-secret terminal output",
+			reason: "rate_limit_swap",
+		});
+
+		expect(doc).not.toContain("sk-ant-pane-secret");
+		expect(doc).toContain("[REDACTED]");
+	});
+
+	test("defaults to rate_limit_swap when reason is omitted", () => {
+		const doc = buildHandoffDocument({
+			fromRuntime: "claude",
+			toRuntime: "codex",
+			taskId: "T-1",
+			branchName: "main",
+			gitContext: { diffStat: "", logOneline: "", modifiedFiles: [] },
+			conversationContext: "",
+			paneContext: null,
+		});
+
+		expect(doc).toContain("rate limit swap");
+		expect(doc).not.toContain("failure reroute");
+	});
+});
+
 // ─── swapRuntime ─────────────────────────────────────────────────────────────
 
 describe("swapRuntime", () => {
@@ -312,6 +429,50 @@ describe("swapRuntime", () => {
 			targetRuntimeName: "codex",
 			config: {} as never,
 			paneContext: null,
+			_tmux: {
+				killSession: async () => {},
+				createSession: async () => 9999,
+			},
+		});
+
+		expect(result.success).toBe(false);
+		expect(result.error).toContain("same as current runtime");
+	});
+
+	test("returns error when swapping failure_reroute to same runtime", async () => {
+		const { swapRuntime } = await import("./swap.ts");
+
+		const result = await swapRuntime({
+			root: tmpDir,
+			session: {
+				id: "sess-2",
+				agentName: "builder-2",
+				capability: "builder",
+				runtime: "codex",
+				worktreePath: join(tmpDir, "worktree"),
+				branchName: "feat/test",
+				taskId: "T-2",
+				tmuxSession: "ov-builder-2",
+				state: "working",
+				pid: 1234,
+				parentAgent: null,
+				depth: 0,
+				runId: "run-1",
+				startedAt: new Date().toISOString(),
+				lastActivity: new Date().toISOString(),
+				escalationLevel: 0,
+				stalledSince: null,
+				rateLimitedSince: null,
+				runtimeSessionId: null,
+				transcriptPath: null,
+				originalRuntime: null,
+				statusLine: null,
+			},
+			targetRuntimeName: "codex",
+			config: {} as never,
+			paneContext: null,
+			reason: "failure_reroute",
+			errorContext: "Fatal error: out of memory",
 			_tmux: {
 				killSession: async () => {},
 				createSession: async () => 9999,
