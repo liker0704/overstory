@@ -10,20 +10,20 @@ import { join } from "node:path";
 import { jsonError, jsonOutput } from "../json.ts";
 import { accent, printError, printHint } from "../logging/color.ts";
 import { renderHeader, renderSubHeader, separator } from "../logging/theme.ts";
+import type { Mission } from "../types.ts";
 import { getMissionArtifactPaths } from "./context.ts";
-import { loadMissionEvents, recordMissionEvent } from "./events.ts";
+import { loadMissionEvents } from "./events.ts";
 import {
 	DEFAULT_MISSION_GRAPH,
 	getAvailableTransitions,
 	renderGraphPosition,
 	toMermaid,
 } from "./graph.ts";
+import { resolveCurrentMissionId, resolveMissionRoleStates, toSummary } from "./lifecycle.ts";
 import { buildNarrative, renderNarrative } from "./narrative.ts";
 import { writeMissionRuntimePointers } from "./runtime-context.ts";
 import { computeMissionScore, renderMissionScore } from "./score.ts";
 import { createMissionStore } from "./store.ts";
-import type { Mission, MissionSummary } from "../types.ts";
-import { resolveCurrentMissionId, resolveMissionRoleStates, toSummary } from "./lifecycle.ts";
 
 export function renderMissionNarrative(mission: Mission, overstoryDir: string): string {
 	return renderNarrative(buildNarrative(mission, loadMissionEvents(overstoryDir, mission)));

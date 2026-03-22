@@ -15,7 +15,6 @@ import { loadConfig } from "../config.ts";
 import { jsonError, jsonOutput } from "../json.ts";
 import { accent, printError, printHint, printSuccess, printWarning } from "../logging/color.ts";
 import { createMailClient } from "../mail/client.ts";
-import { canonicalizeMailAgentName } from "../mail/identity.ts";
 import { createMailStore } from "../mail/store.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import { createRunStore } from "../sessions/store.ts";
@@ -49,7 +48,7 @@ import {
 	sendMissionControlMail,
 	sendMissionDispatchMail,
 } from "./messaging.ts";
-import { pauseWorkstream, resumeWorkstream } from "./pause.ts";
+import { pauseWorkstream } from "./pause.ts";
 import { generateMissionReview } from "./review.ts";
 import {
 	type startExecutionDirector,
@@ -65,11 +64,7 @@ import {
 	writeMissionRuntimePointers,
 } from "./runtime-context.ts";
 import { createMissionStore } from "./store.ts";
-import {
-	getMissionWorkstream,
-	refreshMissionBriefs,
-	validateWorkstreamResume,
-} from "./workstream-control.ts";
+import { getMissionWorkstream } from "./workstream-control.ts";
 
 // === Shared types ===
 

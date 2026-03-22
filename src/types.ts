@@ -98,16 +98,6 @@ export type {
 	ParsedConflictPattern,
 	ResolutionTier,
 } from "./merge/types.ts";
-// Resilience types
-export type {
-	CircuitBreakerConfig,
-	CircuitBreakerState,
-	RerouteConfig,
-	RerouteDecision,
-	ResilienceConfig,
-	RetryConfig,
-	RetryRecord,
-} from "./resilience/types.ts";
 // Metrics types
 export type { SessionMetrics, TokenSnapshot } from "./metrics/types.ts";
 // Mission types
@@ -124,7 +114,6 @@ export type {
 	MissionSummary,
 	PendingInputKind,
 } from "./missions/types.ts";
-
 // Mulch types
 export type {
 	MulchCompactResult,
@@ -135,6 +124,16 @@ export type {
 	MulchReadyResult,
 	MulchStatus,
 } from "./mulch/types.ts";
+// Resilience types
+export type {
+	CircuitBreakerConfig,
+	CircuitBreakerState,
+	RerouteConfig,
+	RerouteDecision,
+	ResilienceConfig,
+	RetryConfig,
+	RetryRecord,
+} from "./resilience/types.ts";
 // Session types
 export type {
 	AgentLayers,

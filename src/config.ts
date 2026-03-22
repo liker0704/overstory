@@ -471,19 +471,28 @@ function validateConfig(config: OverstoryConfig): void {
 		const r = config.resilience;
 		if (r.retry !== undefined) {
 			const rt = r.retry;
-			if (rt.maxAttempts !== undefined && (!Number.isInteger(rt.maxAttempts) || rt.maxAttempts < 1)) {
+			if (
+				rt.maxAttempts !== undefined &&
+				(!Number.isInteger(rt.maxAttempts) || rt.maxAttempts < 1)
+			) {
 				throw new ValidationError("resilience.retry.maxAttempts must be a positive integer", {
 					field: "resilience.retry.maxAttempts",
 					value: rt.maxAttempts,
 				});
 			}
-			if (rt.backoffBaseMs !== undefined && (typeof rt.backoffBaseMs !== "number" || rt.backoffBaseMs <= 0)) {
+			if (
+				rt.backoffBaseMs !== undefined &&
+				(typeof rt.backoffBaseMs !== "number" || rt.backoffBaseMs <= 0)
+			) {
 				throw new ValidationError("resilience.retry.backoffBaseMs must be a positive number", {
 					field: "resilience.retry.backoffBaseMs",
 					value: rt.backoffBaseMs,
 				});
 			}
-			if (rt.backoffMaxMs !== undefined && (typeof rt.backoffMaxMs !== "number" || rt.backoffMaxMs <= 0)) {
+			if (
+				rt.backoffMaxMs !== undefined &&
+				(typeof rt.backoffMaxMs !== "number" || rt.backoffMaxMs <= 0)
+			) {
 				throw new ValidationError("resilience.retry.backoffMaxMs must be a positive number", {
 					field: "resilience.retry.backoffMaxMs",
 					value: rt.backoffMaxMs,
@@ -502,7 +511,10 @@ function validateConfig(config: OverstoryConfig): void {
 					},
 				);
 			}
-			if (rt.backoffMultiplier !== undefined && (typeof rt.backoffMultiplier !== "number" || rt.backoffMultiplier <= 0)) {
+			if (
+				rt.backoffMultiplier !== undefined &&
+				(typeof rt.backoffMultiplier !== "number" || rt.backoffMultiplier <= 0)
+			) {
 				throw new ValidationError("resilience.retry.backoffMultiplier must be a positive number", {
 					field: "resilience.retry.backoffMultiplier",
 					value: rt.backoffMultiplier,
@@ -512,10 +524,13 @@ function validateConfig(config: OverstoryConfig): void {
 				rt.globalMaxConcurrent !== undefined &&
 				(!Number.isInteger(rt.globalMaxConcurrent) || rt.globalMaxConcurrent < 1)
 			) {
-				throw new ValidationError("resilience.retry.globalMaxConcurrent must be a positive integer", {
-					field: "resilience.retry.globalMaxConcurrent",
-					value: rt.globalMaxConcurrent,
-				});
+				throw new ValidationError(
+					"resilience.retry.globalMaxConcurrent must be a positive integer",
+					{
+						field: "resilience.retry.globalMaxConcurrent",
+						value: rt.globalMaxConcurrent,
+					},
+				);
 			}
 		}
 		if (r.circuitBreaker !== undefined) {
@@ -524,10 +539,13 @@ function validateConfig(config: OverstoryConfig): void {
 				cb.failureThreshold !== undefined &&
 				(!Number.isInteger(cb.failureThreshold) || cb.failureThreshold < 1)
 			) {
-				throw new ValidationError("resilience.circuitBreaker.failureThreshold must be a positive integer", {
-					field: "resilience.circuitBreaker.failureThreshold",
-					value: cb.failureThreshold,
-				});
+				throw new ValidationError(
+					"resilience.circuitBreaker.failureThreshold must be a positive integer",
+					{
+						field: "resilience.circuitBreaker.failureThreshold",
+						value: cb.failureThreshold,
+					},
+				);
 			}
 			if (cb.windowMs !== undefined && (typeof cb.windowMs !== "number" || cb.windowMs <= 0)) {
 				throw new ValidationError("resilience.circuitBreaker.windowMs must be a positive number", {
@@ -535,11 +553,17 @@ function validateConfig(config: OverstoryConfig): void {
 					value: cb.windowMs,
 				});
 			}
-			if (cb.cooldownMs !== undefined && (typeof cb.cooldownMs !== "number" || cb.cooldownMs <= 0)) {
-				throw new ValidationError("resilience.circuitBreaker.cooldownMs must be a positive number", {
-					field: "resilience.circuitBreaker.cooldownMs",
-					value: cb.cooldownMs,
-				});
+			if (
+				cb.cooldownMs !== undefined &&
+				(typeof cb.cooldownMs !== "number" || cb.cooldownMs <= 0)
+			) {
+				throw new ValidationError(
+					"resilience.circuitBreaker.cooldownMs must be a positive number",
+					{
+						field: "resilience.circuitBreaker.cooldownMs",
+						value: cb.cooldownMs,
+					},
+				);
 			}
 			if (
 				cb.halfOpenMaxProbes !== undefined &&

@@ -231,8 +231,8 @@ function parseSpawnTarget(raw: string | null): string | null {
 		const parsed = JSON.parse(raw);
 		if (typeof parsed === "object" && parsed !== null) {
 			const obj = parsed as Record<string, unknown>;
-			if (typeof obj["agentName"] === "string") return obj["agentName"];
-			if (typeof obj["name"] === "string") return obj["name"];
+			if (typeof obj.agentName === "string") return obj.agentName;
+			if (typeof obj.name === "string") return obj.name;
 		}
 	} catch {
 		// Ignore

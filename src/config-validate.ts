@@ -118,7 +118,11 @@ export function validateUnknownFields(raw: Record<string, unknown>): void {
 			assertKnownKeys(raw.resilience.retry, KNOWN_FIELDS.resilienceRetry, "resilience.retry");
 		}
 		if (isObj(raw.resilience.circuitBreaker)) {
-			assertKnownKeys(raw.resilience.circuitBreaker, KNOWN_FIELDS.resilienceCircuitBreaker, "resilience.circuitBreaker");
+			assertKnownKeys(
+				raw.resilience.circuitBreaker,
+				KNOWN_FIELDS.resilienceCircuitBreaker,
+				"resilience.circuitBreaker",
+			);
 		}
 		if (isObj(raw.resilience.reroute)) {
 			assertKnownKeys(raw.resilience.reroute, KNOWN_FIELDS.resilienceReroute, "resilience.reroute");

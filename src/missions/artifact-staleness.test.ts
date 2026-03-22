@@ -76,7 +76,7 @@ describe("computeDependencyHashes", () => {
 		await writeFile(join(tempDir, "plan", "workstreams.json"), '{"workstreams":[]}');
 
 		const hashes = await computeDependencyHashes(tempDir, "brief");
-		const deps = ARTIFACT_DEPENDENCIES["brief"];
+		const deps = ARTIFACT_DEPENDENCIES.brief;
 		expect(Object.keys(hashes)).toHaveLength(deps.length);
 		for (const dep of deps) {
 			expect(hashes[dep]).toBeDefined();

@@ -9,7 +9,7 @@
 import { basename, join, relative, resolve } from "node:path";
 import { loadConfig } from "../config.ts";
 import { jsonError, jsonOutput } from "../json.ts";
-import { accent, printError, printSuccess } from "../logging/color.ts";
+import { printError, printSuccess } from "../logging/color.ts";
 import { createMailClient } from "../mail/client.ts";
 import { createMailStore } from "../mail/store.ts";
 import { createTrackerClient, resolveBackend } from "../tracker/factory.ts";

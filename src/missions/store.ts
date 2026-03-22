@@ -549,7 +549,7 @@ export function createMissionStore(dbPath: string): MissionStore {
 					.prepare<MissionRow, { $state: string; $limit: number }>(
 						`SELECT * FROM missions WHERE state = $state ORDER BY created_at DESC LIMIT $limit`,
 					)
-					.all({ $state: opts!.state as string, $limit: opts!.limit as number });
+					.all({ $state: opts?.state as string, $limit: opts?.limit as number });
 				return rows.map(rowToMission);
 			}
 			if (hasState) {
@@ -557,7 +557,7 @@ export function createMissionStore(dbPath: string): MissionStore {
 					.prepare<MissionRow, { $state: string }>(
 						`SELECT * FROM missions WHERE state = $state ORDER BY created_at DESC`,
 					)
-					.all({ $state: opts!.state as string });
+					.all({ $state: opts?.state as string });
 				return rows.map(rowToMission);
 			}
 			if (hasLimit) {
@@ -565,7 +565,7 @@ export function createMissionStore(dbPath: string): MissionStore {
 					.prepare<MissionRow, { $limit: number }>(
 						`SELECT * FROM missions ORDER BY created_at DESC LIMIT $limit`,
 					)
-					.all({ $limit: opts!.limit as number });
+					.all({ $limit: opts?.limit as number });
 				return rows.map(rowToMission);
 			}
 			const rows = db

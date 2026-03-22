@@ -12,16 +12,8 @@ import { printError, printSuccess } from "../logging/color.ts";
 import { computeFileHash } from "./artifact-staleness.ts";
 import { recordMissionEvent } from "./events.ts";
 import type { MissionCommandDeps } from "./lifecycle.ts";
-import {
-	adviseGraphTransition,
-	resolveCurrentMissionId,
-	resolveMissionRoleStates,
-	toSummary,
-} from "./lifecycle.ts";
-import {
-	nudgeMissionRoleBestEffort,
-	sendMissionControlMail,
-} from "./messaging.ts";
+import { resolveCurrentMissionId, resolveMissionRoleStates, toSummary } from "./lifecycle.ts";
+import { nudgeMissionRoleBestEffort, sendMissionControlMail } from "./messaging.ts";
 import { pauseWorkstream } from "./pause.ts";
 import { markStale, readSpecMeta } from "./spec-meta.ts";
 import { createMissionStore } from "./store.ts";

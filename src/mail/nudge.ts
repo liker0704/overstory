@@ -9,8 +9,8 @@
  */
 
 import { join } from "node:path";
-import { canonicalizeMailAgentName, expandMailAgentNames } from "./identity.ts";
 import type { MailMessage, MailMessageType } from "../types.ts";
+import { canonicalizeMailAgentName, expandMailAgentNames } from "./identity.ts";
 
 /**
  * Protocol message types that require immediate recipient attention.

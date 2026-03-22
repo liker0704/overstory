@@ -85,7 +85,18 @@ export const KNOWN_FIELDS = {
 	mail: new Set(["reliability"]),
 	mailReliability: new Set(["leaseTimeoutSec", "maxRetries", "backoffBaseMs", "backoffMaxMs"]),
 	resilience: new Set(["retry", "circuitBreaker", "reroute"]),
-	resilienceRetry: new Set(["maxAttempts", "backoffBaseMs", "backoffMaxMs", "backoffMultiplier", "globalMaxConcurrent"]),
-	resilienceCircuitBreaker: new Set(["failureThreshold", "windowMs", "cooldownMs", "halfOpenMaxProbes"]),
+	resilienceRetry: new Set([
+		"maxAttempts",
+		"backoffBaseMs",
+		"backoffMaxMs",
+		"backoffMultiplier",
+		"globalMaxConcurrent",
+	]),
+	resilienceCircuitBreaker: new Set([
+		"failureThreshold",
+		"windowMs",
+		"cooldownMs",
+		"halfOpenMaxProbes",
+	]),
 	resilienceReroute: new Set(["enabled", "maxReroutes", "fallbackCapability"]),
 } as const;

@@ -125,8 +125,8 @@ export async function readSnapshot(missionDir: string): Promise<ArtifactStalenes
 		if (
 			typeof raw !== "object" ||
 			raw === null ||
-			typeof (raw as Record<string, unknown>)["fileHashes"] !== "object" ||
-			typeof (raw as Record<string, unknown>)["capturedAt"] !== "string"
+			typeof (raw as Record<string, unknown>).fileHashes !== "object" ||
+			typeof (raw as Record<string, unknown>).capturedAt !== "string"
 		) {
 			return null;
 		}

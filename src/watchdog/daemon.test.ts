@@ -2809,7 +2809,9 @@ describe("resilience engine integration", () => {
 		const killCalls: string[] = [];
 		const tmuxMock = {
 			isSessionAlive: async () => false,
-			killSession: async (name: string) => { killCalls.push(name); },
+			killSession: async (name: string) => {
+				killCalls.push(name);
+			},
 		};
 
 		await runDaemonTick({
@@ -2842,7 +2844,7 @@ describe("resilience engine integration", () => {
 			});
 			writeSessionsToStore(tempRoot, [session]);
 
-			const slingCalls: string[] = [];
+			const _slingCalls: string[] = [];
 			await runDaemonTick({
 				root: tempRoot,
 				...THRESHOLDS,
@@ -2917,7 +2919,9 @@ describe("resilience engine integration", () => {
 					try {
 						const d = JSON.parse(e.data ?? "{}") as { type?: string };
 						return d.type === "resilience_abandon";
-					} catch { return false; }
+					} catch {
+						return false;
+					}
 				});
 				expect(abandonEvent).toBeDefined();
 			} finally {
@@ -2962,7 +2966,9 @@ describe("resilience engine integration", () => {
 					try {
 						const d = JSON.parse(e.data ?? "{}") as { type?: string };
 						return d.type === "resilience_retry";
-					} catch { return false; }
+					} catch {
+						return false;
+					}
 				});
 				expect(retryEvent).toBeDefined();
 			} finally {
@@ -3033,8 +3039,14 @@ describe("resilience engine integration", () => {
 				const resilienceEvent = events.find((e) => {
 					try {
 						const d = JSON.parse(e.data ?? "{}") as { type?: string };
-						return (d.type === "resilience_retry" || d.type === "resilience_reroute" || d.type === "resilience_abandon");
-					} catch { return false; }
+						return (
+							d.type === "resilience_retry" ||
+							d.type === "resilience_reroute" ||
+							d.type === "resilience_abandon"
+						);
+					} catch {
+						return false;
+					}
 				});
 				expect(resilienceEvent).toBeDefined();
 			} finally {
@@ -3203,7 +3215,9 @@ describe("resilience engine integration", () => {
 					try {
 						const d = JSON.parse(e.data ?? "{}") as { type?: string };
 						return d.type === "resilience_retry";
-					} catch { return false; }
+					} catch {
+						return false;
+					}
 				});
 				// If retry was the decision, event exists; if circuit open, reroute/abandon
 				// Either way, resilience ran — no assertion needed beyond "tick succeeded"

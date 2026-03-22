@@ -407,8 +407,8 @@ describe("generateAgentName", () => {
  */
 
 describe("allowedChildCapabilities", () => {
-	test("mission-analyst can only spawn scouts", () => {
-		expect(allowedChildCapabilities("mission-analyst")).toEqual(["scout"]);
+	test("mission-analyst can spawn scouts and plan-review-lead", () => {
+		expect(allowedChildCapabilities("mission-analyst")).toEqual(["scout", "plan-review-lead"]);
 	});
 
 	test("execution-director can only spawn leads", () => {
@@ -421,6 +421,7 @@ describe("allowedChildCapabilities", () => {
 		expect(allowed).toContain("scout");
 		expect(allowed).toContain("mission-analyst");
 		expect(allowed).toContain("execution-director");
+		expect(allowed).not.toContain("plan-review-lead");
 	});
 
 	test("unknown capability returns empty array", () => {
@@ -547,6 +548,14 @@ describe("validateHierarchy", () => {
 	test("allows mission-analyst to spawn scout", () => {
 		expect(() =>
 			validateHierarchy("mission-analyst", "scout", "scout-auth", 1, false, [
+				{ agentName: "mission-analyst", capability: "mission-analyst" },
+			]),
+		).not.toThrow();
+	});
+
+	test("allows mission-analyst to spawn plan-review-lead", () => {
+		expect(() =>
+			validateHierarchy("mission-analyst", "plan-review-lead", "plan-review-lead", 1, false, [
 				{ agentName: "mission-analyst", capability: "mission-analyst" },
 			]),
 		).not.toThrow();

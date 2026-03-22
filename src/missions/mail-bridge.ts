@@ -95,38 +95,38 @@ export function parseMissionFindingPayload(rawPayload: string | undefined): Miss
 	}
 
 	const payload = parsed as Record<string, unknown>;
-	if (typeof payload["workstreamId"] !== "string" || payload["workstreamId"].trim().length === 0) {
+	if (typeof payload.workstreamId !== "string" || payload.workstreamId.trim().length === 0) {
 		throw new ValidationError("mission_finding payload.workstreamId must be a non-empty string", {
 			field: "payload.workstreamId",
-			value: payload["workstreamId"],
+			value: payload.workstreamId,
 		});
 	}
-	if (typeof payload["category"] !== "string" || payload["category"].trim().length === 0) {
+	if (typeof payload.category !== "string" || payload.category.trim().length === 0) {
 		throw new ValidationError("mission_finding payload.category must be a non-empty string", {
 			field: "payload.category",
-			value: payload["category"],
+			value: payload.category,
 		});
 	}
-	if (typeof payload["summary"] !== "string" || payload["summary"].trim().length === 0) {
+	if (typeof payload.summary !== "string" || payload.summary.trim().length === 0) {
 		throw new ValidationError("mission_finding payload.summary must be a non-empty string", {
 			field: "payload.summary",
-			value: payload["summary"],
+			value: payload.summary,
 		});
 	}
 	if (
-		!Array.isArray(payload["affectedWorkstreams"]) ||
-		!payload["affectedWorkstreams"].every((value) => typeof value === "string")
+		!Array.isArray(payload.affectedWorkstreams) ||
+		!payload.affectedWorkstreams.every((value) => typeof value === "string")
 	) {
 		throw new ValidationError("mission_finding payload.affectedWorkstreams must be a string[]", {
 			field: "payload.affectedWorkstreams",
-			value: payload["affectedWorkstreams"],
+			value: payload.affectedWorkstreams,
 		});
 	}
 
 	return {
-		workstreamId: payload["workstreamId"],
-		category: payload["category"] as MissionFindingPayload["category"],
-		summary: payload["summary"],
-		affectedWorkstreams: payload["affectedWorkstreams"] as string[],
+		workstreamId: payload.workstreamId,
+		category: payload.category as MissionFindingPayload["category"],
+		summary: payload.summary,
+		affectedWorkstreams: payload.affectedWorkstreams as string[],
 	};
 }

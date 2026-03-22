@@ -62,15 +62,15 @@ function isValidSpecMeta(raw: unknown): raw is SpecMeta {
 	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return false;
 	const obj = raw as Record<string, unknown>;
 	return (
-		typeof obj["taskId"] === "string" &&
-		typeof obj["workstreamId"] === "string" &&
-		typeof obj["briefPath"] === "string" &&
-		typeof obj["briefRevision"] === "string" &&
-		typeof obj["specRevision"] === "string" &&
-		typeof obj["status"] === "string" &&
-		SPEC_META_STATUSES.includes(obj["status"] as SpecMetaStatus) &&
-		typeof obj["generatedAt"] === "string" &&
-		typeof obj["generatedBy"] === "string"
+		typeof obj.taskId === "string" &&
+		typeof obj.workstreamId === "string" &&
+		typeof obj.briefPath === "string" &&
+		typeof obj.briefRevision === "string" &&
+		typeof obj.specRevision === "string" &&
+		typeof obj.status === "string" &&
+		SPEC_META_STATUSES.includes(obj.status as SpecMetaStatus) &&
+		typeof obj.generatedAt === "string" &&
+		typeof obj.generatedBy === "string"
 	);
 }
 

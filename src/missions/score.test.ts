@@ -65,7 +65,7 @@ describe("computeMissionScoreFromSignals", () => {
 		const result = computeMissionScoreFromSignals(signals);
 		const errorFactor = result.factors.find((f) => f.name === "error_rate");
 		expect(errorFactor).toBeDefined();
-		expect(errorFactor!.score).toBe(0);
+		expect(errorFactor?.score).toBe(0);
 	});
 
 	test("error rate at 5% (half threshold): error_rate score = 50", () => {
@@ -77,7 +77,7 @@ describe("computeMissionScoreFromSignals", () => {
 		const result = computeMissionScoreFromSignals(signals);
 		const errorFactor = result.factors.find((f) => f.name === "error_rate");
 		expect(errorFactor).toBeDefined();
-		expect(errorFactor!.score).toBe(50);
+		expect(errorFactor?.score).toBe(50);
 	});
 
 	test("grade A boundary: overall >= 85", () => {
@@ -156,7 +156,7 @@ describe("computeMissionScoreFromSignals", () => {
 		const result = computeMissionScoreFromSignals(signals);
 		const sessionFactor = result.factors.find((f) => f.name === "session_completion");
 		expect(sessionFactor).toBeDefined();
-		expect(sessionFactor!.score).toBe(75);
+		expect(sessionFactor?.score).toBe(75);
 	});
 
 	test("review score is used when available", () => {
@@ -167,7 +167,7 @@ describe("computeMissionScoreFromSignals", () => {
 		const result = computeMissionScoreFromSignals(signals);
 		const reviewFactor = result.factors.find((f) => f.name === "review_quality");
 		expect(reviewFactor).toBeDefined();
-		expect(reviewFactor!.score).toBe(80);
+		expect(reviewFactor?.score).toBe(80);
 	});
 
 	test("collectedAt is a valid ISO timestamp", () => {

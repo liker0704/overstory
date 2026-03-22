@@ -73,16 +73,16 @@ export function validateWorkstreamsFile(raw: unknown): ValidationResult {
 		};
 	}
 
-	if (raw["version"] !== 1) {
+	if (raw.version !== 1) {
 		errors.push({ path: "version", message: "Expected version 1" });
 	}
 
-	if (!Array.isArray(raw["workstreams"])) {
+	if (!Array.isArray(raw.workstreams)) {
 		errors.push({ path: "workstreams", message: "Expected an array" });
 		return { valid: false, errors, workstreams: null };
 	}
 
-	const rawWorkstreams = raw["workstreams"] as unknown[];
+	const rawWorkstreams = raw.workstreams as unknown[];
 	const parsed: Workstream[] = [];
 
 	for (let i = 0; i < rawWorkstreams.length; i++) {
@@ -95,37 +95,37 @@ export function validateWorkstreamsFile(raw: unknown): ValidationResult {
 			continue;
 		}
 
-		if (typeof ws["id"] !== "string" || ws["id"].trim() === "") {
+		if (typeof ws.id !== "string" || ws.id.trim() === "") {
 			errors.push({ path: `${base}.id`, message: "Expected non-empty string" });
 			entryValid = false;
 		}
 
-		if (typeof ws["taskId"] !== "string" || ws["taskId"].trim() === "") {
+		if (typeof ws.taskId !== "string" || ws.taskId.trim() === "") {
 			errors.push({ path: `${base}.taskId`, message: "Expected non-empty string" });
 			entryValid = false;
 		}
 
-		if (typeof ws["objective"] !== "string" || ws["objective"].trim() === "") {
+		if (typeof ws.objective !== "string" || ws.objective.trim() === "") {
 			errors.push({ path: `${base}.objective`, message: "Expected non-empty string" });
 			entryValid = false;
 		}
 
-		if (!isStringArray(ws["fileScope"])) {
+		if (!isStringArray(ws.fileScope)) {
 			errors.push({ path: `${base}.fileScope`, message: "Expected string[]" });
 			entryValid = false;
 		}
 
-		if (!isStringArray(ws["dependsOn"])) {
+		if (!isStringArray(ws.dependsOn)) {
 			errors.push({ path: `${base}.dependsOn`, message: "Expected string[]" });
 			entryValid = false;
 		}
 
-		if (ws["briefPath"] !== null && typeof ws["briefPath"] !== "string") {
+		if (ws.briefPath !== null && typeof ws.briefPath !== "string") {
 			errors.push({ path: `${base}.briefPath`, message: "Expected string or null" });
 			entryValid = false;
 		}
 
-		if (!WORKSTREAM_STATUSES.includes(ws["status"] as WorkstreamStatus)) {
+		if (!WORKSTREAM_STATUSES.includes(ws.status as WorkstreamStatus)) {
 			errors.push({
 				path: `${base}.status`,
 				message: `Expected one of: ${WORKSTREAM_STATUSES.join(", ")}`,
@@ -135,13 +135,13 @@ export function validateWorkstreamsFile(raw: unknown): ValidationResult {
 
 		if (entryValid) {
 			parsed.push({
-				id: ws["id"] as string,
-				taskId: ws["taskId"] as string,
-				objective: ws["objective"] as string,
-				fileScope: ws["fileScope"] as string[],
-				dependsOn: ws["dependsOn"] as string[],
-				briefPath: ws["briefPath"] as string | null,
-				status: ws["status"] as WorkstreamStatus,
+				id: ws.id as string,
+				taskId: ws.taskId as string,
+				objective: ws.objective as string,
+				fileScope: ws.fileScope as string[],
+				dependsOn: ws.dependsOn as string[],
+				briefPath: ws.briefPath as string | null,
+				status: ws.status as WorkstreamStatus,
 			});
 		}
 	}

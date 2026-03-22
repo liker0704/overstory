@@ -29,6 +29,7 @@ import {
 	type TailerHandle,
 	type TailerOptions,
 } from "../events/tailer.ts";
+import { sanitize } from "../logging/sanitizer.ts";
 import { createMailClient } from "../mail/client.ts";
 import { createMailStore, type MailStore } from "../mail/store.ts";
 import { createMulchClient } from "../mulch/client.ts";
@@ -39,8 +40,8 @@ import { getConnection, removeConnection } from "../runtimes/connections.ts";
 import { getRuntime } from "../runtimes/registry.ts";
 import type { RateLimitState, RuntimeConnection } from "../runtimes/types.ts";
 import { openSessionStore } from "../sessions/compat.ts";
-import { sanitize } from "../logging/sanitizer.ts";
 import type { AgentSession, EventStore, HealthCheck, OverstoryConfig } from "../types.ts";
+import { cleanupWorktreeForRespawn } from "../worktree/cleanup.ts";
 import {
 	capturePaneContent,
 	isProcessAlive,
@@ -50,7 +51,6 @@ import {
 	removeAgentEnvFile,
 	sendKeys,
 } from "../worktree/tmux.ts";
-import { cleanupWorktreeForRespawn } from "../worktree/cleanup.ts";
 import { evaluateHealth, transitionState } from "./health.ts";
 import { swapRuntime } from "./swap.ts";
 import { triageAgent } from "./triage.ts";
@@ -656,9 +656,7 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 	// Recover pending retries on daemon init
 	if (resilienceStore && resilienceConfig) {
 		try {
-			const pendingRetries = resilienceStore.getPendingRetries(
-				resilienceConfig.retry.maxAttempts,
-			);
+			const pendingRetries = resilienceStore.getPendingRetries(resilienceConfig.retry.maxAttempts);
 			for (const retry of pendingRetries) {
 				const activeSessions = store.getActive();
 				if (activeSessions.length >= (options.config?.agents.maxConcurrent ?? 10)) break;
@@ -1459,9 +1457,7 @@ async function executeEscalationAction(ctx: {
  * Build a full ResilienceConfig from the partial config stored in OverstoryConfig.
  * Fills in sensible defaults for any missing fields.
  */
-function buildResilienceConfig(
-	raw: NonNullable<OverstoryConfig["resilience"]>,
-): ResilienceConfig {
+function buildResilienceConfig(raw: NonNullable<OverstoryConfig["resilience"]>): ResilienceConfig {
 	return {
 		retry: {
 			maxAttempts: raw.retry?.maxAttempts ?? 3,
@@ -1526,14 +1522,7 @@ async function handleRerouteDecision(ctx: {
 		// Respawn via sling
 		try {
 			const respawnProc = Bun.spawn(
-				[
-					"ov",
-					"sling",
-					session.taskId,
-					"--capability",
-					session.capability,
-					"--skip-task-check",
-				],
+				["ov", "sling", session.taskId, "--capability", session.capability, "--skip-task-check"],
 				{ cwd: root, stdout: "pipe", stderr: "pipe" },
 			);
 			await respawnProc.exited;
