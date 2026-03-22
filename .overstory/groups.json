@@ -1071,5 +1071,17 @@
 		"status": "active",
 		"createdAt": "2026-03-21T19:26:39.892Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-8547e224",
+		"name": "post-refactor-test-fixes",
+		"memberIssueIds": [
+			"overstory-a42d",
+			"overstory-af3c",
+			"overstory-3cc0"
+		],
+		"status": "active",
+		"createdAt": "2026-03-22T11:55:38.811Z",
+		"completedAt": null
 	}
 ]

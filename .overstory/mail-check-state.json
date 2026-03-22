@@ -8,7 +8,7 @@
 	"review-store-builder": 1773215545939,
 	"review-analyzers-builder": 1773215841028,
 	"review-cli-builder": 1773215857860,
-	"coordinator": 1774105638466,
+	"coordinator": 1774181510051,
 	"eval-runner-builder": 1773318208289,
 	"mission-phase0-lead": 1773319920308,
 	"phase0-types-builder": 1773319194679,
@@ -39,8 +39,8 @@
 	"fix-errors-builder": 1773351794375,
 	"fix-errors-tests-lead": 1773352762554,
 	"fix-roles-test-builder": 1773354104466,
-	"mission-analyst": 1774121037387,
-	"execution-director": 1774124349651,
+	"mission-analyst": 1774131399551,
+	"execution-director": 1774127398557,
 	"e2e-verify-lead": 1773414340183,
 	"lead-child-e2e": 1773414344523,
 	"builder-child-e2e": 1773414337660,
@@ -75,5 +75,10 @@
 	"lead-overstory-1cf1": 1774124206256,
 	"build-snapshot-cmd": 1774123813859,
 	"build-recover-cmd": 1774123883599,
-	"build-index-1cf1": 1774124129733
+	"build-index-1cf1": 1774124129733,
+	"plan-review-lead": 1774131361372,
+	"test-fix-lead": 1774181450369,
+	"build-coord-test": 1774181096841,
+	"build-env-tests": 1774181195116,
+	"build-mission-lint": 1774181372464
 }

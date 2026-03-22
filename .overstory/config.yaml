@@ -46,6 +46,9 @@ watchdog:
   staleThresholdMs: 300000
   zombieThresholdMs: 600000
   nudgeIntervalMs: 60000
+mission:
+  planReview:
+    enabled: true
 coordinator:
   exitTriggers:
     allAgentsDone: false
