@@ -1103,5 +1103,15 @@
 		"status": "active",
 		"createdAt": "2026-03-22T14:43:15.659Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-9f8c7cc2",
+		"name": "quota-headroom-batch-1",
+		"memberIssueIds": [
+			"overstory-c3ea"
+		],
+		"status": "active",
+		"createdAt": "2026-03-22T22:47:48.007Z",
+		"completedAt": null
 	}
 ]
