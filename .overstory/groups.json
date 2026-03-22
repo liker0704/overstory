@@ -1080,8 +1080,18 @@
 			"overstory-af3c",
 			"overstory-3cc0"
 		],
-		"status": "active",
+		"status": "completed",
 		"createdAt": "2026-03-22T11:55:38.811Z",
+		"completedAt": "2026-03-22T12:12:54.084Z"
+	},
+	{
+		"id": "group-f860afc6",
+		"name": "task-resilience-batch-1",
+		"memberIssueIds": [
+			"overstory-f949"
+		],
+		"status": "active",
+		"createdAt": "2026-03-22T14:34:35.397Z",
 		"completedAt": null
 	}
 ]
