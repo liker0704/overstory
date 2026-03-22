@@ -1,4 +1,5 @@
 import type { PlanReviewTier } from "./mail/types.ts";
+import type { ResilienceConfig } from "./resilience/types.ts";
 
 // === Model & Provider Types ===
 
@@ -198,5 +199,10 @@ export interface OverstoryConfig {
 			/** Maximum backoff delay in milliseconds. Default: 60000. */
 			backoffMaxMs?: number;
 		};
+	};
+	resilience?: {
+		retry?: Partial<ResilienceConfig["retry"]>;
+		circuitBreaker?: Partial<ResilienceConfig["circuitBreaker"]>;
+		reroute?: Partial<ResilienceConfig["reroute"]>;
 	};
 }

@@ -98,6 +98,16 @@ export type {
 	ParsedConflictPattern,
 	ResolutionTier,
 } from "./merge/types.ts";
+// Resilience types
+export type {
+	CircuitBreakerConfig,
+	CircuitBreakerState,
+	RerouteConfig,
+	RerouteDecision,
+	ResilienceConfig,
+	RetryConfig,
+	RetryRecord,
+} from "./resilience/types.ts";
 // Metrics types
 export type { SessionMetrics, TokenSnapshot } from "./metrics/types.ts";
 // Mission types
