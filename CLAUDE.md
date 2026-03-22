@@ -51,9 +51,11 @@ Purpose-built messaging via `bun:sqlite` in `.overstory/mail.db`. WAL mode for c
 ```
 overstory/                        # This repo (the overstory tool itself)
   src/
-    index.ts                      # CLI entry point (Commander.js program, 39 commands)
-    types.ts                      # ALL shared types and interfaces
-    config.ts                     # Config loader + defaults + validation
+    index.ts                      # CLI entry point (Commander.js program, 45 commands)
+    types.ts                      # Barrel re-export of domain types (see domain/types.ts files)
+    config.ts                     # Config loader + defaults + validation (see also config-types.ts, config-yaml.ts)
+    config-types.ts               # Config type definitions (split from types.ts)
+    config-yaml.ts                # YAML parser + serializer (split from config.ts)
     config-schema.ts              # Config schema version constants + known fields
     config-migrate.ts             # Config version detection + migration pipeline
     config-validate.ts            # Strict unknown-field validation
@@ -62,10 +64,11 @@ overstory/                        # This repo (the overstory tool itself)
     commands/                     # One file per CLI subcommand
       agents.ts                   # ov agents (discover)
       init.ts                     # ov init
-      sling.ts                    # ov sling (spawn worker)
+      mission.ts                  # ov mission start/stop/pause/resume/complete/status/list
+      sling.ts                    # ov sling (spawn worker, delegates to agents/spawn.ts)
       prime.ts                    # ov prime
       status.ts                   # ov status
-      dashboard.ts                # ov dashboard (live TUI)
+      dashboard.ts                # ov dashboard (CLI wiring, delegates to src/dashboard/*)
       inspect.ts                  # ov inspect (deep agent view)
       coordinator.ts              # ov coordinator start/stop/status/send/ask/output/check-complete
       supervisor.ts               # ov supervisor start/stop/status [DEPRECATED]
@@ -101,6 +104,7 @@ overstory/                        # This repo (the overstory tool itself)
       completions.ts              # ov --completions (shell completions)
     canopy/
       client.ts                   # Canopy client (prompt rendering, listing, emission)
+      types.ts                    # Canopy result types
     agents/                       # Agent lifecycle management
       manifest.ts                 # Agent registry (load + query capabilities)
       overlay.ts                  # Dynamic CLAUDE.md overlay generator
@@ -109,17 +113,30 @@ overstory/                        # This repo (the overstory tool itself)
       guard-rules.ts              # Shared guard constants (tool lists, bash patterns)
       lifecycle.ts                # Session handoff (checkpoint/resume/complete)
       checkpoint.ts               # Session checkpoint save/load/clear
+      spawn.ts                    # SpawnService — agent spawn orchestration (extracted from sling)
+      types.ts                    # Agent domain types
+    dashboard/                    # Dashboard UI (extracted from commands/dashboard.ts)
+      data.ts                     # Data loading + caching
+      render.ts                   # Panel renderers + ANSI layout
+    db/
+      migrate.ts                  # Unified SQLite schema migration framework
+    ecosystem/
+      bootstrap.ts                # os-eco sibling tool bootstrap (extracted from init)
     worktree/
       manager.ts                  # Create/list/cleanup git worktrees via Bun.spawn
       tmux.ts                     # Tmux session management via Bun.spawn
       process.ts                  # Headless subprocess management (non-tmux runtimes)
+    process/
+      util.ts                     # Shared process utilities (isProcessRunning, tailReadLines)
     sessions/
       store.ts                    # SQLite SessionStore + RunStore (agent lifecycle, runs)
       compat.ts                   # Migration bridge from sessions.json to sessions.db
+      types.ts                    # Session/run domain types
     events/
       store.ts                    # SQLite EventStore (tool events, timelines, errors)
       tool-filter.ts              # Smart arg filtering for event storage
       tailer.ts                   # NDJSON event tailer for headless agent stdout logs
+      types.ts                    # Event domain types
     insights/
       analyzer.ts                 # Session insight analyzer for auto-expertise
     tracker/
@@ -133,6 +150,8 @@ overstory/                        # This repo (the overstory tool itself)
       store.ts                    # SQLite mail storage (bun:sqlite, WAL mode)
       client.ts                   # Mail operations (send/check/list/read/reply)
       broadcast.ts                # Group address resolution (@all, @builders, etc.)
+      nudge.ts                    # Pending nudge marker I/O (extracted from mail command)
+      types.ts                    # Mail domain types
     runtimes/
       types.ts                    # AgentRuntime interface + supporting types (incl. RuntimeConnection, RpcProcessHandle)
       registry.ts                 # Runtime registry (getRuntime() factory)
@@ -148,9 +167,17 @@ overstory/                        # This repo (the overstory tool itself)
       connections.ts              # Module-level RuntimeConnection registry for RPC agents
     mulch/
       client.ts                   # mulch client (programmatic API for record/search/query, CLI wrapper for rest)
+      types.ts                    # Mulch result types
     merge/
       queue.ts                    # FIFO merge queue
       resolver.ts                 # Tiered conflict resolution (4 tiers)
+      types.ts                    # Merge domain types
+    missions/                     # Mission lifecycle (extracted from commands/mission.ts)
+      lifecycle.ts                # Mission lifecycle operations (start/stop/pause/resume/complete)
+      messaging.ts                # Mission mail dispatch + control
+      render.ts                   # Mission status display + formatting
+      mail-bridge.ts              # Mission-mail integration bridge
+      types.ts                    # Mission domain types
     watchdog/
       daemon.ts                   # Tier 0: mechanical process monitoring
       triage.ts                   # Tier 1: AI-assisted failure classification
@@ -167,6 +194,7 @@ overstory/                        # This repo (the overstory tool itself)
       summary.ts                  # Metrics reporting
       pricing.ts                  # Runtime-agnostic pricing + cost estimation
       transcript.ts               # Claude Code transcript JSONL parser
+      types.ts                    # Metrics domain types
     eval/                         # Scenario-based orchestration evaluation
       types.ts                    # EvalScenario, EvalResult, EvalMetrics, Assertion types
       scenario.ts                 # YAML scenario loader
