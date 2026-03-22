@@ -219,13 +219,14 @@ describe("mission command e2e", () => {
 		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
 		const mission = missionStore.getActive();
 		expect(mission).not.toBeNull();
+		if (!mission) throw new Error("expected mission");
 		expect(mission?.slug).toBe("auth-refresh");
 		expect(deps.started).toEqual(["coordinator", "mission-analyst"]);
 		// No nudge on initial start — SessionStart hook activates roles directly
 		expect(await Bun.file(join(overstoryDir, "current-mission.txt")).exists()).toBe(true);
 		expect(await Bun.file(join(overstoryDir, "current-run.txt")).exists()).toBe(true);
 
-		const paths = getMissionArtifactPaths(mission!);
+		const paths = getMissionArtifactPaths(mission);
 		await Bun.write(
 			paths.workstreamsJson,
 			`${JSON.stringify(
@@ -266,13 +267,13 @@ describe("mission command e2e", () => {
 			body: "Confirm the auth entrypoint",
 			type: "question",
 		});
-		missionStore.freeze(mission!.id, "clarification", questionId);
+		missionStore.freeze(mission.id, "clarification", questionId);
 		await missionAnswer(overstoryDir, { body: "Use the login entrypoint", json: true }, deps);
 
 		const repliesToAnalyst = mailStore.getAll({ from: "operator", to: "mission-analyst" });
 		expect(repliesToAnalyst.some((message) => message.threadId === questionId)).toBe(true);
-		expect(missionStore.getById(mission!.id)?.pendingUserInput).toBe(false);
-		expect(missionStore.getById(mission!.id)?.reopenCount).toBe(1);
+		expect(missionStore.getById(mission.id)?.pendingUserInput).toBe(false);
+		expect(missionStore.getById(mission.id)?.reopenCount).toBe(1);
 		expect(deps.nudged.some((entry) => entry.agentName === "mission-analyst")).toBe(true);
 
 		await missionHandoff(overstoryDir, tempDir, true, deps);
@@ -304,7 +305,7 @@ describe("mission command e2e", () => {
 			deps,
 		);
 
-		const refreshedMission = missionStore.getById(mission!.id);
+		const refreshedMission = missionStore.getById(mission.id);
 		expect(refreshedMission?.pausedWorkstreamIds).toContain("ws-auth");
 		expect((await readSpecMeta(tempDir, "task-auth"))?.status).toBe("stale");
 
@@ -322,12 +323,12 @@ describe("mission command e2e", () => {
 		});
 
 		await missionResume(overstoryDir, tempDir, "ws-auth", true, deps);
-		expect(missionStore.getById(mission!.id)?.pausedWorkstreamIds).toEqual([]);
+		expect(missionStore.getById(mission.id)?.pausedWorkstreamIds).toEqual([]);
 		expect((await readSpecMeta(tempDir, "task-auth"))?.status).toBe("current");
 
 		await missionComplete(overstoryDir, tempDir, true, deps);
 
-		const completedMission = missionStore.getById(mission!.id);
+		const completedMission = missionStore.getById(mission.id);
 		expect(completedMission?.state).toBe("completed");
 		expect(completedMission?.phase).toBe("done");
 		expect(deps.stopped).toEqual(["coordinator", "mission-analyst", "execution-director"]);
@@ -336,7 +337,7 @@ describe("mission command e2e", () => {
 
 		const runStore = createRunStore(join(overstoryDir, "sessions.db"));
 		try {
-			expect(runStore.getRun(mission!.runId ?? "")?.status).toBe("completed");
+			expect(runStore.getRun(mission.runId ?? "")?.status).toBe("completed");
 		} finally {
 			runStore.close();
 		}
@@ -361,6 +362,7 @@ describe("mission command e2e", () => {
 		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
 		const mission = missionStore.getActive();
 		expect(mission).not.toBeNull();
+		if (!mission) throw new Error("expected mission");
 
 		const mailStore = createMailStore(join(overstoryDir, "mail.db"));
 		const mailClient = createMailClient(mailStore);
@@ -371,7 +373,7 @@ describe("mission command e2e", () => {
 			body: "Please confirm the recovery path",
 			type: "question",
 		});
-		missionStore.freeze(mission!.id, "question", questionId);
+		missionStore.freeze(mission.id, "question", questionId);
 
 		const sessionStore = createSessionStore(join(overstoryDir, "sessions.db"));
 		try {
@@ -383,8 +385,8 @@ describe("mission command e2e", () => {
 		await missionAnswer(overstoryDir, { body: "Restart and continue", json: true }, deps);
 
 		expect(deps.started).toEqual(["coordinator", "mission-analyst", "mission-analyst"]);
-		expect(missionStore.getById(mission!.id)?.pendingUserInput).toBe(false);
-		expect(missionStore.getById(mission!.id)?.analystSessionId).toBe("sess-mission-analyst");
+		expect(missionStore.getById(mission.id)?.pendingUserInput).toBe(false);
+		expect(missionStore.getById(mission.id)?.analystSessionId).toBe("sess-mission-analyst");
 
 		missionStore.close();
 		mailClient.close();
@@ -403,8 +405,9 @@ describe("mission command e2e", () => {
 		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
 		const mission = missionStore.getActive();
 		expect(mission).not.toBeNull();
+		if (!mission) throw new Error("expected mission");
 
-		const paths = getMissionArtifactPaths(mission!);
+		const paths = getMissionArtifactPaths(mission);
 		await Bun.write(
 			paths.workstreamsJson,
 			`${JSON.stringify(
@@ -441,7 +444,7 @@ describe("mission command e2e", () => {
 			deps,
 		);
 
-		const refreshedMission = missionStore.getById(mission!.id);
+		const refreshedMission = missionStore.getById(mission.id);
 		expect(refreshedMission?.pausedWorkstreamIds).toContain("ws-auth");
 		expect(await readSpecMeta(tempDir, "task-auth")).toBeNull();
 
@@ -457,7 +460,7 @@ describe("mission command e2e", () => {
 		});
 
 		await missionResume(overstoryDir, tempDir, "ws-auth", true, deps);
-		expect(missionStore.getById(mission!.id)?.pausedWorkstreamIds).toEqual([]);
+		expect(missionStore.getById(mission.id)?.pausedWorkstreamIds).toEqual([]);
 
 		missionStore.close();
 	});
@@ -475,8 +478,9 @@ describe("mission command e2e", () => {
 		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
 		const mission = missionStore.getActive();
 		expect(mission).not.toBeNull();
+		if (!mission) throw new Error("expected mission");
 
-		const paths = getMissionArtifactPaths(mission!);
+		const paths = getMissionArtifactPaths(mission);
 		await Bun.write(
 			paths.workstreamsJson,
 			`${JSON.stringify(
@@ -508,8 +512,8 @@ describe("mission command e2e", () => {
 		});
 
 		// Freeze the mission (required before handoff)
-		missionStore.freeze(mission!.id, "approval", null);
-		missionStore.unfreeze(mission!.id);
+		missionStore.freeze(mission.id, "approval", null);
+		missionStore.unfreeze(mission.id);
 
 		await Bun.write(join(overstoryDir, "current-mission.txt"), "");
 		await Bun.write(join(overstoryDir, "current-run.txt"), "");
@@ -517,10 +521,10 @@ describe("mission command e2e", () => {
 		await missionHandoff(overstoryDir, tempDir, true, deps);
 
 		expect((await Bun.file(join(overstoryDir, "current-mission.txt")).text()).trim()).toBe(
-			mission!.id,
+			mission.id,
 		);
 		expect((await Bun.file(join(overstoryDir, "current-run.txt")).text()).trim()).toBe(
-			mission!.runId ?? "",
+			mission.runId ?? "",
 		);
 		expect(deps.started).toEqual(["coordinator", "mission-analyst", "execution-director"]);
 
@@ -551,8 +555,9 @@ describe("mission command e2e", () => {
 		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
 		const mission = missionStore.getActive();
 		expect(mission).not.toBeNull();
+		if (!mission) throw new Error("expected mission");
 
-		const paths = getMissionArtifactPaths(mission!);
+		const paths = getMissionArtifactPaths(mission);
 		await Bun.write(
 			paths.workstreamsJson,
 			`${JSON.stringify(
@@ -584,8 +589,8 @@ describe("mission command e2e", () => {
 		});
 
 		// Freeze the mission (required before handoff)
-		missionStore.freeze(mission!.id, "approval", null);
-		missionStore.unfreeze(mission!.id);
+		missionStore.freeze(mission.id, "approval", null);
+		missionStore.unfreeze(mission.id);
 
 		const staleDirectorId = staleMailClient.send({
 			from: "lead-auth",
@@ -616,11 +621,12 @@ describe("mission command e2e", () => {
 		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
 		const mission = missionStore.getActive();
 		expect(mission).not.toBeNull();
+		if (!mission) throw new Error("expected mission");
 
-		const paths = getMissionArtifactPaths(mission!);
+		const paths = getMissionArtifactPaths(mission);
 		await missionStop(overstoryDir, tempDir, true, true, deps);
 
-		const stoppedMission = missionStore.getById(mission!.id);
+		const stoppedMission = missionStore.getById(mission.id);
 		expect(stoppedMission?.state).toBe("stopped");
 		expect(await Bun.file(join(paths.resultsDir, "manifest.json")).exists()).toBe(true);
 		expect(await Bun.file(join(paths.resultsDir, "review.json")).exists()).toBe(true);
@@ -629,7 +635,7 @@ describe("mission command e2e", () => {
 
 		const runStore = createRunStore(join(overstoryDir, "sessions.db"));
 		try {
-			expect(runStore.getRun(mission!.runId ?? "")?.status).toBe("stopped");
+			expect(runStore.getRun(mission.runId ?? "")?.status).toBe("stopped");
 		} finally {
 			runStore.close();
 		}
@@ -650,6 +656,7 @@ describe("mission command e2e", () => {
 		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
 		const mission = missionStore.getActive();
 		expect(mission).not.toBeNull();
+		if (!mission) throw new Error("expected mission");
 
 		const sessionStore = createSessionStore(join(overstoryDir, "sessions.db"));
 		try {
@@ -666,7 +673,7 @@ describe("mission command e2e", () => {
 				pid: 4242,
 				parentAgent: "execution-director",
 				depth: 1,
-				runId: mission!.runId,
+				runId: mission.runId,
 				startedAt: "2026-03-13T00:00:00.000Z",
 				lastActivity: "2026-03-13T00:00:00.000Z",
 				escalationLevel: 0,
@@ -712,8 +719,9 @@ describe("mission command e2e", () => {
 		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
 		const mission = missionStore.getActive();
 		expect(mission).not.toBeNull();
+		if (!mission) throw new Error("expected mission");
 
-		const paths = getMissionArtifactPaths(mission!);
+		const paths = getMissionArtifactPaths(mission);
 		await Bun.write(
 			paths.workstreamsJson,
 			`${JSON.stringify(
@@ -753,10 +761,10 @@ describe("mission command e2e", () => {
 			body: "Is this correct?",
 			type: "question",
 		});
-		missionStore.freeze(mission!.id, "clarification", questionId);
+		missionStore.freeze(mission.id, "clarification", questionId);
 		await missionAnswer(overstoryDir, { body: "Yes, proceed", json: true }, deps);
 
-		const afterAnswer = missionStore.getById(mission!.id);
+		const afterAnswer = missionStore.getById(mission.id);
 		expect(afterAnswer?.firstFreezeAt).not.toBeNull();
 		expect(afterAnswer?.pendingUserInput).toBe(false);
 		expect(afterAnswer?.state).toBe("active");
@@ -765,7 +773,7 @@ describe("mission command e2e", () => {
 		process.exitCode = 0;
 		await missionHandoff(overstoryDir, tempDir, true, deps);
 		expect(deps.started).toContain("execution-director");
-		expect(missionStore.getById(mission!.id)?.phase).toBe("execute");
+		expect(missionStore.getById(mission.id)?.phase).toBe("execute");
 
 		mailStore.close();
 		missionStore.close();
@@ -780,6 +788,7 @@ describe("mission command e2e", () => {
 		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
 		const mission = missionStore.getActive();
 		expect(mission).not.toBeNull();
+		if (!mission) throw new Error("expected mission");
 		expect(mission?.slug).toMatch(/^mission-\d+$/);
 		expect(mission?.objective).toBe("Pending — coordinator will clarify with operator");
 		expect(deps.started).toEqual(["coordinator", "mission-analyst"]);
@@ -797,7 +806,7 @@ describe("mission command e2e", () => {
 			json: true,
 		});
 
-		const updated = missionStore.getById(mission!.id);
+		const updated = missionStore.getById(mission.id);
 		expect(updated?.slug).toBe("auth-rewrite");
 		expect(updated?.objective).toBe("Rewrite the authentication system");
 
@@ -806,8 +815,8 @@ describe("mission command e2e", () => {
 			objective: "Rewrite auth with OAuth2 support",
 			json: true,
 		});
-		expect(missionStore.getById(mission!.id)?.objective).toBe("Rewrite auth with OAuth2 support");
-		expect(missionStore.getById(mission!.id)?.slug).toBe("auth-rewrite");
+		expect(missionStore.getById(mission.id)?.objective).toBe("Rewrite auth with OAuth2 support");
+		expect(missionStore.getById(mission.id)?.slug).toBe("auth-rewrite");
 
 		// Update with no args should fail
 		process.exitCode = 0;
@@ -832,32 +841,33 @@ describe("mission command e2e", () => {
 		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
 		const mission = missionStore.getActive();
 		expect(mission).not.toBeNull();
-		expect(mission!.phase).toBe("understand");
-		expect(mission!.state).toBe("active");
+		if (!mission) throw new Error("expected mission");
+		expect(mission.phase).toBe("understand");
+		expect(mission.state).toBe("active");
 
 		// Manually update currentNode to verify store works
-		missionStore.updateCurrentNode(mission!.id, "understand:active");
-		const updated = missionStore.getById(mission!.id);
+		missionStore.updateCurrentNode(mission.id, "understand:active");
+		const updated = missionStore.getById(mission.id);
 		expect(updated?.currentNode).toBe("understand:active");
 
 		// Advance phase and update node
-		missionStore.updatePhase(mission!.id, "align");
-		missionStore.updateCurrentNode(mission!.id, "align:active");
-		const afterAdvance = missionStore.getById(mission!.id);
+		missionStore.updatePhase(mission.id, "align");
+		missionStore.updateCurrentNode(mission.id, "align:active");
+		const afterAdvance = missionStore.getById(mission.id);
 		expect(afterAdvance?.phase).toBe("align");
 		expect(afterAdvance?.currentNode).toBe("align:active");
 
 		// Freeze and update node
-		missionStore.freeze(mission!.id, "question", null);
-		missionStore.updateCurrentNode(mission!.id, "align:frozen");
-		const afterFreeze = missionStore.getById(mission!.id);
+		missionStore.freeze(mission.id, "question", null);
+		missionStore.updateCurrentNode(mission.id, "align:frozen");
+		const afterFreeze = missionStore.getById(mission.id);
 		expect(afterFreeze?.state).toBe("frozen");
 		expect(afterFreeze?.currentNode).toBe("align:frozen");
 
 		// Unfreeze and update node
-		missionStore.unfreeze(mission!.id);
-		missionStore.updateCurrentNode(mission!.id, "align:active");
-		const afterUnfreeze = missionStore.getById(mission!.id);
+		missionStore.unfreeze(mission.id);
+		missionStore.updateCurrentNode(mission.id, "align:active");
+		const afterUnfreeze = missionStore.getById(mission.id);
 		expect(afterUnfreeze?.state).toBe("active");
 		expect(afterUnfreeze?.currentNode).toBe("align:active");
 
@@ -877,7 +887,8 @@ describe("mission command e2e", () => {
 		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
 		const mission = missionStore.getActive();
 		expect(mission).not.toBeNull();
-		expect(mission!.currentNode).toBe("understand:active");
+		if (!mission) throw new Error("expected mission");
+		expect(mission.currentNode).toBe("understand:active");
 
 		missionStore.close();
 	});
@@ -895,13 +906,14 @@ describe("mission command e2e", () => {
 		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
 		const mission = missionStore.getActive();
 		expect(mission).not.toBeNull();
+		if (!mission) throw new Error("expected mission");
 
-		missionStore.updateCurrentNode(mission!.id, "plan:active");
+		missionStore.updateCurrentNode(mission.id, "plan:active");
 		missionStore.close();
 
 		// Reopen store and verify currentNode persisted
 		const missionStore2 = createMissionStore(join(overstoryDir, "sessions.db"));
-		const reloaded = missionStore2.getById(mission!.id);
+		const reloaded = missionStore2.getById(mission.id);
 		expect(reloaded?.currentNode).toBe("plan:active");
 
 		missionStore2.close();
