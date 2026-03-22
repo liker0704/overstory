@@ -6,6 +6,7 @@
  */
 
 import { Database } from "bun:sqlite";
+import { ensureMigrations, hasColumn, type Migration } from "../db/migrate.ts";
 import type { SessionMetrics, TokenSnapshot } from "../types.ts";
 
 export interface MetricsStore {
@@ -115,56 +116,44 @@ const TOKEN_COLUMNS = [
 	{ name: "model_used", ddl: "TEXT" },
 ] as const;
 
-/**
- * Migrate an existing sessions table from bead_id to task_id column.
- * Safe to call multiple times — only renames if bead_id exists and task_id does not.
- */
-function migrateBeadIdToTaskId(db: Database): void {
-	const rows = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
-	const existingColumns = new Set(rows.map((r) => r.name));
-	if (existingColumns.has("bead_id") && !existingColumns.has("task_id")) {
-		db.exec("ALTER TABLE sessions RENAME COLUMN bead_id TO task_id");
-	}
-}
-
-/**
- * Migrate an existing sessions table to include the run_id column.
- * Safe to call multiple times — only adds the column if missing.
- */
-function migrateRunIdColumn(db: Database): void {
-	const rows = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
-	const existingColumns = new Set(rows.map((r) => r.name));
-	if (!existingColumns.has("run_id")) {
-		db.exec("ALTER TABLE sessions ADD COLUMN run_id TEXT");
-	}
-}
-
-/**
- * Migrate an existing token_snapshots table to include the run_id column.
- * Safe to call multiple times — only adds the column if missing.
- */
-function migrateSnapshotRunIdColumn(db: Database): void {
-	const rows = db.prepare("PRAGMA table_info(token_snapshots)").all() as Array<{ name: string }>;
-	const existingColumns = new Set(rows.map((r) => r.name));
-	if (!existingColumns.has("run_id")) {
-		db.exec("ALTER TABLE token_snapshots ADD COLUMN run_id TEXT");
-	}
-}
-
-/**
- * Migrate an existing sessions table to include token columns.
- * Safe to call multiple times — only adds columns that are missing.
- */
-function migrateTokenColumns(db: Database): void {
-	const rows = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
-	const existingColumns = new Set(rows.map((r) => r.name));
-
-	for (const col of TOKEN_COLUMNS) {
-		if (!existingColumns.has(col.name)) {
-			db.exec(`ALTER TABLE sessions ADD COLUMN ${col.name} ${col.ddl}`);
-		}
-	}
-}
+/** Migrations for the metrics store. */
+const METRICS_MIGRATIONS: Migration[] = [
+	{
+		version: 1,
+		description: "rename bead_id to task_id",
+		up: (db) => {
+			if (hasColumn(db, "sessions", "bead_id") && !hasColumn(db, "sessions", "task_id")) {
+				db.exec("ALTER TABLE sessions RENAME COLUMN bead_id TO task_id");
+			}
+		},
+		detect: (_db, cols) => cols.has("task_id"),
+	},
+	{
+		version: 2,
+		description: "add token instrumentation columns",
+		up: (db) => {
+			for (const col of TOKEN_COLUMNS) {
+				if (!hasColumn(db, "sessions", col.name)) {
+					db.exec(`ALTER TABLE sessions ADD COLUMN ${col.name} ${col.ddl}`);
+				}
+			}
+		},
+		detect: (_db, cols) => TOKEN_COLUMNS.every((col) => cols.has(col.name)),
+	},
+	{
+		version: 3,
+		description: "add run_id to sessions and token_snapshots",
+		up: (db) => {
+			if (!hasColumn(db, "sessions", "run_id")) {
+				db.exec("ALTER TABLE sessions ADD COLUMN run_id TEXT");
+			}
+			if (!hasColumn(db, "token_snapshots", "run_id")) {
+				db.exec("ALTER TABLE token_snapshots ADD COLUMN run_id TEXT");
+			}
+		},
+		detect: (_db, cols) => cols.has("run_id"),
+	},
+];
 
 /** Convert a database row (snake_case) to a SessionMetrics object (camelCase). */
 function rowToMetrics(row: SessionRow): SessionMetrics {
@@ -222,11 +211,8 @@ export function createMetricsStore(dbPath: string): MetricsStore {
 	db.exec(CREATE_SNAPSHOTS_TABLE);
 	db.exec(CREATE_SNAPSHOTS_INDEX);
 
-	// Migrate: rename bead_id → task_id, add token columns and run_id column to existing tables
-	migrateBeadIdToTaskId(db);
-	migrateTokenColumns(db);
-	migrateRunIdColumn(db);
-	migrateSnapshotRunIdColumn(db);
+	// Run all migrations (idempotent — each up() is guarded by hasColumn checks)
+	ensureMigrations(db, METRICS_MIGRATIONS);
 
 	// Prepare statements for all queries
 	const insertStmt = db.prepare<

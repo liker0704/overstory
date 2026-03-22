@@ -10,6 +10,7 @@
  */
 
 import { Database } from "bun:sqlite";
+import { ensureMigrations, type Migration, rebuildTable } from "../db/migrate.ts";
 import { MailError } from "../errors.ts";
 import type { MailDeliveryState, MailMessage } from "../types.ts";
 import { MAIL_DELIVERY_STATES, MAIL_MESSAGE_TYPES } from "../types.ts";
@@ -161,71 +162,96 @@ CREATE TABLE IF NOT EXISTS messages (
   fail_reason TEXT
 )`;
 
-/**
- * Schema version tracked via PRAGMA user_version.
- * Bump this when schema changes require migration.
- * v1: original schema (no delivery state)
- * v2: delivery state columns + CHECK constraints
- */
-const SCHEMA_VERSION = 2;
+/** Migrations for the mail store. */
+const MAIL_MIGRATIONS: Migration[] = [
+	{
+		version: 1,
+		description: "original schema (no delivery state)",
+		up: () => {
+			// Initial schema — created by CREATE TABLE IF NOT EXISTS
+		},
+		detect: (db) => {
+			const row = db
+				.prepare<{ sql: string }, []>(
+					"SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'",
+				)
+				.get();
+			return !!row;
+		},
+	},
+	{
+		version: 2,
+		description: "delivery state columns + CHECK constraints",
+		up: (db) => {
+			const row = db
+				.prepare<{ sql: string }, []>(
+					"SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'",
+				)
+				.get();
+			if (!row) return;
 
-/**
- * Migrate an existing messages table to the current schema.
- *
- * Uses PRAGMA user_version as fast-path: if version >= SCHEMA_VERSION, skip.
- * Falls back to DDL inspection for databases created before versioning.
- *
- * SQLite does not support ALTER TABLE ADD CONSTRAINT, so constraint changes
- * require recreating the table.
- */
-function migrateSchema(db: Database): void {
-	// Fast path: check schema version
-	const versionRow = db.prepare<{ user_version: number }, []>("PRAGMA user_version").get();
-	if (versionRow && versionRow.user_version >= SCHEMA_VERSION) {
-		return;
-	}
+			const hasCurrentTypeSet = MAIL_MESSAGE_TYPES.every((type) => row.sql.includes(`'${type}'`));
+			const hasCurrentStateSet = MAIL_DELIVERY_STATES.every((s) => row.sql.includes(`'${s}'`));
+			const hasPayloadColumn = row.sql.includes("payload");
+			const hasStateColumn = row.sql.includes("state");
+			const hasCheckConstraints = row.sql.includes("CHECK");
 
-	const row = db
-		.prepare<{ sql: string }, []>(
-			"SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'",
-		)
-		.get();
-	if (!row) {
-		// Table doesn't exist yet; CREATE TABLE IF NOT EXISTS will handle it
-		return;
-	}
+			if (
+				hasCheckConstraints &&
+				hasPayloadColumn &&
+				hasCurrentTypeSet &&
+				hasStateColumn &&
+				hasCurrentStateSet
+			) {
+				return;
+			}
 
-	const hasCheckConstraints = row.sql.includes("CHECK");
-	const hasPayloadColumn = row.sql.includes("payload");
-	const hasCurrentTypeSet = MAIL_MESSAGE_TYPES.every((type) => row.sql.includes(`'${type}'`));
-	const hasStateColumn = row.sql.includes("state");
-	const hasCurrentStateSet = MAIL_DELIVERY_STATES.every((s) => row.sql.includes(`'${s}'`));
+			const validTypes = MAIL_MESSAGE_TYPES.map((t) => `'${t}'`).join(",");
+			const validStates = MAIL_DELIVERY_STATES.map((s) => `'${s}'`).join(",");
+			const oldHasPayload = row.sql.includes("payload");
+			const oldHasState = row.sql.includes("state");
+			const payloadSelect = oldHasPayload ? "payload" : "NULL";
 
-	// If schema is fully up to date, nothing to do
-	if (
-		hasCheckConstraints &&
-		hasPayloadColumn &&
-		hasCurrentTypeSet &&
-		hasStateColumn &&
-		hasCurrentStateSet
-	) {
-		return;
-	}
+			const allColumns = [
+				"id",
+				"from_agent",
+				"to_agent",
+				"subject",
+				"body",
+				"type",
+				"priority",
+				"thread_id",
+				"payload",
+				"read",
+				"created_at",
+				"state",
+				"claimed_at",
+				"attempt",
+				"next_retry_at",
+				"fail_reason",
+			];
 
-	// Need to recreate the table for state columns, missing CHECK constraints, or type update
-	const validTypes = MAIL_MESSAGE_TYPES.map((t) => `'${t}'`).join(",");
-	const validStates = MAIL_DELIVERY_STATES.map((s) => `'${s}'`).join(",");
-	const oldHasPayload = row.sql.includes("payload");
-	const oldHasState = row.sql.includes("state");
-	const payloadSelect = oldHasPayload ? "payload" : "NULL";
+			const selectExprs: Record<string, string> = {
+				type: `CASE WHEN type IN (${validTypes}) THEN type ELSE 'status' END`,
+				priority: `CASE WHEN priority IN ('low','normal','high','urgent') THEN priority ELSE 'normal' END`,
+				payload: payloadSelect,
+			};
 
-	// BEGIN IMMEDIATE acquires a write lock upfront, preventing concurrent
-	// migrations from interleaving DDL operations on the same database.
-	db.exec("BEGIN IMMEDIATE");
-	try {
-		db.exec("ALTER TABLE messages RENAME TO messages_old");
-		db.exec(`
-CREATE TABLE messages (
+			if (oldHasState) {
+				selectExprs.state = `CASE WHEN state IN (${validStates}) THEN state ELSE 'queued' END`;
+				selectExprs.attempt = "COALESCE(attempt, 0)";
+			} else {
+				selectExprs.state = "CASE WHEN read = 1 THEN 'acked' ELSE 'queued' END";
+				selectExprs.claimed_at = "NULL";
+				selectExprs.attempt = "0";
+				selectExprs.next_retry_at = "NULL";
+				selectExprs.fail_reason = "NULL";
+			}
+
+			rebuildTable({
+				db,
+				table: "messages",
+				createSql: `CREATE TABLE messages (
   id TEXT PRIMARY KEY,
   from_agent TEXT NOT NULL,
   to_agent TEXT NOT NULL,
@@ -242,39 +268,27 @@ CREATE TABLE messages (
   attempt INTEGER NOT NULL DEFAULT 0,
   next_retry_at TEXT,
   fail_reason TEXT
-)`);
-
-		if (oldHasState) {
-			// Already had state columns — copy as-is
-			db.exec(`
-INSERT INTO messages (id, from_agent, to_agent, subject, body, type, priority, thread_id, payload, read, created_at, state, claimed_at, attempt, next_retry_at, fail_reason)
-SELECT id, from_agent, to_agent, subject, body,
-  CASE WHEN type IN (${validTypes}) THEN type ELSE 'status' END,
-  CASE WHEN priority IN ('low','normal','high','urgent') THEN priority ELSE 'normal' END,
-  thread_id, ${payloadSelect}, read, created_at,
-  CASE WHEN state IN (${validStates}) THEN state ELSE 'queued' END,
-  claimed_at, COALESCE(attempt, 0), next_retry_at, fail_reason
-FROM messages_old`);
-		} else {
-			// No state columns — map read=1 to acked, read=0 to queued
-			db.exec(`
-INSERT INTO messages (id, from_agent, to_agent, subject, body, type, priority, thread_id, payload, read, created_at, state, claimed_at, attempt, next_retry_at, fail_reason)
-SELECT id, from_agent, to_agent, subject, body,
-  CASE WHEN type IN (${validTypes}) THEN type ELSE 'status' END,
-  CASE WHEN priority IN ('low','normal','high','urgent') THEN priority ELSE 'normal' END,
-  thread_id, ${payloadSelect}, read, created_at,
-  CASE WHEN read = 1 THEN 'acked' ELSE 'queued' END,
-  NULL, 0, NULL, NULL
-FROM messages_old`);
-		}
-
-		db.exec("DROP TABLE messages_old");
-		db.exec("COMMIT");
-	} catch (err) {
-		db.exec("ROLLBACK");
-		throw err;
-	}
-}
+)`,
+				columns: allColumns,
+				selectExprs,
+			});
+		},
+		detect: (db) => {
+			const row = db
+				.prepare<{ sql: string }, []>(
+					"SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'",
+				)
+				.get();
+			if (!row) return false;
+			return (
+				MAIL_MESSAGE_TYPES.every((type) => row.sql.includes(`'${type}'`)) &&
+				MAIL_DELIVERY_STATES.every((s) => row.sql.includes(`'${s}'`)) &&
+				row.sql.includes("payload") &&
+				row.sql.includes("state")
+			);
+		},
+	},
+];
 
 const CREATE_INDEXES = `
 CREATE INDEX IF NOT EXISTS idx_thread ON messages(thread_id);
@@ -348,13 +362,13 @@ export function createMailStore(dbPath: string): MailStore {
 	db.exec("PRAGMA synchronous = NORMAL");
 	db.exec("PRAGMA busy_timeout = 5000");
 
-	// Migrate existing tables to current schema (no-op if table is new or already migrated)
-	migrateSchema(db);
+	// Run migrations before CREATE TABLE so legacy tables are upgraded first.
+	// Migrations are idempotent and handle missing tables gracefully.
+	ensureMigrations(db, MAIL_MIGRATIONS);
 
 	// Create schema (if table doesn't exist yet, creates with CHECK constraints)
 	db.exec(CREATE_TABLE);
 	db.exec(CREATE_INDEXES);
-	db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
 
 	// Prepare statements for all queries
 	const insertStmt = db.prepare<

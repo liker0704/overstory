@@ -8,6 +8,7 @@
  */
 
 import { Database } from "bun:sqlite";
+import { ensureMigrations, type Migration, rebuildTable } from "../db/migrate.ts";
 import type {
 	DimensionScore,
 	InsertReviewRecord,
@@ -87,41 +88,49 @@ CREATE TABLE IF NOT EXISTS reviews (
   stale_reason TEXT
 )`;
 
-/**
- * Migrate the reviews table CHECK constraint to include 'mission'.
- *
- * SQLite does not support ALTER COLUMN, so we rebuild the table.
- * Per mulch mx-fa9d11: rename old, create new, INSERT...SELECT with explicit columns, drop old.
- */
-function migrateReviewsCheckConstraint(db: Database): void {
-	const row = db
-		.prepare<{ sql: string }, Record<string, never>>(
-			"SELECT sql FROM sqlite_master WHERE type='table' AND name='reviews'",
-		)
-		.get({});
+/** Migrations for the reviews store. */
+const REVIEW_MIGRATIONS: Migration[] = [
+	{
+		version: 1,
+		description: "add mission to subject_type CHECK constraint",
+		up: (db) => {
+			const row = db
+				.prepare<{ sql: string }, Record<string, never>>(
+					"SELECT sql FROM sqlite_master WHERE type='table' AND name='reviews'",
+				)
+				.get({});
 
-	if (!row || row.sql.includes("'mission'")) {
-		return; // already up-to-date or table not yet created
-	}
+			if (!row || row.sql.includes("'mission'")) return;
 
-	db.exec("BEGIN TRANSACTION");
-	try {
-		db.exec("ALTER TABLE reviews RENAME TO reviews_old");
-		db.exec(CREATE_REVIEWS_TABLE);
-		db.exec(`
-			INSERT INTO reviews
-				(id, subject_type, subject_id, timestamp, dimensions, overall_score, notes, reviewer_source, stale, stale_since, stale_reason)
-			SELECT
-				id, subject_type, subject_id, timestamp, dimensions, overall_score, notes, reviewer_source, stale, stale_since, stale_reason
-			FROM reviews_old
-		`);
-		db.exec("DROP TABLE reviews_old");
-		db.exec("COMMIT");
-	} catch (err) {
-		db.exec("ROLLBACK");
-		throw err;
-	}
-}
+			rebuildTable({
+				db,
+				table: "reviews",
+				createSql: CREATE_REVIEWS_TABLE.replace("CREATE TABLE IF NOT EXISTS", "CREATE TABLE"),
+				columns: [
+					"id",
+					"subject_type",
+					"subject_id",
+					"timestamp",
+					"dimensions",
+					"overall_score",
+					"notes",
+					"reviewer_source",
+					"stale",
+					"stale_since",
+					"stale_reason",
+				],
+			});
+		},
+		detect: (db) => {
+			const row = db
+				.prepare<{ sql: string }, Record<string, never>>(
+					"SELECT sql FROM sqlite_master WHERE type='table' AND name='reviews'",
+				)
+				.get({});
+			return !!row && row.sql.includes("'mission'");
+		},
+	},
+];
 
 const CREATE_STALENESS_TABLE = `
 CREATE TABLE IF NOT EXISTS staleness_state (
@@ -145,8 +154,10 @@ export function createReviewStore(dbPath: string): ReviewStore {
 	db.exec("PRAGMA busy_timeout=5000");
 
 	db.exec(CREATE_REVIEWS_TABLE);
-	migrateReviewsCheckConstraint(db);
 	db.exec(CREATE_STALENESS_TABLE);
+
+	// Run all migrations (idempotent — each up() is guarded by constraint checks)
+	ensureMigrations(db, REVIEW_MIGRATIONS);
 
 	// Indexes — created after tables
 	db.exec("CREATE INDEX IF NOT EXISTS idx_reviews_subject ON reviews(subject_type, subject_id)");

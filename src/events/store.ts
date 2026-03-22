@@ -7,6 +7,7 @@
  */
 
 import { Database } from "bun:sqlite";
+import { ensureMigrations, type Migration } from "../db/migrate.ts";
 import type {
 	EventLevel,
 	EventQueryOptions,
@@ -15,6 +16,18 @@ import type {
 	StoredEvent,
 	ToolStats,
 } from "../types.ts";
+
+/** Events store migrations. Currently at v1 (initial schema). */
+const EVENT_MIGRATIONS: Migration[] = [
+	{
+		version: 1,
+		description: "initial events schema",
+		up: () => {
+			// Schema created via CREATE TABLE IF NOT EXISTS below;
+			// this migration only sets the version marker.
+		},
+	},
+];
 
 /** Row shape as stored in SQLite (snake_case columns). */
 interface EventRow {
@@ -115,6 +128,9 @@ export function createEventStore(dbPath: string): EventStore {
 	// Create schema
 	db.exec(CREATE_TABLE);
 	db.exec(CREATE_INDEXES);
+
+	// Set version tracking for future migrations
+	ensureMigrations(db, EVENT_MIGRATIONS);
 
 	// Prepare the insert statement
 	const insertStmt = db.prepare<

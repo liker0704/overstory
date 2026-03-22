@@ -7,6 +7,7 @@
  */
 
 import { Database } from "bun:sqlite";
+import { ensureMigrations, hasColumn, type Migration, rebuildTable } from "../db/migrate.ts";
 import type { AgentSession, AgentState, InsertRun, Run, RunStatus, RunStore } from "../types.ts";
 
 export interface SessionStore {
@@ -171,94 +172,142 @@ function rowToRun(row: RunRow): Run {
 	};
 }
 
-/**
- * Migrate an existing sessions table to add the transcript_path column.
- * Safe to call multiple times — only adds the column if it does not exist.
- */
-function migrateAddTranscriptPath(db: Database): void {
-	const rows = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
-	const existingColumns = new Set(rows.map((r) => r.name));
-	if (!existingColumns.has("transcript_path")) {
-		db.exec("ALTER TABLE sessions ADD COLUMN transcript_path TEXT");
-	}
-}
+/** Migrations for the sessions table (v1-v7). */
+const SESSION_MIGRATIONS: Migration[] = [
+	{
+		version: 1,
+		description: "rename bead_id to task_id",
+		up: (db) => {
+			if (hasColumn(db, "sessions", "bead_id") && !hasColumn(db, "sessions", "task_id")) {
+				db.exec("ALTER TABLE sessions RENAME COLUMN bead_id TO task_id");
+			}
+		},
+		detect: (_db, cols) => cols.has("task_id"),
+	},
+	{
+		version: 2,
+		description: "add transcript_path column",
+		up: (db) => {
+			if (!hasColumn(db, "sessions", "transcript_path")) {
+				db.exec("ALTER TABLE sessions ADD COLUMN transcript_path TEXT");
+			}
+		},
+		detect: (_db, cols) => cols.has("transcript_path"),
+	},
+	{
+		version: 3,
+		description: "add rate_limited_since and runtime columns",
+		up: (db) => {
+			if (!hasColumn(db, "sessions", "rate_limited_since")) {
+				db.exec("ALTER TABLE sessions ADD COLUMN rate_limited_since TEXT");
+			}
+			if (!hasColumn(db, "sessions", "runtime")) {
+				db.exec("ALTER TABLE sessions ADD COLUMN runtime TEXT DEFAULT 'claude'");
+			}
+		},
+		detect: (_db, cols) => cols.has("rate_limited_since") && cols.has("runtime"),
+	},
+	{
+		version: 4,
+		description: "add runtime_session_id column",
+		up: (db) => {
+			if (!hasColumn(db, "sessions", "runtime_session_id")) {
+				db.exec("ALTER TABLE sessions ADD COLUMN runtime_session_id TEXT");
+			}
+		},
+		detect: (_db, cols) => cols.has("runtime_session_id"),
+	},
+	{
+		version: 5,
+		description: "add original_runtime column",
+		up: (db) => {
+			if (!hasColumn(db, "sessions", "original_runtime")) {
+				db.exec("ALTER TABLE sessions ADD COLUMN original_runtime TEXT");
+			}
+		},
+		detect: (_db, cols) => cols.has("original_runtime"),
+	},
+	{
+		version: 6,
+		description: "add status_line column",
+		up: (db) => {
+			if (!hasColumn(db, "sessions", "status_line")) {
+				db.exec("ALTER TABLE sessions ADD COLUMN status_line TEXT");
+			}
+		},
+		detect: (_db, cols) => cols.has("status_line"),
+	},
+	{
+		version: 7,
+		description: "add prompt_version column",
+		up: (db) => {
+			if (!hasColumn(db, "sessions", "prompt_version")) {
+				db.exec("ALTER TABLE sessions ADD COLUMN prompt_version TEXT");
+			}
+		},
+		detect: (_db, cols) => cols.has("prompt_version"),
+	},
+];
 
-/**
- * Migrate an existing sessions table to add rate_limited_since and runtime columns.
- * Safe to call multiple times — only adds columns if they do not exist.
- */
-function migrateAddRateLimitFields(db: Database): void {
-	const rows = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
-	const existingColumns = new Set(rows.map((r) => r.name));
-	if (!existingColumns.has("rate_limited_since")) {
-		db.exec("ALTER TABLE sessions ADD COLUMN rate_limited_since TEXT");
-	}
-	if (!existingColumns.has("runtime")) {
-		db.exec("ALTER TABLE sessions ADD COLUMN runtime TEXT DEFAULT 'claude'");
-	}
-}
+/** Migrations for the runs table (v8-v9). Separate for independent use by RunStore. */
+const RUNS_MIGRATIONS: Migration[] = [
+	{
+		version: 8,
+		description: "add coordinator_name to runs",
+		up: (db) => {
+			if (!hasColumn(db, "runs", "coordinator_name")) {
+				db.exec("ALTER TABLE runs ADD COLUMN coordinator_name TEXT");
+			}
+		},
+		detect: (db) => hasColumn(db, "runs", "coordinator_name"),
+	},
+	{
+		version: 9,
+		description: "extend runs.status CHECK to include stopped",
+		up: (db) => {
+			const result = db
+				.prepare<{ sql: string }, []>(
+					"SELECT sql FROM sqlite_master WHERE type='table' AND name='runs'",
+				)
+				.get();
+			if (!result || result.sql.includes("'stopped'")) return;
+			rebuildTable({
+				db,
+				table: "runs",
+				createSql: `CREATE TABLE runs (
+					id TEXT PRIMARY KEY,
+					started_at TEXT NOT NULL,
+					completed_at TEXT,
+					agent_count INTEGER NOT NULL DEFAULT 0,
+					coordinator_session_id TEXT,
+					coordinator_name TEXT,
+					status TEXT NOT NULL DEFAULT 'active'
+						CHECK(status IN ('active','completed','failed','stopped'))
+				)`,
+				columns: [
+					"id",
+					"started_at",
+					"completed_at",
+					"agent_count",
+					"coordinator_session_id",
+					"coordinator_name",
+					"status",
+				],
+			});
+		},
+		detect: (db) => {
+			const result = db
+				.prepare<{ sql: string }, []>(
+					"SELECT sql FROM sqlite_master WHERE type='table' AND name='runs'",
+				)
+				.get();
+			return !!result && result.sql.includes("'stopped'");
+		},
+	},
+];
 
-/**
- * Migrate an existing sessions table to add runtime_session_id column.
- * Safe to call multiple times — only adds the column if it does not exist.
- */
-function migrateAddRuntimeSessionId(db: Database): void {
-	const rows = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
-	const existingColumns = new Set(rows.map((r) => r.name));
-	if (!existingColumns.has("runtime_session_id")) {
-		db.exec("ALTER TABLE sessions ADD COLUMN runtime_session_id TEXT");
-	}
-}
-
-/**
- * Migrate an existing sessions table to add the prompt_version column.
- * Safe to call multiple times — only adds the column if it does not exist.
- */
-function migrateAddPromptVersion(db: Database): void {
-	const rows = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
-	const existingColumns = new Set(rows.map((r) => r.name));
-	if (!existingColumns.has("prompt_version")) {
-		db.exec("ALTER TABLE sessions ADD COLUMN prompt_version TEXT");
-	}
-}
-
-/**
- * Migrate an existing sessions table from bead_id to task_id column.
- * Safe to call multiple times — only renames if bead_id exists and task_id does not.
- */
-function migrateBeadIdToTaskId(db: Database): void {
-	const rows = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
-	const existingColumns = new Set(rows.map((r) => r.name));
-	if (existingColumns.has("bead_id") && !existingColumns.has("task_id")) {
-		db.exec("ALTER TABLE sessions RENAME COLUMN bead_id TO task_id");
-	}
-}
-
-/**
- * Migrate an existing sessions table to add original_runtime column.
- * Tracks the pre-swap runtime when watchdog swaps due to rate limits.
- * Safe to call multiple times — only adds the column if it does not exist.
- */
-function migrateAddOriginalRuntime(db: Database): void {
-	const rows = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
-	const existingColumns = new Set(rows.map((r) => r.name));
-	if (!existingColumns.has("original_runtime")) {
-		db.exec("ALTER TABLE sessions ADD COLUMN original_runtime TEXT");
-	}
-}
-
-/**
- * Migrate an existing sessions table to add status_line column.
- * Stores the agent's self-reported current activity.
- * Safe to call multiple times — only adds the column if it does not exist.
- */
-function migrateAddStatusLine(db: Database): void {
-	const rows = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
-	const existingColumns = new Set(rows.map((r) => r.name));
-	if (!existingColumns.has("status_line")) {
-		db.exec("ALTER TABLE sessions ADD COLUMN status_line TEXT");
-	}
-}
+/** Combined sessions + runs migrations for createSessionStore (both tables present). */
+const ALL_SESSION_DB_MIGRATIONS: Migration[] = [...SESSION_MIGRATIONS, ...RUNS_MIGRATIONS];
 
 /**
  * Create a new SessionStore backed by a SQLite database at the given path.
@@ -278,21 +327,8 @@ export function createSessionStore(dbPath: string): SessionStore {
 	db.exec(CREATE_TABLE);
 	db.exec(CREATE_RUNS_TABLE);
 
-	// Migrate existing tables BEFORE creating indexes that reference new columns.
-	migrateBeadIdToTaskId(db);
-	migrateAddTranscriptPath(db);
-	// Migrate: add rate_limited_since and runtime columns
-	migrateAddRateLimitFields(db);
-	// Migrate: add runtime_session_id column
-	migrateAddRuntimeSessionId(db);
-	// Migrate: add original_runtime column (swap-back support)
-	migrateAddOriginalRuntime(db);
-	// Migrate: add status_line column (agent self-reported status)
-	migrateAddStatusLine(db);
-	migrateAddPromptVersion(db);
-	migrateAddCoordinatorName(db);
-	// Migrate: extend runs.status CHECK constraint to include 'stopped'
-	migrateRunsStatusStopped(db);
+	// Run all migrations (idempotent — each up() is guarded by hasColumn/constraint checks)
+	ensureMigrations(db, ALL_SESSION_DB_MIGRATIONS);
 
 	// Now safe to create indexes (all columns exist).
 	db.exec(CREATE_INDEXES);
@@ -615,53 +651,6 @@ export function createSessionStore(dbPath: string): SessionStore {
 }
 
 /**
- * Migrate an existing runs table to add the coordinator_name column.
- * Safe to call multiple times — only adds the column if it does not exist.
- */
-function migrateAddCoordinatorName(db: Database): void {
-	const rows = db.prepare("PRAGMA table_info(runs)").all() as Array<{ name: string }>;
-	const existingColumns = new Set(rows.map((r) => r.name));
-	if (!existingColumns.has("coordinator_name")) {
-		db.exec("ALTER TABLE runs ADD COLUMN coordinator_name TEXT");
-	}
-}
-
-/**
- * Migrate an existing runs table to extend the status CHECK constraint to include 'stopped'.
- *
- * SQLite does not support ALTER TABLE ... MODIFY COLUMN, so we rebuild the table.
- * The rebuild is a no-op when the constraint already includes 'stopped'.
- */
-function migrateRunsStatusStopped(db: Database): void {
-	const result = db
-		.prepare<{ sql: string }, []>(
-			"SELECT sql FROM sqlite_master WHERE type='table' AND name='runs'",
-		)
-		.get();
-	if (!result || result.sql.includes("'stopped'")) {
-		return;
-	}
-	db.exec(`
-		BEGIN;
-		CREATE TABLE runs_new (
-			id TEXT PRIMARY KEY,
-			started_at TEXT NOT NULL,
-			completed_at TEXT,
-			agent_count INTEGER NOT NULL DEFAULT 0,
-			coordinator_session_id TEXT,
-			coordinator_name TEXT,
-			status TEXT NOT NULL DEFAULT 'active'
-				CHECK(status IN ('active','completed','failed','stopped'))
-		);
-		INSERT INTO runs_new (id, started_at, completed_at, agent_count, coordinator_session_id, coordinator_name, status)
-			SELECT id, started_at, completed_at, agent_count, coordinator_session_id, coordinator_name, status FROM runs;
-		DROP TABLE runs;
-		ALTER TABLE runs_new RENAME TO runs;
-		COMMIT;
-	`);
-}
-
-/**
  * Create a new RunStore backed by a SQLite database at the given path.
  *
  * Shares the same sessions.db file as SessionStore. Initializes the runs
@@ -678,11 +667,8 @@ export function createRunStore(dbPath: string): RunStore {
 	// Create schema (idempotent — safe if SessionStore already created these)
 	db.exec(CREATE_RUNS_TABLE);
 
-	// Migrate: add coordinator_name column BEFORE creating indexes that reference it.
-	// The migration is a no-op on new databases (column already in CREATE_RUNS_TABLE).
-	migrateAddCoordinatorName(db);
-	// Migrate: extend runs.status CHECK constraint to include 'stopped'
-	migrateRunsStatusStopped(db);
+	// Run runs-specific migrations (idempotent — each up() is guarded)
+	ensureMigrations(db, RUNS_MIGRATIONS);
 
 	db.exec(CREATE_RUNS_INDEXES);
 

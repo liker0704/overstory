@@ -6,6 +6,7 @@
  */
 
 import { Database } from "bun:sqlite";
+import { ensureMigrations, type Migration, rebuildTable } from "../db/migrate.ts";
 import type {
 	InsertMission,
 	Mission,
@@ -65,6 +66,7 @@ CREATE TABLE IF NOT EXISTS missions (
   coordinator_session_id TEXT,
   paused_lead_names TEXT NOT NULL DEFAULT '[]',
   pause_reason TEXT,
+  current_node TEXT,
   started_at TEXT,
   completed_at TEXT,
   created_at TEXT NOT NULL,
@@ -117,134 +119,160 @@ function missionColumnExpr(
 	return existingColumns.has(column) ? column : fallbackSql;
 }
 
-/**
- * Rebuild legacy mission schemas so runtime queries can rely on the current
- * column set and enum semantics.
- */
-function migrateMissionSchema(db: Database): void {
-	const result = db
-		.prepare<{ sql: string }, []>(
-			"SELECT sql FROM sqlite_master WHERE type='table' AND name='missions'",
-		)
-		.get();
-	if (!result) {
-		return;
-	}
+/** Missions migration array. */
+const MISSION_MIGRATIONS: Migration[] = [
+	{
+		version: 1,
+		description: "rebuild legacy mission schemas with current columns and constraints",
+		up: (db) => {
+			const result = db
+				.prepare<{ sql: string }, []>(
+					"SELECT sql FROM sqlite_master WHERE type='table' AND name='missions'",
+				)
+				.get();
+			if (!result) return;
 
-	const existingColumns = getMissionColumns(db);
-	const missingColumns = REQUIRED_MISSION_COLUMNS.filter((column) => !existingColumns.has(column));
-	const hasCurrentStateConstraint =
-		result.sql.includes("'stopped'") && result.sql.includes("'suspended'");
-	const hasCurrentPhaseConstraint =
-		result.sql.includes("'understand'") &&
-		result.sql.includes("'align'") &&
-		result.sql.includes("'decide'") &&
-		result.sql.includes("'plan'") &&
-		result.sql.includes("'execute'") &&
-		result.sql.includes("'done'");
+			const existingColumns = getMissionColumns(db);
+			const missingColumns = REQUIRED_MISSION_COLUMNS.filter(
+				(column) => !existingColumns.has(column),
+			);
+			const hasCurrentStateConstraint =
+				result.sql.includes("'stopped'") && result.sql.includes("'suspended'");
+			const hasCurrentPhaseConstraint =
+				result.sql.includes("'understand'") &&
+				result.sql.includes("'align'") &&
+				result.sql.includes("'decide'") &&
+				result.sql.includes("'plan'") &&
+				result.sql.includes("'execute'") &&
+				result.sql.includes("'done'");
 
-	if (missingColumns.length === 0 && hasCurrentStateConstraint && hasCurrentPhaseConstraint) {
-		return;
-	}
+			if (missingColumns.length === 0 && hasCurrentStateConstraint && hasCurrentPhaseConstraint) {
+				return;
+			}
 
-	const stateExpr = existingColumns.has("state")
-		? `CASE
-				WHEN state = 'cancelled' THEN 'stopped'
-				WHEN state IN ('active','frozen','completed','failed','stopped','suspended') THEN state
-				ELSE 'active'
-			END`
-		: `'active'`;
-	const phaseExpr = existingColumns.has("phase")
-		? `CASE
-				WHEN phase = 'planning' THEN 'plan'
-				WHEN phase IN ('scouting','building','reviewing','merging') THEN 'execute'
-				WHEN phase IN ('understand','align','decide','plan','execute','done') THEN phase
-				ELSE 'understand'
-			END`
-		: `'understand'`;
-	const pendingInputKindExpr = existingColumns.has("pending_input_kind")
-		? `CASE
-				WHEN pending_input_kind IN ('question','approval','decision','clarification')
-					THEN pending_input_kind
-				ELSE NULL
-			END`
-		: "NULL";
-	const createdAtExpr = missionColumnExpr(
-		existingColumns,
-		"created_at",
-		"strftime('%Y-%m-%dT%H:%M:%fZ','now')",
-	);
-	const updatedAtExpr = missionColumnExpr(existingColumns, "updated_at", createdAtExpr);
+			const stateExpr = existingColumns.has("state")
+				? `CASE
+						WHEN state = 'cancelled' THEN 'stopped'
+						WHEN state IN ('active','frozen','completed','failed','stopped','suspended') THEN state
+						ELSE 'active'
+					END`
+				: `'active'`;
+			const phaseExpr = existingColumns.has("phase")
+				? `CASE
+						WHEN phase = 'planning' THEN 'plan'
+						WHEN phase IN ('scouting','building','reviewing','merging') THEN 'execute'
+						WHEN phase IN ('understand','align','decide','plan','execute','done') THEN phase
+						ELSE 'understand'
+					END`
+				: `'understand'`;
+			const pendingInputKindExpr = existingColumns.has("pending_input_kind")
+				? `CASE
+						WHEN pending_input_kind IN ('question','approval','decision','clarification')
+							THEN pending_input_kind
+						ELSE NULL
+					END`
+				: "NULL";
+			const createdAtExpr = missionColumnExpr(
+				existingColumns,
+				"created_at",
+				"strftime('%Y-%m-%dT%H:%M:%fZ','now')",
+			);
+			const updatedAtExpr = missionColumnExpr(existingColumns, "updated_at", createdAtExpr);
 
-	db.exec(`
-		BEGIN;
-		CREATE TABLE missions_new (
-			id TEXT PRIMARY KEY,
-			slug TEXT NOT NULL UNIQUE,
-			objective TEXT NOT NULL,
-			run_id TEXT,
-			state TEXT NOT NULL DEFAULT 'active'
-				CHECK(state IN ('active','frozen','completed','failed','stopped','suspended')),
-			phase TEXT NOT NULL DEFAULT 'understand'
-				CHECK(phase IN ('understand','align','decide','plan','execute','done')),
-			first_freeze_at TEXT,
-			pending_user_input INTEGER NOT NULL DEFAULT 0,
-			pending_input_kind TEXT CHECK(pending_input_kind IS NULL OR pending_input_kind IN ('question','approval','decision','clarification')),
-			pending_input_thread_id TEXT,
-			reopen_count INTEGER NOT NULL DEFAULT 0,
-			artifact_root TEXT,
-			paused_workstream_ids TEXT NOT NULL DEFAULT '[]',
-			analyst_session_id TEXT,
-			execution_director_session_id TEXT,
-			coordinator_session_id TEXT,
-			paused_lead_names TEXT NOT NULL DEFAULT '[]',
-			pause_reason TEXT,
-			current_node TEXT,
-			started_at TEXT,
-			completed_at TEXT,
-			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL,
-			learnings_extracted INTEGER NOT NULL DEFAULT 0
-		);
-		INSERT INTO missions_new (
-			id, slug, objective, run_id, state, phase, first_freeze_at,
-			pending_user_input, pending_input_kind, pending_input_thread_id,
-			reopen_count, artifact_root, paused_workstream_ids, analyst_session_id,
-			execution_director_session_id, coordinator_session_id, paused_lead_names,
-			pause_reason, current_node, started_at, completed_at, created_at, updated_at,
-			learnings_extracted
-		)
-		SELECT
-			${missionColumnExpr(existingColumns, "id", "NULL")},
-			${missionColumnExpr(existingColumns, "slug", "NULL")},
-			${missionColumnExpr(existingColumns, "objective", "''")},
-			${missionColumnExpr(existingColumns, "run_id", "NULL")},
-			${stateExpr},
-			${phaseExpr},
-			${missionColumnExpr(existingColumns, "first_freeze_at", "NULL")},
-			COALESCE(${missionColumnExpr(existingColumns, "pending_user_input", "0")}, 0),
-			${pendingInputKindExpr},
-			${missionColumnExpr(existingColumns, "pending_input_thread_id", "NULL")},
-			COALESCE(${missionColumnExpr(existingColumns, "reopen_count", "0")}, 0),
-			${missionColumnExpr(existingColumns, "artifact_root", "NULL")},
-			COALESCE(${missionColumnExpr(existingColumns, "paused_workstream_ids", "'[]'")}, '[]'),
-			${missionColumnExpr(existingColumns, "analyst_session_id", "NULL")},
-			${missionColumnExpr(existingColumns, "execution_director_session_id", "NULL")},
-			${missionColumnExpr(existingColumns, "coordinator_session_id", "NULL")},
-			COALESCE(${missionColumnExpr(existingColumns, "paused_lead_names", "'[]'")}, '[]'),
-			${missionColumnExpr(existingColumns, "pause_reason", "NULL")},
-			${missionColumnExpr(existingColumns, "current_node", "NULL")},
-			${missionColumnExpr(existingColumns, "started_at", createdAtExpr)},
-			${missionColumnExpr(existingColumns, "completed_at", "NULL")},
-			${createdAtExpr},
-			${updatedAtExpr},
-			COALESCE(${missionColumnExpr(existingColumns, "learnings_extracted", "0")}, 0)
-		FROM missions;
-		DROP TABLE missions;
-		ALTER TABLE missions_new RENAME TO missions;
-		COMMIT;
-	`);
-}
+			const allColumns = [
+				"id",
+				"slug",
+				"objective",
+				"run_id",
+				"state",
+				"phase",
+				"first_freeze_at",
+				"pending_user_input",
+				"pending_input_kind",
+				"pending_input_thread_id",
+				"reopen_count",
+				"artifact_root",
+				"paused_workstream_ids",
+				"analyst_session_id",
+				"execution_director_session_id",
+				"coordinator_session_id",
+				"paused_lead_names",
+				"pause_reason",
+				"current_node",
+				"started_at",
+				"completed_at",
+				"created_at",
+				"updated_at",
+				"learnings_extracted",
+			];
+
+			rebuildTable({
+				db,
+				table: "missions",
+				createSql: CREATE_TABLE.replace("CREATE TABLE IF NOT EXISTS", "CREATE TABLE"),
+				columns: allColumns,
+				selectExprs: {
+					id: missionColumnExpr(existingColumns, "id", "NULL"),
+					slug: missionColumnExpr(existingColumns, "slug", "NULL"),
+					objective: missionColumnExpr(existingColumns, "objective", "''"),
+					run_id: missionColumnExpr(existingColumns, "run_id", "NULL"),
+					state: stateExpr,
+					phase: phaseExpr,
+					first_freeze_at: missionColumnExpr(existingColumns, "first_freeze_at", "NULL"),
+					pending_user_input: `COALESCE(${missionColumnExpr(existingColumns, "pending_user_input", "0")}, 0)`,
+					pending_input_kind: pendingInputKindExpr,
+					pending_input_thread_id: missionColumnExpr(
+						existingColumns,
+						"pending_input_thread_id",
+						"NULL",
+					),
+					reopen_count: `COALESCE(${missionColumnExpr(existingColumns, "reopen_count", "0")}, 0)`,
+					artifact_root: missionColumnExpr(existingColumns, "artifact_root", "NULL"),
+					paused_workstream_ids: `COALESCE(${missionColumnExpr(existingColumns, "paused_workstream_ids", "'[]'")}, '[]')`,
+					analyst_session_id: missionColumnExpr(existingColumns, "analyst_session_id", "NULL"),
+					execution_director_session_id: missionColumnExpr(
+						existingColumns,
+						"execution_director_session_id",
+						"NULL",
+					),
+					coordinator_session_id: missionColumnExpr(
+						existingColumns,
+						"coordinator_session_id",
+						"NULL",
+					),
+					paused_lead_names: `COALESCE(${missionColumnExpr(existingColumns, "paused_lead_names", "'[]'")}, '[]')`,
+					pause_reason: missionColumnExpr(existingColumns, "pause_reason", "NULL"),
+					current_node: missionColumnExpr(existingColumns, "current_node", "NULL"),
+					started_at: missionColumnExpr(existingColumns, "started_at", createdAtExpr),
+					completed_at: missionColumnExpr(existingColumns, "completed_at", "NULL"),
+					created_at: createdAtExpr,
+					updated_at: updatedAtExpr,
+					learnings_extracted: `COALESCE(${missionColumnExpr(existingColumns, "learnings_extracted", "0")}, 0)`,
+				},
+			});
+		},
+		detect: (db) => {
+			const result = db
+				.prepare<{ sql: string }, []>(
+					"SELECT sql FROM sqlite_master WHERE type='table' AND name='missions'",
+				)
+				.get();
+			if (!result) return false;
+			const cols = getMissionColumns(db);
+			const hasAllColumns = REQUIRED_MISSION_COLUMNS.every((c) => cols.has(c));
+			const hasCurrentStateConstraint =
+				result.sql.includes("'stopped'") && result.sql.includes("'suspended'");
+			const hasCurrentPhaseConstraint =
+				result.sql.includes("'understand'") &&
+				result.sql.includes("'align'") &&
+				result.sql.includes("'decide'") &&
+				result.sql.includes("'plan'") &&
+				result.sql.includes("'execute'") &&
+				result.sql.includes("'done'");
+			return hasAllColumns && hasCurrentStateConstraint && hasCurrentPhaseConstraint;
+		},
+	},
+];
 
 /** Convert a database row (snake_case) to a Mission object (camelCase). */
 function rowToMission(row: MissionRow): Mission {
@@ -291,18 +319,9 @@ export function createMissionStore(dbPath: string): MissionStore {
 	db.exec("PRAGMA busy_timeout = 5000");
 
 	db.exec(CREATE_TABLE);
-	migrateMissionSchema(db);
 
-	// Migrate: add current_node column (workflow graph position tracking)
-	{
-		const cols = getMissionColumns(db);
-		if (!cols.has("current_node")) {
-			db.exec("ALTER TABLE missions ADD COLUMN current_node TEXT");
-		}
-		if (!cols.has("learnings_extracted")) {
-			db.exec("ALTER TABLE missions ADD COLUMN learnings_extracted INTEGER NOT NULL DEFAULT 0");
-		}
-	}
+	// Run all migrations (idempotent — up() is guarded by column/constraint checks)
+	ensureMigrations(db, MISSION_MIGRATIONS);
 
 	db.exec(CREATE_INDEXES);
 
