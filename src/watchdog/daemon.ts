@@ -29,6 +29,9 @@ import {
 	type TailerHandle,
 	type TailerOptions,
 } from "../events/tailer.ts";
+import { pollHeadroom } from "../headroom/adapter.ts";
+import { createHeadroomStore } from "../headroom/store.ts";
+import type { HeadroomConfig, HeadroomStore } from "../headroom/types.ts";
 import { sanitize } from "../logging/sanitizer.ts";
 import { createMailClient } from "../mail/client.ts";
 import { createMailStore, type MailStore } from "../mail/store.ts";
@@ -486,6 +489,8 @@ export interface DaemonOptions {
 	_mailStore?: MailStore | null;
 	/** DI for resilience store. If not provided, created from resilience.db when config.resilience exists. */
 	_resilienceStore?: ResilienceStore | null;
+	/** DI for headroom store. If not provided, created from headroom.db when config.headroom exists. */
+	_headroomStore?: HeadroomStore | null;
 }
 
 /**
@@ -650,6 +655,24 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 			resilienceConfig = buildResilienceConfig(rawResilienceConfig);
 		} catch {
 			// Non-fatal: resilience features disabled for this tick
+		}
+	}
+
+	// Open HeadroomStore if headroom config is present
+	let headroomStore: HeadroomStore | null = null;
+	let ownHeadroomStore = false;
+	// TODO: remove cast once HeadroomConfig is added to OverstoryConfig in config-types.ts
+	const headroomConfig = (
+		options.config as (OverstoryConfig & { headroom?: HeadroomConfig }) | undefined
+	)?.headroom;
+	if (options._headroomStore !== undefined) {
+		headroomStore = options._headroomStore;
+	} else if (headroomConfig?.enabled !== false) {
+		try {
+			headroomStore = createHeadroomStore(join(overstoryDir, "headroom.db"));
+			ownHeadroomStore = true;
+		} catch {
+			// Non-fatal: headroom features disabled for this tick
 		}
 	}
 
@@ -1208,6 +1231,69 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 				eventStore,
 			});
 		}
+		// Poll headroom if store and config are available
+		if (headroomStore && headroomConfig?.enabled !== false) {
+			try {
+				// Resolve active runtimes from config
+				const runtimeNames = new Set<string>();
+				runtimeNames.add(options.config?.runtime?.default ?? "claude");
+				if (options.config?.runtime?.capabilities) {
+					for (const rt of Object.values(options.config.runtime.capabilities)) {
+						if (rt !== undefined) runtimeNames.add(rt);
+					}
+				}
+				const runtimes = [...runtimeNames]
+					.map((name) => {
+						try {
+							return getRuntime(name);
+						} catch {
+							return null;
+						}
+					})
+					.filter((rt): rt is NonNullable<typeof rt> => rt !== null);
+
+				const snapshots = await pollHeadroom({ store: headroomStore, runtimes });
+				const warnThreshold = headroomConfig?.warnThresholdPercent ?? 20;
+				const criticalThreshold = headroomConfig?.criticalThresholdPercent ?? 10;
+
+				for (const snap of snapshots) {
+					if (
+						snap.requestsRemaining !== null &&
+						snap.requestsLimit !== null &&
+						snap.requestsLimit > 0
+					) {
+						const pct = (snap.requestsRemaining / snap.requestsLimit) * 100;
+						if (pct < criticalThreshold) {
+							recordEvent(eventStore, {
+								runId,
+								agentName: "watchdog",
+								eventType: "custom",
+								level: "error",
+								data: {
+									type: "headroom_critical",
+									runtime: snap.runtime,
+									percent: Math.round(pct),
+								},
+							});
+						} else if (pct < warnThreshold) {
+							recordEvent(eventStore, {
+								runId,
+								agentName: "watchdog",
+								eventType: "custom",
+								level: "warn",
+								data: {
+									type: "headroom_warn",
+									runtime: snap.runtime,
+									percent: Math.round(pct),
+								},
+							});
+						}
+					}
+				}
+			} catch {
+				// Non-fatal: headroom polling failure doesn't block the tick
+			}
+		}
 	} finally {
 		store.close();
 		// Close MailStore only if we created it (not injected)
@@ -1222,6 +1308,14 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 		if (resilienceStore && ownResilienceStore) {
 			try {
 				resilienceStore.close();
+			} catch {
+				// Non-fatal
+			}
+		}
+		// Close HeadroomStore only if we created it (not injected)
+		if (headroomStore && ownHeadroomStore) {
+			try {
+				headroomStore.close();
 			} catch {
 				// Non-fatal
 			}
