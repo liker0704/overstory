@@ -27,6 +27,8 @@ import { createMailStore } from "../mail/store.ts";
 import { resolveActiveMissionContext } from "../missions/runtime-context.ts";
 import { validateCurrentMissionSpec } from "../missions/workstream-control.ts";
 import { createMulchClient } from "../mulch/client.ts";
+import { canDispatch } from "../resilience/circuit-breaker.ts";
+import { createResilienceStore } from "../resilience/store.ts";
 import { getRuntime } from "../runtimes/registry.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import { createRunStore } from "../sessions/store.ts";
@@ -781,6 +783,48 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 						`Increase agents.maxAgentsPerLead in config.yaml or pass --max-agents <n>.`,
 					{ agentName: name },
 				);
+			}
+		}
+
+		// 5f. Breaker check: if resilience is configured, verify circuit breaker allows dispatch.
+		if (config.resilience?.circuitBreaker) {
+			const cbPartial = config.resilience.circuitBreaker;
+			const cbConfig = {
+				failureThreshold: cbPartial.failureThreshold ?? 5,
+				windowMs: cbPartial.windowMs ?? 60_000,
+				cooldownMs: cbPartial.cooldownMs ?? 30_000,
+				halfOpenMaxProbes: cbPartial.halfOpenMaxProbes ?? 1,
+			};
+			const resilienceStore = createResilienceStore(join(overstoryDir, "resilience.db"));
+			try {
+				const allowed = canDispatch(resilienceStore, capability, cbConfig);
+				if (!allowed) {
+					process.stderr.write(
+						`Warning: Circuit breaker is open for capability "${capability}". Dispatch blocked.\n`,
+					);
+					try {
+						const mailStore = createMailStore(join(overstoryDir, "mail.db"));
+						const mailClient = createMailClient(mailStore);
+						const recipient = parentAgent ?? "coordinator";
+						mailClient.send({
+							from: name,
+							to: recipient,
+							subject: `breaker_tripped: ${capability}`,
+							body: `Circuit breaker is open for capability "${capability}". Cannot dispatch agent "${name}" for task "${taskId}".`,
+							type: "error",
+							priority: "high",
+						});
+						mailStore.close();
+					} catch {
+						// Mail send failure is non-fatal
+					}
+					throw new AgentError(
+						`Circuit breaker is open for capability "${capability}". Dispatch blocked. Wait for cooldown or check resilience state.`,
+						{ agentName: name },
+					);
+				}
+			} finally {
+				resilienceStore.close();
 			}
 		}
 
