@@ -171,6 +171,47 @@ ov watch                  Start watchdog daemon (Tier 0)
 ov clean                  Wipe runtime state (--all, --mail, --sessions, etc.)
 ```
 
+## Development Patterns
+
+### Adding a new CLI command
+
+1. Create `src/commands/mycommand.ts` with `export function createMycommandCommand(): Command` and `export async function mycommandCommand(args: string[]): Promise<void>`
+2. Register in `src/index.ts`: `program.addCommand(createMycommandCommand())`
+3. Create `src/commands/mycommand.test.ts` (colocated)
+4. Pattern reference: `src/commands/clean.ts` (simple), `src/commands/coordinator.ts` (complex with DI)
+
+### Adding a new SQLite store
+
+1. Create `src/mydomain/store.ts` with factory function: `export function createMyStore(dbPath: string): MyStore`
+2. Always: `PRAGMA journal_mode=WAL`, `PRAGMA busy_timeout=5000`
+3. Define migrations using `src/db/migrate.ts` framework: `Migration[]` array with `version`, `up`, and `detect`
+4. Add domain types to `src/mydomain/types.ts`, re-export from `src/types.ts`
+5. Pattern reference: `src/mail/store.ts` (mature store with migrations)
+
+### Adding a new runtime adapter
+
+1. Implement `AgentRuntime` interface from `src/runtimes/types.ts`
+2. Register in `src/runtimes/registry.ts`
+3. Key methods: `deployInstructions()`, `buildSpawnCommand()`, `requiresBeaconVerification()`
+4. Pattern reference: `src/runtimes/sapling.ts` (simple headless), `src/runtimes/claude.ts` (full interactive)
+
+### Service extraction pattern
+
+When command files get too large, extract orchestration into domain service modules:
+- Interface + factory function + DI deps (see `src/agents/spawn.ts` — SpawnService with lazy DI)
+- Command file keeps CLI parsing + output formatting only
+- Rollback/cleanup owned by the service, not the command
+- Lazy factory functions `() => T` for deps not needed on early-exit paths
+- Pattern reference: `src/agents/persistent-root.ts` (DI via interfaces), `src/agents/spawn.ts` (lazy DI)
+
+### Common pitfalls
+
+- **`noUncheckedIndexedAccess`**: `arr[i]` returns `T | undefined` — always check before using
+- **`export` vs `export type`** in barrel files: const arrays MUST use `export { X }`, not `export type { X }`, or they become `undefined` at runtime
+- **Shared `PRAGMA user_version`**: stores co-resident in `sessions.db` (sessions, runs, missions) share one version counter — all migration `up()` functions MUST be idempotent
+- **`mock.module()` leaks across test files** — avoid it; use DI or real implementations instead (see mulch record `mx-56558b`)
+- **Biome import ordering**: let `biome check --write` fix it, don't manually sort
+
 ## Coding Conventions
 
 ### Formatting
