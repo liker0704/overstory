@@ -16,6 +16,7 @@ import { cleanCommand } from "./commands/clean.ts";
 import { createCompletionsCommand } from "./commands/completions.ts";
 import { createCoordinatorCommand } from "./commands/coordinator.ts";
 import { createCostsCommand } from "./commands/costs.ts";
+import { createRateLimitsCommand } from "./commands/rate-limits.ts";
 import { createDashboardCommand } from "./commands/dashboard.ts";
 import { createDiscoverCommand } from "./commands/discover.ts";
 import { createDoctorCommand } from "./commands/doctor.ts";
@@ -113,6 +114,7 @@ const COMMANDS = [
 	"resume",
 	"run",
 	"costs",
+	"rate-limits",
 	"eval",
 	"health",
 	"metrics",
@@ -436,6 +438,7 @@ program.addCommand(createResumeCommand());
 program.addCommand(createRunCommand());
 
 program.addCommand(createCostsCommand());
+program.addCommand(createRateLimitsCommand());
 program.addCommand(createEvalCommand());
 
 program.addCommand(createHealthCommand());
