@@ -20,6 +20,7 @@ import { createMailStore } from "./mail/store.ts";
 import { createMergeQueue } from "./merge/queue.ts";
 import { createMetricsStore } from "./metrics/store.ts";
 import { createMissionStore } from "./missions/store.ts";
+import { createResilienceStore } from "./resilience/store.ts";
 import { createSessionStore } from "./sessions/store.ts";
 
 import { cleanupTempDir } from "./test-helpers.ts";
@@ -247,6 +248,57 @@ describe("SQL schema consistency", () => {
 				"id",
 				"resolved_tier",
 				"status",
+				"task_id",
+			].sort();
+
+			expect(actual).toEqual(expected);
+		});
+	});
+
+	describe("ResilienceStore", () => {
+		test("breaker_state table columns match BreakerRow interface", () => {
+			const dbPath = join(tmpDir, "resilience.db");
+			const store = createResilienceStore(dbPath);
+
+			const db = new Database(dbPath, { readonly: true });
+			const actual = getTableColumns(db, "breaker_state");
+			db.close();
+			store.close();
+
+			// Columns from BreakerRow interface in src/resilience/store.ts
+			const expected = [
+				"capability",
+				"failure_count",
+				"half_open_at",
+				"last_failure_at",
+				"opened_at",
+				"state",
+				"updated_at",
+			].sort();
+
+			expect(actual).toEqual(expected);
+		});
+
+		test("retry_records table columns match RetryRow interface", () => {
+			const dbPath = join(tmpDir, "resilience.db");
+			const store = createResilienceStore(dbPath);
+
+			const db = new Database(dbPath, { readonly: true });
+			const actual = getTableColumns(db, "retry_records");
+			db.close();
+			store.close();
+
+			// Columns from RetryRow interface in src/resilience/store.ts
+			const expected = [
+				"agent_name",
+				"attempt",
+				"created_at",
+				"error_class",
+				"failed_at",
+				"id",
+				"is_probe",
+				"outcome",
+				"started_at",
 				"task_id",
 			].sort();
 
