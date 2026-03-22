@@ -17,10 +17,13 @@ import { join } from "node:path";
 import { initiateHandoff } from "../agents/lifecycle.ts";
 import { createManifestLoader, resolveModel } from "../agents/manifest.ts";
 import { nudgeAgent } from "../commands/nudge.ts";
+import { sanitize } from "../logging/sanitizer.ts";
 import { getRuntime } from "../runtimes/registry.ts";
 import { openSessionStore } from "../sessions/compat.ts";
-import type { AgentSession, OverstoryConfig } from "../types.ts";
+import type { AgentSession, OverstoryConfig, SessionHandoff } from "../types.ts";
 import { createSession, killSession } from "../worktree/tmux.ts";
+
+export type SwapReason = "rate_limit_swap" | "failure_reroute";
 
 export interface SwapOptions {
 	/** Project root (contains .overstory/). */
@@ -45,6 +48,14 @@ export interface SwapOptions {
 	};
 }
 
+export interface RerouteOptions extends SwapOptions {
+	reason: SwapReason;
+	/** Target capability for failure reroute. */
+	targetCapability?: string;
+	/** Sanitized error info for HANDOFF.md. */
+	errorContext?: string;
+}
+
 export interface SwapResult {
 	success: boolean;
 	newTmuxSession: string | null;
@@ -57,11 +68,13 @@ const MAX_HANDOFF_CHARS = 40_000;
 const MAX_RECENT_TURNS = 10;
 
 /**
- * Swap a rate-limited agent to a different runtime.
+ * Swap a rate-limited or failed agent to a different runtime.
  */
-export async function swapRuntime(options: SwapOptions): Promise<SwapResult> {
+export async function swapRuntime(options: SwapOptions | RerouteOptions): Promise<SwapResult> {
 	const { root, session, targetRuntimeName, config, paneContext } = options;
 	const tmux = options._tmux ?? { killSession, createSession };
+	const reason: SwapReason = "reason" in options ? options.reason : "rate_limit_swap";
+	const errorContext = "errorContext" in options ? options.errorContext : undefined;
 
 	// Guard: no-op if swapping to the same runtime
 	if (targetRuntimeName === session.runtime) {
@@ -106,19 +119,26 @@ export async function swapRuntime(options: SwapOptions): Promise<SwapResult> {
 			gitContext,
 			conversationContext,
 			paneContext: usedPaneFallback ? null : paneContext,
+			reason,
+			errorContext,
 		});
 
 		// 2. Write HANDOFF.md to worktree
 		await Bun.write(join(session.worktreePath, "HANDOFF.md"), handoffMd);
 
 		// 3. Create handoff record
+		const progressSummary =
+			reason === "failure_reroute"
+				? `Failure reroute: ${session.capability} → ${targetRuntimeName}`
+				: `Rate limit swap: ${session.runtime} → ${targetRuntimeName}`;
 		await initiateHandoff({
 			agentsDir: join(overstoryDir, "agents"),
 			agentName: session.agentName,
 			sessionId: session.id,
 			taskId: session.taskId,
-			reason: "rate_limit_swap",
-			progressSummary: `Rate limit swap: ${session.runtime} → ${targetRuntimeName}`,
+			// failure_reroute is not yet in SessionHandoff["reason"] — needs sessions/types.ts update (out of scope)
+			reason: reason as unknown as SessionHandoff["reason"],
+			progressSummary,
 			pendingWork: "Continue work from HANDOFF.md context",
 			currentBranch: session.branchName,
 			filesModified: gitContext.modifiedFiles,
@@ -302,10 +322,22 @@ export function buildHandoffDocument(opts: {
 	gitContext: GitContext;
 	conversationContext: string;
 	paneContext: string | null;
+	reason?: SwapReason;
+	errorContext?: string;
 }): string {
-	let doc = `# Handoff: ${opts.fromRuntime} → ${opts.toRuntime} (rate limit swap)
+	const reason = opts.reason ?? "rate_limit_swap";
+	const isFailureReroute = reason === "failure_reroute";
+	const reasonLabel = isFailureReroute ? "failure reroute" : "rate limit swap";
+	const swapDesc = isFailureReroute
+		? `a previous ${opts.fromRuntime} session that encountered a failure`
+		: `a previous ${opts.fromRuntime} session that hit rate limits`;
 
-You are continuing work from a previous ${opts.fromRuntime} session that hit rate limits.
+	const sanitizedConversation = opts.conversationContext ? sanitize(opts.conversationContext) : "";
+	const sanitizedPane = opts.paneContext ? sanitize(opts.paneContext) : null;
+
+	let doc = `# Handoff: ${opts.fromRuntime} → ${opts.toRuntime} (${reasonLabel})
+
+You are continuing work from ${swapDesc}.
 **Do NOT restart from scratch.** Review the context below and continue where the previous agent left off.
 
 Use \`ov mail check --agent $OVERSTORY_AGENT_NAME\` to check for messages.
@@ -326,12 +358,17 @@ ${opts.gitContext.diffStat || "(clean working tree)"}
 \`\`\`
 `;
 
-	if (opts.conversationContext) {
-		doc += `\n## Previous Conversation (last ${MAX_RECENT_TURNS} turns)\n\n${opts.conversationContext}\n`;
+	if (isFailureReroute && opts.errorContext) {
+		const sanitizedError = sanitize(opts.errorContext);
+		doc += `\n## Failure Context\n\n${sanitizedError}\n`;
 	}
 
-	if (opts.paneContext) {
-		const trimmedPane = opts.paneContext.slice(-3000);
+	if (sanitizedConversation) {
+		doc += `\n## Previous Conversation (last ${MAX_RECENT_TURNS} turns)\n\n${sanitizedConversation}\n`;
+	}
+
+	if (sanitizedPane) {
+		const trimmedPane = sanitizedPane.slice(-3000);
 		doc += `\n## Last Terminal Output\n\`\`\`\n${trimmedPane}\n\`\`\`\n`;
 	}
 
