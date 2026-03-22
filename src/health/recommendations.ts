@@ -169,6 +169,22 @@ const RULES: RecommendationRule[] = [
 		}),
 	},
 
+	// --- headroom ---
+	{
+		factor: "headroom",
+		threshold: 50,
+		priority: "high",
+		build: (f) => ({
+			title: "Address critically low API quota headroom",
+			whyNow: `${f.details}. Critically low quota headroom will cause agent spawn failures and rate limiting.`,
+			expectedImpact: "Prevent agent failures from API rate limits and ensure continued operation.",
+			action:
+				"Reduce concurrent agents or wait for rate-limit window reset. Check `ov status` for per-runtime headroom details.",
+			verificationStep:
+				"Run `ov status` and confirm headroom percentages have recovered. Re-run `ov health`.",
+		}),
+	},
+
 	// --- resilience ---
 	{
 		factor: "resilience",

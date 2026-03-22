@@ -66,6 +66,12 @@ export interface HealthSignals {
 	/** Number of reroutes in the last hour. */
 	recentRerouteCount: number;
 
+	// --- Headroom / quota state ---
+	/** Lowest headroom percentage across all runtimes (0-100, or null if no data). */
+	lowestHeadroomPercent: number | null;
+	/** Number of runtimes with headroom below critical threshold. */
+	criticalHeadroomCount: number;
+
 	/** ISO 8601 timestamp when signals were collected. */
 	collectedAt: string;
 }

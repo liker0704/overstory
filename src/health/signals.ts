@@ -13,6 +13,7 @@
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { createHeadroomStore } from "../headroom/store.ts";
 import { createMetricsStore } from "../metrics/store.ts";
 import { createResilienceStore } from "../resilience/store.ts";
 import { openSessionStore } from "../sessions/compat.ts";
@@ -131,6 +132,33 @@ export function collectSignals(params: CollectSignalsParams): HealthSignals {
 		}
 	}
 
+	// --- Headroom / quota state (from HeadroomStore) ---
+	let lowestHeadroomPercent: number | null = null;
+	let criticalHeadroomCount = 0;
+
+	const headroomDb = join(overstoryDir, "headroom.db");
+	if (existsSync(headroomDb)) {
+		try {
+			const store = createHeadroomStore(headroomDb);
+			const snapshots = store.getAll();
+			const CRITICAL_THRESHOLD = 10; // matches HeadroomConfig default
+			for (const snap of snapshots) {
+				if (snap.requestsRemaining !== null && snap.requestsLimit !== null && snap.requestsLimit > 0) {
+					const pct = (snap.requestsRemaining / snap.requestsLimit) * 100;
+					if (lowestHeadroomPercent === null || pct < lowestHeadroomPercent) {
+						lowestHeadroomPercent = pct;
+					}
+					if (pct < CRITICAL_THRESHOLD) {
+						criticalHeadroomCount++;
+					}
+				}
+			}
+			store.close();
+		} catch {
+			// DB unavailable
+		}
+	}
+
 	// --- Computed rates ---
 
 	// No sessions recorded → assume healthy (no evidence of failure)
@@ -164,6 +192,8 @@ export function collectSignals(params: CollectSignalsParams): HealthSignals {
 		openBreakerCount,
 		activeRetryCount,
 		recentRerouteCount,
+		lowestHeadroomPercent,
+		criticalHeadroomCount,
 		collectedAt,
 	};
 }
