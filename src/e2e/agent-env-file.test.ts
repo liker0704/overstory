@@ -24,6 +24,8 @@ import { removeAgentEnvFile, writeAgentEnvFile } from "../worktree/tmux.ts";
  * Uses real filesystem and real shell execution. No mocks.
  */
 
+const TEST_SESSION_ID = "test-session-001";
+
 describe("E2E: agent env file lifecycle", () => {
 	let tempDir: string;
 
@@ -56,13 +58,16 @@ describe("E2E: agent env file lifecycle", () => {
 		});
 
 		test("removeAgentEnvFile deletes the file", async () => {
-			const env = { OVERSTORY_AGENT_NAME: "test-agent" };
+			const env = {
+				OVERSTORY_AGENT_NAME: "test-agent",
+				OVERSTORY_RUNTIME_SESSION_ID: TEST_SESSION_ID,
+			};
 			await writeAgentEnvFile(tempDir, env);
 
-			const filePath = join(tempDir, ".claude", ".agent-env");
+			const filePath = join(tempDir, ".claude", `.agent-env.${TEST_SESSION_ID}`);
 			expect(existsSync(filePath)).toBe(true);
 
-			removeAgentEnvFile(tempDir);
+			removeAgentEnvFile(tempDir, TEST_SESSION_ID);
 			expect(existsSync(filePath)).toBe(false);
 		});
 
@@ -98,9 +103,10 @@ describe("E2E: agent env file lifecycle", () => {
 				stdout: "pipe",
 				stderr: "pipe",
 				env: {
-					// Minimal env — NO OVERSTORY_* vars, simulating lost env after compaction
+					// Minimal env — no OVERSTORY_AGENT_NAME, simulating lost env after compaction
 					PATH: process.env.PATH,
 					HOME: process.env.HOME,
+					OVERSTORY_RUNTIME_SESSION_ID: TEST_SESSION_ID,
 				},
 			});
 			const [stdout, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
@@ -112,6 +118,7 @@ describe("E2E: agent env file lifecycle", () => {
 			await writeAgentEnvFile(tempDir, {
 				OVERSTORY_AGENT_NAME: "test-scout",
 				OVERSTORY_WORKTREE_PATH: tempDir,
+				OVERSTORY_RUNTIME_SESSION_ID: TEST_SESSION_ID,
 			});
 
 			// Use buildBashFileGuardScript which includes ENV_GUARD
@@ -140,6 +147,7 @@ describe("E2E: agent env file lifecycle", () => {
 			await writeAgentEnvFile(tempDir, {
 				OVERSTORY_AGENT_NAME: "test-builder",
 				OVERSTORY_WORKTREE_PATH: tempDir,
+				OVERSTORY_RUNTIME_SESSION_ID: TEST_SESSION_ID,
 			});
 
 			const script = buildPathBoundaryGuardScript("file_path");
@@ -154,6 +162,7 @@ describe("E2E: agent env file lifecycle", () => {
 			await writeAgentEnvFile(tempDir, {
 				OVERSTORY_AGENT_NAME: "test-builder",
 				OVERSTORY_WORKTREE_PATH: tempDir,
+				OVERSTORY_RUNTIME_SESSION_ID: TEST_SESSION_ID,
 			});
 
 			const script = buildPathBoundaryGuardScript("file_path");
@@ -167,6 +176,7 @@ describe("E2E: agent env file lifecycle", () => {
 			await writeAgentEnvFile(tempDir, {
 				OVERSTORY_AGENT_NAME: "test-worker",
 				OVERSTORY_TASK_ID: "my-task-123",
+				OVERSTORY_RUNTIME_SESSION_ID: TEST_SESSION_ID,
 			});
 
 			const script = buildTrackerCloseGuardScript();
@@ -186,6 +196,7 @@ describe("E2E: agent env file lifecycle", () => {
 			await writeAgentEnvFile(tempDir, {
 				OVERSTORY_AGENT_NAME: "test-builder",
 				OVERSTORY_WORKTREE_PATH: tempDir,
+				OVERSTORY_RUNTIME_SESSION_ID: TEST_SESSION_ID,
 			});
 
 			const script = buildBashPathBoundaryScript();
@@ -214,12 +225,15 @@ describe("E2E: agent env file lifecycle", () => {
 			expect(before.stdout).not.toContain("block");
 
 			// Phase 2: Write env file — guard activates
-			await writeAgentEnvFile(tempDir, { OVERSTORY_AGENT_NAME: "test-scout" });
+			await writeAgentEnvFile(tempDir, {
+				OVERSTORY_AGENT_NAME: "test-scout",
+				OVERSTORY_RUNTIME_SESSION_ID: TEST_SESSION_ID,
+			});
 			const during = await runGuardInDir(script, tempDir, input);
 			expect(during.stdout).toContain('"decision":"block"');
 
 			// Phase 3: Remove env file — guard deactivates
-			removeAgentEnvFile(tempDir);
+			removeAgentEnvFile(tempDir, TEST_SESSION_ID);
 			const after = await runGuardInDir(script, tempDir, input);
 			expect(after.stdout).not.toContain("block");
 		});
@@ -237,7 +251,11 @@ async function runGuardInDir(
 		stdin: new TextEncoder().encode(stdin),
 		stdout: "pipe",
 		stderr: "pipe",
-		env: { PATH: process.env.PATH, HOME: process.env.HOME },
+		env: {
+			PATH: process.env.PATH,
+			HOME: process.env.HOME,
+			OVERSTORY_RUNTIME_SESSION_ID: TEST_SESSION_ID,
+		},
 	});
 	const [stdout, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
 	return { stdout: stdout.trim(), exitCode };
