@@ -1266,5 +1266,15 @@
 		"status": "active",
 		"createdAt": "2026-03-23T19:35:04.754Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-b47e4884",
+		"name": "batch-3-analyzer",
+		"memberIssueIds": [
+			"overstory-35ea"
+		],
+		"status": "active",
+		"createdAt": "2026-03-23T19:50:42.357Z",
+		"completedAt": null
 	}
 ]
