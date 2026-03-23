@@ -32,7 +32,8 @@ export type MailProtocolType =
 	| "breaker_tripped"
 	| "breaker_reset"
 	| "task_rerouted"
-	| "reroute_recommendation";
+	| "reroute_recommendation"
+	| "health_policy_action";
 
 /** All valid mail message types. */
 export type MailMessageType = MailSemanticType | MailProtocolType;
@@ -68,6 +69,7 @@ export const MAIL_MESSAGE_TYPES: readonly MailMessageType[] = [
 	"breaker_reset",
 	"task_rerouted",
 	"reroute_recommendation",
+	"health_policy_action",
 ] as const;
 
 /** Delivery state for mail reliability v2 (claim/ack semantics). */
@@ -386,6 +388,13 @@ export interface RerouteRecommendationPayload {
 	decision: import("../resilience/types.ts").RerouteDecision;
 }
 
+/** Health policy engine action recommendation to coordinator. */
+export interface HealthPolicyActionPayload {
+	ruleId: string;
+	action: string;
+	details: string;
+}
+
 /** Maps protocol message types to their payload interfaces. */
 export interface MailPayloadMap {
 	worker_done: WorkerDonePayload;
@@ -413,4 +422,5 @@ export interface MailPayloadMap {
 	breaker_reset: BreakerResetPayload;
 	task_rerouted: TaskReroutedPayload;
 	reroute_recommendation: RerouteRecommendationPayload;
+	health_policy_action: HealthPolicyActionPayload;
 }
