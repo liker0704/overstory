@@ -100,6 +100,23 @@ describe("executeNextImprovement", () => {
 		expect(["A", "B", "C", "D", "F"]).toContain(score.grade as string);
 
 		expect(Array.isArray(parsed.recommendations)).toBe(true);
+
+		// count matches total available recommendations (may be 0 in a clean stub project)
+		const recs = parsed.recommendations as unknown[];
+		const count = parsed.count as number;
+		expect(count).toBe(recs.length);
+
+		// When recommendations are present, each should carry optional estimatedImpact/rankReason.
+		// With a minimal stub project signals are empty so recommendations will be [].
+		for (const rec of recs) {
+			const r = rec as Record<string, unknown>;
+			if (r.estimatedImpact !== undefined) {
+				expect(typeof r.estimatedImpact).toBe("number");
+			}
+			if (r.rankReason !== undefined) {
+				expect(typeof r.rankReason).toBe("string");
+			}
+		}
 	});
 
 	test("json output with --all returns all recommendations", async () => {
