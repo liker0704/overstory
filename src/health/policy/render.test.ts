@@ -1,11 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import type { PolicyActionRecord, PolicyEvaluationResult } from "./types.ts";
 import {
 	type PolicyStatusInfo,
 	renderPolicyEvaluation,
 	renderPolicyHistory,
 	renderPolicyStatus,
 } from "./render.ts";
+import type { PolicyActionRecord, PolicyEvaluationResult } from "./types.ts";
 
 // === Fixtures ===
 

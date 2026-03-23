@@ -918,6 +918,13 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 					store.updateRateLimitedSince(session.agentName, now);
 					session.rateLimitedSince = now;
 
+					// Persist resumesAt so the time guard can prevent premature resume nudges
+					if (rateLimitState.resumesAt) {
+						const resumesAtIso = rateLimitState.resumesAt.toISOString();
+						store.updateRateLimitResumesAt(session.agentName, resumesAtIso);
+						session.rateLimitResumesAt = resumesAtIso;
+					}
+
 					recordEvent(eventStore, {
 						runId,
 						agentName: session.agentName,
@@ -983,9 +990,19 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 						}
 					}
 				} else if (!rateLimitState?.limited && session.rateLimitedSince !== null) {
+					// Guard: don't declare limit lifted if resumesAt time hasn't passed yet.
+					// This prevents spamming resume nudges while the agent is at the prompt
+					// but the rate limit window is still active.
+					const resumesAt = session.rateLimitResumesAt;
+					if (resumesAt && new Date(resumesAt).getTime() > Date.now()) {
+						continue;
+					}
+
 					// Rate limit lifted — clear tracking
 					store.updateRateLimitedSince(session.agentName, null);
+					store.updateRateLimitResumesAt(session.agentName, null);
 					session.rateLimitedSince = null;
+					session.rateLimitResumesAt = null;
 
 					recordEvent(eventStore, {
 						runId,

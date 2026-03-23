@@ -1,7 +1,7 @@
 import { KNOWN_FIELDS } from "./config-schema.ts";
 import { ValidationError } from "./errors.ts";
-import { KNOWN_FACTORS } from "./health/policy/types.ts";
 import type { PolicyAction, PolicyConditionOperator } from "./health/policy/types.ts";
+import { KNOWN_FACTORS } from "./health/policy/types.ts";
 
 /** Returns true when val is a plain object (not null, not array). */
 function isObj(val: unknown): val is Record<string, unknown> {

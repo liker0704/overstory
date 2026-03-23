@@ -77,7 +77,9 @@ export function renderPolicyEvaluation(result: PolicyEvaluationResult): string {
 			const idPart = accent(ev.rule.id);
 			const priorityPart = priorityColor(ev.rule.priority);
 			const actionPart = color.bold(ev.rule.action);
-			lines.push(`  ${badge}  ${idPart}  ${muted("priority:")} ${priorityPart}  ${muted("action:")} ${actionPart}`);
+			lines.push(
+				`  ${badge}  ${idPart}  ${muted("priority:")} ${priorityPart}  ${muted("action:")} ${actionPart}`,
+			);
 			if (ev.suppressReason !== undefined) {
 				lines.push(`           ${muted(`suppress: ${ev.suppressReason}`)}`);
 			}

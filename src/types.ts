@@ -78,6 +78,18 @@ export type {
 	HeadroomState,
 	HeadroomStore,
 } from "./headroom/types.ts";
+export type {
+	KnownFactor,
+	PolicyAction,
+	PolicyActionRecord,
+	PolicyCondition,
+	PolicyConditionOperator,
+	PolicyEvaluation,
+	PolicyEvaluationResult,
+	PolicyRule,
+} from "./health/policy/types.ts";
+// Health policy types
+export { GRADE_ORDER, KNOWN_FACTORS } from "./health/policy/types.ts";
 // Mail types
 export type {
 	AnalystRecommendationPayload,
@@ -147,18 +159,6 @@ export type {
 	MulchReadyResult,
 	MulchStatus,
 } from "./mulch/types.ts";
-// Health policy types
-export { GRADE_ORDER, KNOWN_FACTORS } from "./health/policy/types.ts";
-export type {
-	KnownFactor,
-	PolicyAction,
-	PolicyActionRecord,
-	PolicyCondition,
-	PolicyConditionOperator,
-	PolicyEvaluation,
-	PolicyEvaluationResult,
-	PolicyRule,
-} from "./health/policy/types.ts";
 // Reminder types
 export type { ReminderConfig, ReminderPolicy, TemporalSignals } from "./reminders/types.ts";
 // Resilience types

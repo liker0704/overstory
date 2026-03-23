@@ -8,8 +8,8 @@ import {
 import { validateUnknownFields } from "./config-validate.ts";
 import { deepMerge, parseYaml } from "./config-yaml.ts";
 import { ConfigError, ValidationError } from "./errors.ts";
-import { KNOWN_FACTORS } from "./health/policy/types.ts";
 import type { PolicyAction, PolicyConditionOperator } from "./health/policy/types.ts";
+import { KNOWN_FACTORS } from "./health/policy/types.ts";
 import type {
 	CoordinatorExitTriggers,
 	OverstoryConfig,
@@ -769,14 +769,20 @@ function validateConfig(config: OverstoryConfig): void {
 			}
 
 			const cond = rule.condition;
-			if (cond.operator !== undefined && !validOperators.includes(cond.operator as PolicyConditionOperator)) {
+			if (
+				cond.operator !== undefined &&
+				!validOperators.includes(cond.operator as PolicyConditionOperator)
+			) {
 				throw new ValidationError(
 					`healthPolicy.rules[${i}].condition.operator must be one of: ${validOperators.join(", ")}`,
 					{ field: `healthPolicy.rules[${i}].condition.operator`, value: cond.operator },
 				);
 			}
 
-			if (cond.factor !== undefined && !(KNOWN_FACTORS as readonly string[]).includes(cond.factor)) {
+			if (
+				cond.factor !== undefined &&
+				!(KNOWN_FACTORS as readonly string[]).includes(cond.factor)
+			) {
 				throw new ValidationError(
 					`healthPolicy.rules[${i}].condition.factor '${cond.factor}' is not a known factor. Valid: ${KNOWN_FACTORS.join(", ")}`,
 					{ field: `healthPolicy.rules[${i}].condition.factor`, value: cond.factor },

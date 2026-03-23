@@ -1,0 +1,3 @@
+export OVERSTORY_AGENT_NAME="mission-analyst"
+export OVERSTORY_CAPABILITY="mission-analyst"
+export OVERSTORY_RUNTIME_SESSION_ID="90e74bb3-7080-486e-957f-6298b9d50622"

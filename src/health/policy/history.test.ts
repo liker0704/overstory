@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEventStore } from "../../events/store.ts";
 import type { EventStore } from "../../types.ts";
-import type { PolicyEvaluation } from "./types.ts";
 import { loadRecentActions } from "./history.ts";
 import { recordPolicyEvent } from "./recorder.ts";
+import type { PolicyEvaluation } from "./types.ts";
 
 function makeEvaluation(overrides: Partial<PolicyEvaluation> = {}): PolicyEvaluation {
 	return {
@@ -102,7 +102,15 @@ describe("loadRecentActions", () => {
 		for (let i = 0; i < 120; i++) {
 			recordPolicyEvent(
 				eventStore,
-				makeEvaluation({ rule: { id: `rule-${i}`, action: "pause_spawning", condition: { factor: "completion_rate", threshold: 50, operator: "lt" }, cooldownMs: 60_000, priority: "medium" } }),
+				makeEvaluation({
+					rule: {
+						id: `rule-${i}`,
+						action: "pause_spawning",
+						condition: { factor: "completion_rate", threshold: 50, operator: "lt" },
+						cooldownMs: 60_000,
+						priority: "medium",
+					},
+				}),
 				null,
 			);
 		}

@@ -49,6 +49,7 @@ function makeSession(overrides: Partial<AgentSession> = {}): AgentSession {
 		escalationLevel: 0,
 		stalledSince: null,
 		rateLimitedSince: null,
+		rateLimitResumesAt: null,
 		runtimeSessionId: null,
 		transcriptPath: null,
 		originalRuntime: null,

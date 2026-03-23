@@ -144,6 +144,7 @@ function makeMockSessionStore(tracker?: ReturnType<typeof createCallTracker>): S
 		updateTranscriptPath: mock(() => {}),
 		updateRuntimeSessionId: mock(() => {}),
 		updateRateLimitedSince: mock(() => {}),
+		updateRateLimitResumesAt: mock(() => {}),
 		updateOriginalRuntime: mock(() => {}),
 		updateStatusLine: mock(() => {}),
 		getResumable: mock(() => []),

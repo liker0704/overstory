@@ -35,6 +35,8 @@ export interface SessionStore {
 	updateRuntimeSessionId(agentName: string, runtimeSessionId: string | null): void;
 	/** Update the rate_limited_since timestamp for a session. */
 	updateRateLimitedSince(agentName: string, rateLimitedSince: string | null): void;
+	/** Update the rate_limit_resumes_at timestamp for a session. */
+	updateRateLimitResumesAt(agentName: string, resumesAt: string | null): void;
 	/** Update original_runtime (set on swap, cleared on resume). */
 	updateOriginalRuntime(agentName: string, originalRuntime: string | null): void;
 	/** Update the agent's self-reported status line. */
@@ -69,6 +71,7 @@ interface SessionRow {
 	escalation_level: number;
 	stalled_since: string | null;
 	rate_limited_since: string | null;
+	rate_limit_resumes_at: string | null;
 	runtime_session_id: string | null;
 	transcript_path: string | null;
 	original_runtime: string | null;
@@ -151,6 +154,7 @@ function rowToSession(row: SessionRow): AgentSession {
 		escalationLevel: row.escalation_level,
 		stalledSince: row.stalled_since,
 		rateLimitedSince: row.rate_limited_since,
+		rateLimitResumesAt: row.rate_limit_resumes_at ?? null,
 		runtimeSessionId: row.runtime_session_id ?? null,
 		transcriptPath: row.transcript_path,
 		originalRuntime: row.original_runtime ?? null,
@@ -246,6 +250,16 @@ const SESSION_MIGRATIONS: Migration[] = [
 			}
 		},
 		detect: (_db, cols) => cols.has("prompt_version"),
+	},
+	{
+		version: 10,
+		description: "add rate_limit_resumes_at column",
+		up: (db) => {
+			if (!hasColumn(db, "sessions", "rate_limit_resumes_at")) {
+				db.exec("ALTER TABLE sessions ADD COLUMN rate_limit_resumes_at TEXT");
+			}
+		},
+		detect: (_db, cols) => cols.has("rate_limit_resumes_at"),
 	},
 ];
 
@@ -472,6 +486,13 @@ export function createSessionStore(dbPath: string): SessionStore {
 		UPDATE sessions SET rate_limited_since = $rate_limited_since WHERE agent_name = $agent_name
 	`);
 
+	const updateRateLimitResumesAtStmt = db.prepare<
+		void,
+		{ $agent_name: string; $rate_limit_resumes_at: string | null }
+	>(`
+		UPDATE sessions SET rate_limit_resumes_at = $rate_limit_resumes_at WHERE agent_name = $agent_name
+	`);
+
 	const updateOriginalRuntimeStmt = db.prepare<
 		void,
 		{ $agent_name: string; $original_runtime: string | null }
@@ -579,6 +600,13 @@ export function createSessionStore(dbPath: string): SessionStore {
 			updateRateLimitedSinceStmt.run({
 				$agent_name: agentName,
 				$rate_limited_since: rateLimitedSince,
+			});
+		},
+
+		updateRateLimitResumesAt(agentName: string, resumesAt: string | null): void {
+			updateRateLimitResumesAtStmt.run({
+				$agent_name: agentName,
+				$rate_limit_resumes_at: resumesAt,
 			});
 		},
 

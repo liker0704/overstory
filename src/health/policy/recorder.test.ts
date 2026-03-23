@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEventStore } from "../../events/store.ts";
 import type { EventStore } from "../../types.ts";
-import type { PolicyActionRecord, PolicyEvaluation } from "./types.ts";
 import { recordPolicyEvaluationResult, recordPolicyEvent } from "./recorder.ts";
+import type { PolicyActionRecord, PolicyEvaluation } from "./types.ts";
 
 function makeEvaluation(overrides: Partial<PolicyEvaluation> = {}): PolicyEvaluation {
 	return {

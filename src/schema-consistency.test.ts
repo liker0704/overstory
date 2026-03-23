@@ -64,6 +64,7 @@ describe("SQL schema consistency", () => {
 				"original_runtime",
 				"parent_agent",
 				"pid",
+				"rate_limit_resumes_at",
 				"rate_limited_since",
 				"run_id",
 				"prompt_version",
