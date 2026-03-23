@@ -1,9 +1,9 @@
 {
 	"status-health-builder": 1774230145503,
-	"execution-director": 1774265943940,
+	"execution-director": 1774266568226,
 	"cli-surfaces-lead": 1774230229335,
 	"review-builder": 1774230104640,
-	"coordinator": 1774265955245,
+	"coordinator": 1774266638363,
 	"mission-analyst": 1774233877751,
 	"plan-review-lead": 1774233561951,
 	"plan-devil-advocate": 1774233500214,
@@ -13,5 +13,7 @@
 	"wire-render-lead": 1774232553340,
 	"wire-render-builder": 1774232468266,
 	"types-policies-lead": 1774265912880,
-	"reminders-builder": 1774265809577
+	"reminders-builder": 1774265809577,
+	"source-reg-lead": 1774266641388,
+	"source-reg-builder": 1774266614668
 }
