@@ -1,0 +1,29 @@
+assertions:
+  # v1 scalar assertions (backward compat)
+  - kind: min_workers_spawned
+    label: "At least 2 workers spawned"
+    expected: 2
+  - kind: no_zombies
+    label: "No zombie agents"
+    expected: true
+
+  # Temporal: spawn must happen before session_end
+  - kind: before
+    label: "Spawn precedes session end"
+    eventA:
+      eventType: agent_spawned
+    eventB:
+      eventType: session_end
+
+  # Temporal: at least 2 spawn events occurred
+  - kind: event_count
+    label: "At least 2 spawn events"
+    selector:
+      eventType: agent_spawned
+    expected: 2
+
+  # Custom hook assertion
+  - kind: custom
+    label: "All sessions completed successfully"
+    hookPath: hooks/check-completions.ts
+    expected: true
