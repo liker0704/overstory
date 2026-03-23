@@ -1202,5 +1202,18 @@
 		"status": "active",
 		"createdAt": "2026-03-23T12:54:44.698Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-da88c53c",
+		"name": "mission-closed-loop-health",
+		"memberIssueIds": [
+			"overstory-0abe",
+			"overstory-6c8b",
+			"overstory-46be",
+			"overstory-6bfa"
+		],
+		"status": "active",
+		"createdAt": "2026-03-23T13:06:45.706Z",
+		"completedAt": null
 	}
 ]
