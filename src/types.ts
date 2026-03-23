@@ -3,6 +3,7 @@
 
 // === Value re-exports (runtime constants — MUST NOT use `export type`) ===
 export { SUPPORTED_CAPABILITIES } from "./agents/types.ts";
+export { ARTIFACT_STATUSES } from "./artifact-status/types.ts";
 export { EVENT_LEVELS } from "./events/types.ts";
 export { getThrottlePriority, PERSISTENT_CAPABILITIES } from "./headroom/priority.ts";
 export {
@@ -24,6 +25,14 @@ export type {
 	AgentState,
 	Capability,
 } from "./agents/types.ts";
+// Artifact status types
+export type {
+	ArtifactStatus,
+	ArtifactStatusRecord,
+	MissionClassifyInput,
+	ReviewClassifyInput,
+	SpecMetaClassifyInput,
+} from "./artifact-status/types.ts";
 // Canopy types
 export type {
 	CanopyListResult,
