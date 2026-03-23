@@ -42,6 +42,25 @@ export type {
 	CanopyShowResult,
 	CanopyValidateResult,
 } from "./canopy/types.ts";
+export type {
+	ChangeSeverity,
+	CompatConfig,
+	CompatGateAction,
+	CompatGateDecision,
+	CompatibilityResult,
+	ExportedSymbol,
+	SurfaceChange,
+	SurfaceChangeKind,
+	SymbolKind,
+	TypeSurface,
+} from "./compat/types.ts";
+// Compat types
+export {
+	CHANGE_SEVERITIES,
+	COMPAT_GATE_ACTIONS,
+	SURFACE_CHANGE_KINDS,
+	SYMBOL_KINDS,
+} from "./compat/types.ts";
 // Config types
 export type {
 	CoordinatorExitTriggers,
