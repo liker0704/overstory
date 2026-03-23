@@ -26,6 +26,7 @@ import type {
 	MissionStore,
 	MissionSummary,
 } from "../types.ts";
+import { createWatchdogControl } from "../watchdog/control.ts";
 import {
 	attachOrSwitch,
 	isSessionAlive,
@@ -731,6 +732,20 @@ export async function missionStart(
 			data: { kind: "role_started", detail: "mission-analyst started" },
 		});
 
+		// Auto-start watchdog for rate-limit detection and health monitoring
+		try {
+			const config = await loadConfig(projectRoot);
+			if (config.watchdog.tier0Enabled) {
+				const watchdog = createWatchdogControl(projectRoot);
+				const watchdogResult = await watchdog.start();
+				if (watchdogResult && !opts.json) {
+					printHint("Watchdog started");
+				}
+			}
+		} catch {
+			if (!opts.json) printWarning("Watchdog failed to start");
+		}
+
 		if (opts.json) {
 			jsonOutput("mission start", { mission: toSummary(mission), runId, dispatchId });
 		} else {
@@ -1304,6 +1319,19 @@ export async function missionResumeAll(
 						}
 					}
 				}
+			}
+
+			// Auto-start watchdog for rate-limit detection and health monitoring
+			try {
+				if (config.watchdog.tier0Enabled) {
+					const watchdog = createWatchdogControl(projectRoot);
+					const watchdogResult = await watchdog.start();
+					if (watchdogResult && !json) {
+						printHint("Watchdog started");
+					}
+				}
+			} catch {
+				if (!json) printWarning("Watchdog failed to start");
 			}
 
 			if (json) {
