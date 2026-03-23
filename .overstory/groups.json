@@ -1286,5 +1286,16 @@
 		"status": "active",
 		"createdAt": "2026-03-23T20:06:01.495Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-59828a28",
+		"name": "batch-5-final",
+		"memberIssueIds": [
+			"overstory-b813",
+			"overstory-74f4"
+		],
+		"status": "active",
+		"createdAt": "2026-03-23T20:33:36.423Z",
+		"completedAt": null
 	}
 ]
