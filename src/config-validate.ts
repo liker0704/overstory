@@ -136,6 +136,10 @@ export function validateUnknownFields(raw: Record<string, unknown>): void {
 		}
 	}
 
+	if (isObj(raw.reminders)) {
+		assertKnownKeys(raw.reminders, KNOWN_FIELDS.reminders, "reminders");
+	}
+
 	if (isObj(raw.runtime)) {
 		assertKnownKeys(raw.runtime, KNOWN_FIELDS.runtime, "runtime");
 		if (isObj(raw.runtime.pi)) {

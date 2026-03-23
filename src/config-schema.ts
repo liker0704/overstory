@@ -34,6 +34,7 @@ export const KNOWN_FIELDS = {
 		"mail",
 		"resilience",
 		"headroom",
+		"reminders",
 	]),
 	project: new Set(["name", "root", "canonicalBranch", "qualityGates"]),
 	qualityGateItem: new Set(["name", "command", "description"]),
@@ -112,5 +113,13 @@ export const KNOWN_FIELDS = {
 		"slowThresholdPercent",
 		"pauseThresholdPercent",
 		"blockSpawnsOnPause",
+	]),
+	reminders: new Set([
+		"lookbackWindowMs",
+		"completionTrendThreshold",
+		"mergeConflictThreshold",
+		"errorRecurrenceMinCount",
+		"staleEscalationMaxAgeMs",
+		"escalationResponseMinRate",
 	]),
 } as const;

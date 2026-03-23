@@ -27,6 +27,11 @@ describe("config-schema constants", () => {
 			"coordinator",
 			"rateLimit",
 			"runtime",
+			"mission",
+			"mail",
+			"resilience",
+			"headroom",
+			"reminders",
 		];
 		for (const key of expected) {
 			expect(KNOWN_FIELDS.root.has(key)).toBe(true);
@@ -59,5 +64,20 @@ describe("config-schema constants", () => {
 		expect(KNOWN_FIELDS.providerItem.has("baseUrl")).toBe(true);
 		expect(KNOWN_FIELDS.providerItem.has("authTokenEnv")).toBe(true);
 		expect(KNOWN_FIELDS.providerItem.size).toBe(3);
+	});
+
+	test("KNOWN_FIELDS.reminders includes all reminder config keys", () => {
+		const expected = [
+			"lookbackWindowMs",
+			"completionTrendThreshold",
+			"mergeConflictThreshold",
+			"errorRecurrenceMinCount",
+			"staleEscalationMaxAgeMs",
+			"escalationResponseMinRate",
+		];
+		for (const key of expected) {
+			expect(KNOWN_FIELDS.reminders.has(key)).toBe(true);
+		}
+		expect(KNOWN_FIELDS.reminders.size).toBe(6);
 	});
 });

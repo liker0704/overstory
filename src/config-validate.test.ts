@@ -271,3 +271,30 @@ describe("validateUnknownFields - models section", () => {
 		});
 	});
 });
+
+describe("validateUnknownFields - reminders section", () => {
+	test("rejects unknown field under reminders", () => {
+		expectUnknown({ reminders: { lookbackWindowMs: 86400000, unknownField: true } });
+	});
+
+	test("accepts all known reminders fields", () => {
+		expectValid({
+			reminders: {
+				lookbackWindowMs: 86400000,
+				completionTrendThreshold: 0.15,
+				mergeConflictThreshold: 0.25,
+				errorRecurrenceMinCount: 3,
+				staleEscalationMaxAgeMs: 14400000,
+				escalationResponseMinRate: 0.5,
+			},
+		});
+	});
+
+	test("accepts partial reminders section", () => {
+		expectValid({ reminders: { lookbackWindowMs: 3600000 } });
+	});
+
+	test("accepts empty reminders section", () => {
+		expectValid({ reminders: {} });
+	});
+});

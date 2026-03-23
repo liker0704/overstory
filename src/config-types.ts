@@ -1,5 +1,6 @@
 import type { HeadroomConfig } from "./headroom/types.ts";
 import type { PlanReviewTier } from "./mail/types.ts";
+import type { ReminderConfig } from "./reminders/types.ts";
 import type { ResilienceConfig } from "./resilience/types.ts";
 
 // === Model & Provider Types ===
@@ -207,4 +208,5 @@ export interface OverstoryConfig {
 		reroute?: Partial<ResilienceConfig["reroute"]>;
 	};
 	headroom?: HeadroomConfig;
+	reminders?: ReminderConfig;
 }
