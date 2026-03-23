@@ -1169,5 +1169,16 @@
 		"status": "active",
 		"createdAt": "2026-03-23T01:33:44.505Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-5e7dd6ee",
+		"name": "quality-loop-batch-1",
+		"memberIssueIds": [
+			"overstory-00fa",
+			"overstory-80ef"
+		],
+		"status": "active",
+		"createdAt": "2026-03-23T02:07:22.265Z",
+		"completedAt": null
 	}
 ]
