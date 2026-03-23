@@ -149,6 +149,10 @@ export interface HealthRecommendation {
 	estimatedImpact?: number;
 	/** Human-readable explanation of ranking position */
 	rankReason?: string;
+	/** Name of the RecommendationSource that produced this */
+	source?: string;
+	/** Identifier of the originating artifact for traceability */
+	sourceArtifact?: string;
 }
 
 /** Context passed to recommendation sources for scoped recommendations */
