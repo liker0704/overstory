@@ -7,12 +7,25 @@
  */
 
 import { Database } from "bun:sqlite";
+import {
+	applyMigrations,
+	bootstrapSchemaVersion,
+	getColumns,
+	hasColumn,
+	type Migration,
+	rebuildTable,
+} from "../db/migrate.ts";
 import { MergeError } from "../errors.ts";
 import type { MergeEntry, ResolutionTier } from "../types.ts";
 
 export interface MergeQueue {
 	/** Add a new entry to the end of the queue with pending status. */
-	enqueue(entry: Omit<MergeEntry, "enqueuedAt" | "status" | "resolvedTier">): MergeEntry;
+	enqueue(
+		entry: Omit<
+			MergeEntry,
+			"enqueuedAt" | "status" | "resolvedTier" | "compatReportPath"
+		>,
+	): MergeEntry;
 
 	/** Remove and return the first pending entry, or null if none. */
 	dequeue(): MergeEntry | null;
@@ -24,7 +37,14 @@ export interface MergeQueue {
 	list(status?: MergeEntry["status"]): MergeEntry[];
 
 	/** Update the status (and optional resolution tier) of an entry by branch name. */
-	updateStatus(branchName: string, status: MergeEntry["status"], tier?: ResolutionTier): void;
+	updateStatus(
+		branchName: string,
+		status: MergeEntry["status"],
+		tier?: ResolutionTier,
+	): void;
+
+	/** Update the compat report path for an entry by branch name. */
+	updateCompatReportPath(branchName: string, reportPath: string): void;
 
 	/** Close the database connection. */
 	close(): void;
@@ -40,6 +60,7 @@ interface MergeQueueRow {
 	enqueued_at: string;
 	status: string;
 	resolved_tier: string | null;
+	compat_report_path: string | null;
 }
 
 const CREATE_TABLE = `
@@ -51,10 +72,46 @@ CREATE TABLE IF NOT EXISTS merge_queue (
   files_modified TEXT NOT NULL DEFAULT '[]',
   enqueued_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now')),
   status TEXT NOT NULL DEFAULT 'pending'
-    CHECK(status IN ('pending','merging','merged','conflict','failed')),
+    CHECK(status IN ('pending','merging','merged','conflict','failed','compat_failed')),
   resolved_tier TEXT
-    CHECK(resolved_tier IS NULL OR resolved_tier IN ('clean-merge','auto-resolve','ai-resolve','reimagine'))
+    CHECK(resolved_tier IS NULL OR resolved_tier IN ('clean-merge','auto-resolve','ai-resolve','reimagine')),
+  compat_report_path TEXT
 )`;
+
+/** Migrations for merge_queue schema evolution. */
+const MIGRATIONS: Migration[] = [
+	{
+		version: 1,
+		description: "add compat_failed status and compat_report_path column",
+		up: (db) => {
+			// Add compat_report_path column if missing
+			if (!hasColumn(db, "merge_queue", "compat_report_path")) {
+				db.exec("ALTER TABLE merge_queue ADD COLUMN compat_report_path TEXT");
+			}
+			// Rebuild table to update CHECK constraint to include compat_failed
+			const cols = getColumns(db, "merge_queue");
+			if (cols.has("status")) {
+				rebuildTable({
+					db,
+					table: "merge_queue",
+					createSql: CREATE_TABLE,
+					columns: [
+						"id",
+						"branch_name",
+						"task_id",
+						"agent_name",
+						"files_modified",
+						"enqueued_at",
+						"status",
+						"resolved_tier",
+						"compat_report_path",
+					],
+				});
+			}
+		},
+		detect: (_db, columns) => columns.has("compat_report_path"),
+	},
+];
 
 const CREATE_INDEXES = `
 CREATE INDEX IF NOT EXISTS idx_merge_queue_status ON merge_queue(status);
@@ -80,6 +137,7 @@ function rowToEntry(row: MergeQueueRow): MergeEntry {
 		enqueuedAt: row.enqueued_at,
 		status: row.status as MergeEntry["status"],
 		resolvedTier: row.resolved_tier as ResolutionTier | null,
+		compatReportPath: row.compat_report_path,
 	};
 }
 
@@ -88,7 +146,9 @@ function rowToEntry(row: MergeQueueRow): MergeEntry {
  * Safe to call multiple times — only renames if bead_id exists and task_id does not.
  */
 function migrateBeadIdToTaskId(db: Database): void {
-	const rows = db.prepare("PRAGMA table_info(merge_queue)").all() as Array<{ name: string }>;
+	const rows = db.prepare("PRAGMA table_info(merge_queue)").all() as Array<{
+		name: string;
+	}>;
 	const existingColumns = new Set(rows.map((r) => r.name));
 	if (existingColumns.has("bead_id") && !existingColumns.has("task_id")) {
 		db.exec("ALTER TABLE merge_queue RENAME COLUMN bead_id TO task_id");
@@ -113,8 +173,12 @@ export function createMergeQueue(dbPath: string): MergeQueue {
 	db.exec(CREATE_TABLE);
 	db.exec(CREATE_INDEXES);
 
-	// Migrate: rename bead_id → task_id on existing tables
+	// Migrate: rename bead_id → task_id on existing tables (legacy migration)
 	migrateBeadIdToTaskId(db);
+
+	// Apply versioned migrations (compat_failed status + compat_report_path column)
+	bootstrapSchemaVersion(db, "merge_queue", MIGRATIONS);
+	applyMigrations(db, MIGRATIONS);
 
 	// Prepare statements for frequent operations
 	const insertStmt = db.prepare<
@@ -162,6 +226,18 @@ export function createMergeQueue(dbPath: string): MergeQueue {
 	>(`
 		UPDATE merge_queue
 		SET status = $status, resolved_tier = $resolved_tier
+		WHERE branch_name = $branch_name
+	`);
+
+	const updateCompatReportPathStmt = db.prepare<
+		void,
+		{
+			$branch_name: string;
+			$compat_report_path: string;
+		}
+	>(`
+		UPDATE merge_queue
+		SET compat_report_path = $compat_report_path
 		WHERE branch_name = $branch_name
 	`);
 
@@ -235,6 +311,21 @@ export function createMergeQueue(dbPath: string): MergeQueue {
 				$branch_name: branchName,
 				$status: status,
 				$resolved_tier: tier ?? null,
+			});
+		},
+
+		updateCompatReportPath(branchName, reportPath): void {
+			const existing = getByBranchStmt.get({ $branch_name: branchName });
+
+			if (existing === null || existing === undefined) {
+				throw new MergeError(`No queue entry found for branch: ${branchName}`, {
+					branchName,
+				});
+			}
+
+			updateCompatReportPathStmt.run({
+				$branch_name: branchName,
+				$compat_report_path: reportPath,
 			});
 		},
 

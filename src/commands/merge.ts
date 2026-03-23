@@ -11,7 +11,11 @@
  *   ov merge --json            Output results as JSON
  */
 
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { createSurfaceCache, runCompatGate } from "../compat/gate.ts";
+import { formatCompatReport } from "../compat/report.ts";
+import type { CompatConfig } from "../compat/types.ts";
 import { loadConfig } from "../config.ts";
 import { MergeError, ValidationError } from "../errors.ts";
 import { jsonOutput } from "../json.ts";
@@ -64,11 +68,14 @@ async function detectModifiedFiles(
 	canonicalBranch: string,
 	branchName: string,
 ): Promise<string[]> {
-	const proc = Bun.spawn(["git", "diff", "--name-only", `${canonicalBranch}...${branchName}`], {
-		cwd: repoRoot,
-		stdout: "pipe",
-		stderr: "pipe",
-	});
+	const proc = Bun.spawn(
+		["git", "diff", "--name-only", `${canonicalBranch}...${branchName}`],
+		{
+			cwd: repoRoot,
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+	);
 	const exitCode = await proc.exited;
 
 	if (exitCode !== 0) {
@@ -138,9 +145,12 @@ export async function mergeCommand(opts: MergeOptions): Promise<void> {
 	const json = opts.json ?? false;
 
 	if (!branchName && !all) {
-		throw new ValidationError("Either --branch <name> or --all is required for ov merge", {
-			field: "branch|all",
-		});
+		throw new ValidationError(
+			"Either --branch <name> or --all is required for ov merge",
+			{
+				field: "branch|all",
+			},
+		);
 	}
 
 	const cwd = process.cwd();
@@ -149,7 +159,11 @@ export async function mergeCommand(opts: MergeOptions): Promise<void> {
 	// Resolution chain: --into flag > session-start branch > config canonicalBranch
 	let sessionBranch: string | null = null;
 	if (into === undefined) {
-		const sessionBranchPath = join(config.project.root, ".overstory", "session-branch.txt");
+		const sessionBranchPath = join(
+			config.project.root,
+			".overstory",
+			"session-branch.txt",
+		);
 		const sessionBranchFile = Bun.file(sessionBranchPath);
 		if (await sessionBranchFile.exists()) {
 			const content = (await sessionBranchFile.text()).trim();
@@ -168,10 +182,47 @@ export async function mergeCommand(opts: MergeOptions): Promise<void> {
 		mulchClient,
 	});
 
+	const compatConfig: CompatConfig = {
+		enabled: config.compat?.enabled ?? true,
+		skipPatterns: config.compat?.skipPatterns ?? [
+			".overstory/**",
+			".seeds/**",
+			".mulch/**",
+			".canopy/**",
+			".claude/**",
+			"CLAUDE.md",
+		],
+		aiThreshold: config.compat?.aiThreshold ?? 3,
+		strictMode: config.compat?.strictMode ?? false,
+	};
+	const surfaceCache = createSurfaceCache();
+	const eventsDbPath = join(config.project.root, ".overstory", "events.db");
+
 	if (branchName) {
-		await handleBranch(branchName, queue, resolver, config, targetBranch, dryRun, json);
+		await handleBranch(
+			branchName,
+			queue,
+			resolver,
+			config,
+			targetBranch,
+			dryRun,
+			json,
+			compatConfig,
+			surfaceCache,
+			eventsDbPath,
+		);
 	} else {
-		await handleAll(queue, resolver, config, targetBranch, dryRun, json);
+		await handleAll(
+			queue,
+			resolver,
+			config,
+			targetBranch,
+			dryRun,
+			json,
+			compatConfig,
+			surfaceCache,
+			eventsDbPath,
+		);
 	}
 }
 
@@ -188,6 +239,9 @@ async function handleBranch(
 	targetBranch: string,
 	dryRun: boolean,
 	json: boolean,
+	compatConfig: CompatConfig,
+	surfaceCache: ReturnType<typeof createSurfaceCache>,
+	eventsDbPath: string,
 ): Promise<void> {
 	const canonicalBranch = targetBranch;
 	const repoRoot = config.project.root;
@@ -199,11 +253,14 @@ async function handleBranch(
 	// If not in queue, create one by detecting info from the branch
 	if (entry === null) {
 		// Validate that the branch exists before attempting any git operations
-		const verifyProc = Bun.spawn(["git", "rev-parse", "--verify", `refs/heads/${branchName}`], {
-			cwd: repoRoot,
-			stdout: "pipe",
-			stderr: "pipe",
-		});
+		const verifyProc = Bun.spawn(
+			["git", "rev-parse", "--verify", `refs/heads/${branchName}`],
+			{
+				cwd: repoRoot,
+				stdout: "pipe",
+				stderr: "pipe",
+			},
+		);
 		const verifyExit = await verifyProc.exited;
 		if (verifyExit !== 0) {
 			throw new ValidationError(`Branch "${branchName}" not found`, {
@@ -214,7 +271,11 @@ async function handleBranch(
 
 		const agentName = parseAgentName(branchName);
 		const taskId = parseTaskId(branchName);
-		const filesModified = await detectModifiedFiles(repoRoot, canonicalBranch, branchName);
+		const filesModified = await detectModifiedFiles(
+			repoRoot,
+			canonicalBranch,
+			branchName,
+		);
 
 		entry = queue.enqueue({
 			branchName,
@@ -233,11 +294,59 @@ async function handleBranch(
 		return;
 	}
 
+	// Run compat gate before tier-1 merge
+	const gateDecision = await runCompatGate(
+		repoRoot,
+		entry,
+		canonicalBranch,
+		compatConfig,
+		{
+			surfaceCache,
+			eventsDbPath,
+		},
+	);
+
+	if (gateDecision.action !== "admit") {
+		const sanitizedBranch = entry.branchName.replace(/\//g, "-");
+		if (sanitizedBranch.includes("..")) {
+			throw new ValidationError("Invalid branch name in compat report path", {
+				field: "branchName",
+				value: entry.branchName,
+			});
+		}
+		const reportDir = join(repoRoot, ".overstory", "compat-reports");
+		await mkdir(reportDir, { recursive: true });
+		const reportPath = join(reportDir, `${sanitizedBranch}.md`);
+		await Bun.write(reportPath, formatCompatReport(gateDecision.result));
+		queue.updateStatus(entry.branchName, "compat_failed");
+		queue.updateCompatReportPath(entry.branchName, reportPath);
+
+		if (json) {
+			jsonOutput("merge", {
+				gateDecision,
+				entry: {
+					...entry,
+					status: "compat_failed",
+					compatReportPath: reportPath,
+				},
+			});
+		} else {
+			process.stdout.write(
+				`Compat gate: ${gateDecision.action} — ${gateDecision.reason}\nReport: ${reportPath}\n`,
+			);
+		}
+		return;
+	}
+
 	// Perform the actual merge
 	const result = await resolver.resolve(entry, canonicalBranch, repoRoot);
 
 	// Update queue status based on result
-	queue.updateStatus(branchName, result.success ? "merged" : "conflict", result.tier);
+	queue.updateStatus(
+		branchName,
+		result.success ? "merged" : "conflict",
+		result.tier,
+	);
 
 	if (json) {
 		jsonOutput("merge", { ...result });
@@ -246,10 +355,13 @@ async function handleBranch(
 	}
 
 	if (!result.success) {
-		throw new MergeError(result.errorMessage ?? `Merge failed for branch "${branchName}"`, {
-			branchName,
-			conflictFiles: result.conflictFiles,
-		});
+		throw new MergeError(
+			result.errorMessage ?? `Merge failed for branch "${branchName}"`,
+			{
+				branchName,
+				conflictFiles: result.conflictFiles,
+			},
+		);
 	}
 }
 
@@ -264,6 +376,9 @@ async function handleAll(
 	targetBranch: string,
 	dryRun: boolean,
 	json: boolean,
+	compatConfig: CompatConfig,
+	surfaceCache: ReturnType<typeof createSurfaceCache>,
+	eventsDbPath: string,
 ): Promise<void> {
 	const canonicalBranch = targetBranch;
 	const repoRoot = config.project.root;
@@ -298,9 +413,44 @@ async function handleAll(
 	let failCount = 0;
 
 	for (const entry of pendingEntries) {
+		// Run compat gate before tier-1 merge (shared surfaceCache across all entries)
+		const gateDecision = await runCompatGate(
+			repoRoot,
+			entry,
+			canonicalBranch,
+			compatConfig,
+			{
+				surfaceCache,
+				eventsDbPath,
+			},
+		);
+
+		if (gateDecision.action !== "admit") {
+			const sanitizedBranch = entry.branchName.replace(/\//g, "-");
+			if (!sanitizedBranch.includes("..")) {
+				const reportDir = join(repoRoot, ".overstory", "compat-reports");
+				await mkdir(reportDir, { recursive: true });
+				const reportPath = join(reportDir, `${sanitizedBranch}.md`);
+				await Bun.write(reportPath, formatCompatReport(gateDecision.result));
+				queue.updateStatus(entry.branchName, "compat_failed");
+				queue.updateCompatReportPath(entry.branchName, reportPath);
+			}
+			failCount++;
+			if (!json) {
+				process.stdout.write(
+					`Compat gate: ${gateDecision.action} — ${gateDecision.reason} (${entry.branchName})\n\n`,
+				);
+			}
+			continue;
+		}
+
 		const result = await resolver.resolve(entry, canonicalBranch, repoRoot);
 
-		queue.updateStatus(entry.branchName, result.success ? "merged" : "conflict", result.tier);
+		queue.updateStatus(
+			entry.branchName,
+			result.success ? "merged" : "conflict",
+			result.tier,
+		);
 
 		results.push(result);
 
@@ -316,7 +466,12 @@ async function handleAll(
 	}
 
 	if (json) {
-		jsonOutput("merge", { results, count: results.length, successCount, failCount });
+		jsonOutput("merge", {
+			results,
+			count: results.length,
+			successCount,
+			failCount,
+		});
 	} else {
 		process.stdout.write(
 			`Done: ${successCount} merged, ${failCount} failed out of ${results.length} total.\n`,

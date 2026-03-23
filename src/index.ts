@@ -13,6 +13,7 @@ import { Command, Help } from "commander";
 import { createAgentsCommand } from "./commands/agents.ts";
 import { createAttachCommand } from "./commands/attach.ts";
 import { cleanCommand } from "./commands/clean.ts";
+import { createCompatCommand } from "./commands/compat.ts";
 import { createCompletionsCommand } from "./commands/completions.ts";
 import { createCoordinatorCommand } from "./commands/coordinator.ts";
 import { createCostsCommand } from "./commands/costs.ts";
@@ -66,7 +67,10 @@ export const VERSION = "0.9.1";
 const rawArgs = process.argv.slice(2);
 
 // Handle --version --json before Commander processes the flag
-if ((rawArgs.includes("-v") || rawArgs.includes("--version")) && rawArgs.includes("--json")) {
+if (
+	(rawArgs.includes("-v") || rawArgs.includes("--version")) &&
+	rawArgs.includes("--json")
+) {
 	const platform = `${process.platform}-${process.arch}`;
 	console.log(
 		JSON.stringify({
@@ -184,7 +188,9 @@ program
 			const COL_WIDTH = 20;
 			const lines: string[] = [];
 
-			lines.push(`${brand.bold("overstory")} ${muted(`v${VERSION}`)} — Multi-agent orchestration`);
+			lines.push(
+				`${brand.bold("overstory")} ${muted(`v${VERSION}`)} — Multi-agent orchestration`,
+			);
 			lines.push("");
 
 			lines.push(`Usage: ${chalk.dim("ov")} <command> [options]`);
@@ -201,7 +207,9 @@ program
 					const coloredTerm = `${chalk.green(name)}${args ? chalk.dim(args) : ""}`;
 					const rawLen = term.length;
 					const padding = " ".repeat(Math.max(2, COL_WIDTH - rawLen));
-					lines.push(`  ${coloredTerm}${padding}${helper.subcommandDescription(sub)}`);
+					lines.push(
+						`  ${coloredTerm}${padding}${helper.subcommandDescription(sub)}`,
+					);
 				}
 				lines.push("");
 			}
@@ -212,12 +220,16 @@ program
 				for (const opt of visibleOpts) {
 					const flags = helper.optionTerm(opt);
 					const padding = " ".repeat(Math.max(2, COL_WIDTH - flags.length));
-					lines.push(`  ${chalk.dim(flags)}${padding}${helper.optionDescription(opt)}`);
+					lines.push(
+						`  ${chalk.dim(flags)}${padding}${helper.optionDescription(opt)}`,
+					);
 				}
 				lines.push("");
 			}
 
-			lines.push(`Run '${chalk.dim("ov")} <command> --help' for command-specific help.`);
+			lines.push(
+				`Run '${chalk.dim("ov")} <command> --help' for command-specific help.`,
+			);
 
 			return `${lines.join("\n")}\n`;
 		},
@@ -248,7 +260,9 @@ program.hook("postAction", () => {
 	if (program.opts().timing && timingStart !== undefined) {
 		const elapsed = performance.now() - timingStart;
 		const formatted =
-			elapsed < 1000 ? `${Math.round(elapsed)}ms` : `${(elapsed / 1000).toFixed(2)}s`;
+			elapsed < 1000
+				? `${Math.round(elapsed)}ms`
+				: `${(elapsed / 1000).toFixed(2)}s`;
 		process.stderr.write(`${muted(`Done in ${formatted}`)}\n`);
 	}
 });
@@ -266,13 +280,17 @@ program.addCommand(createLogCommand());
 program.addCommand(createWatchCommand());
 program.addCommand(createGroupCommand());
 program.addCommand(createCompletionsCommand());
+program.addCommand(createCompatCommand());
 
 // Unmigrated commands — passthrough pattern
 program
 	.command("init")
 	.description("Initialize .overstory/ and bootstrap os-eco ecosystem tools")
 	.option("--force", "Reinitialize even if .overstory/ already exists")
-	.option("-y, --yes", "Accept all defaults without prompting (non-interactive mode)")
+	.option(
+		"-y, --yes",
+		"Accept all defaults without prompting (non-interactive mode)",
+	)
 	.option("--name <name>", "Project name (skips auto-detection)")
 	.option(
 		"--tools <list>",
@@ -281,7 +299,10 @@ program
 	.option("--skip-mulch", "Skip mulch bootstrap")
 	.option("--skip-seeds", "Skip seeds bootstrap")
 	.option("--skip-canopy", "Skip canopy bootstrap")
-	.option("--skip-onboard", "Skip CLAUDE.md onboarding step for ecosystem tools")
+	.option(
+		"--skip-onboard",
+		"Skip CLAUDE.md onboarding step for ecosystem tools",
+	)
 	.option("--json", "Output result as JSON")
 	.action(async (opts) => {
 		await initCommand(opts);
@@ -306,17 +327,28 @@ program
 	.option("--force-hierarchy", "Bypass hierarchy validation")
 	.option("--max-agents <n>", "Max children per lead (overrides config)")
 	.option("--skip-review", "Skip review phase for lead agents")
-	.option("--no-scout-check", "Suppress the parentHasScouts scout-before-build warning")
-	.option("--dispatch-max-agents <n>", "Per-lead max agents ceiling (injected into overlay)")
+	.option(
+		"--no-scout-check",
+		"Suppress the parentHasScouts scout-before-build warning",
+	)
+	.option(
+		"--dispatch-max-agents <n>",
+		"Per-lead max agents ceiling (injected into overlay)",
+	)
 	.option("--runtime <name>", "Runtime adapter (default: config or claude)")
-	.option("--base-branch <branch>", "Base branch for worktree creation (default: current HEAD)")
+	.option(
+		"--base-branch <branch>",
+		"Base branch for worktree creation (default: current HEAD)",
+	)
 	.option("--profile <name>", "Canopy profile to apply to agent overlay")
 	.option("--json", "Output result as JSON")
 	.action(async (taskId, opts) => {
 		await slingCommand(taskId, opts);
 	});
 
-const specCmd = program.command("spec").description("Manage task specifications");
+const specCmd = program
+	.command("spec")
+	.description("Manage task specifications");
 
 specCmd
 	.command("write")
@@ -324,8 +356,14 @@ specCmd
 	.argument("<task-id>", "Task ID for the spec file")
 	.option("--body <content>", "Spec content (or pipe via stdin)")
 	.option("--agent <name>", "Agent writing the spec (for attribution)")
-	.option("--workstream-id <id>", "Mission workstream ID for companion spec metadata")
-	.option("--brief-path <path>", "Brief path used to derive companion spec metadata")
+	.option(
+		"--workstream-id <id>",
+		"Mission workstream ID for companion spec metadata",
+	)
+	.option(
+		"--brief-path <path>",
+		"Brief path used to derive companion spec metadata",
+	)
 	.option("--json", "Output as JSON")
 	.action(async (taskId, opts) => {
 		await specWriteCommand(taskId, opts);
@@ -478,11 +516,16 @@ if (import.meta.main)
 	main().catch((err: unknown) => {
 		const useJson = process.argv.includes("--json");
 		// Friendly message when running outside a git repository
-		if (err instanceof WorktreeError && err.message.includes("not a git repository")) {
+		if (
+			err instanceof WorktreeError &&
+			err.message.includes("not a git repository")
+		) {
 			if (useJson) {
 				jsonError("ov", "Not in an overstory project. Run 'ov init' first.");
 			} else {
-				process.stderr.write("Not in an overstory project. Run 'ov init' first.\n");
+				process.stderr.write(
+					"Not in an overstory project. Run 'ov init' first.\n",
+				);
 			}
 			process.exitCode = 1;
 			return;

@@ -207,6 +207,13 @@ export interface OverstoryConfig {
 		circuitBreaker?: Partial<ResilienceConfig["circuitBreaker"]>;
 		reroute?: Partial<ResilienceConfig["reroute"]>;
 	};
+	compat?: {
+		enabled?: boolean;
+		skipPatterns?: string[];
+		aiThreshold?: number;
+		strictMode?: boolean;
+		maxAiCallsPerRun?: number;
+	};
 	headroom?: HeadroomConfig;
 	reminders?: ReminderConfig;
 	healthPolicy?: {

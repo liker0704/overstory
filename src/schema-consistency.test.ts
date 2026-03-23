@@ -27,7 +27,9 @@ import { cleanupTempDir } from "./test-helpers.ts";
 
 /** Extract sorted column names from a table via PRAGMA table_info(). */
 function getTableColumns(db: Database, tableName: string): string[] {
-	const rows = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
+	const rows = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{
+		name: string;
+	}>;
 	return rows.map((r) => r.name).sort();
 }
 
@@ -244,6 +246,7 @@ describe("SQL schema consistency", () => {
 			const expected = [
 				"agent_name",
 				"branch_name",
+				"compat_report_path",
 				"enqueued_at",
 				"files_modified",
 				"id",
