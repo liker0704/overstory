@@ -13,6 +13,7 @@ export {
 	PLAN_REVIEW_TIER_CRITICS,
 } from "./mail/types.ts";
 export { MISSION_PHASES, MISSION_STATES, PENDING_INPUT_KINDS } from "./missions/types.ts";
+export { WORKFLOW_COMPONENT_ACTIONS, WORKFLOW_TDD_MODES } from "./workflow/types.ts";
 
 // === Type re-exports ===
 
@@ -220,6 +221,19 @@ export type {
 	SessionInsight,
 	ToolProfile,
 } from "./sessions/types.ts";
+// Workflow types
+export type {
+	ImportManifest,
+	ImportOptions,
+	ImportResult,
+	ParsedWorkflow,
+	SyncResult,
+	WorkflowAcceptanceCriterion,
+	WorkflowComponent,
+	WorkflowMetadata,
+	WorkflowRisk,
+	WorkflowTask,
+} from "./workflow/types.ts";
 
 // === Types that remain directly in this file ===
 
