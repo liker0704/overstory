@@ -22,6 +22,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { CanopyClient } from "../canopy/client.ts";
+import { renderCompactContext } from "../commands/prime.ts";
 import {
 	buildAutoDispatch,
 	buildBeacon,
@@ -31,6 +32,7 @@ import {
 	inferDomainsFromFiles,
 } from "../commands/sling.ts";
 import type { OverstoryConfig } from "../config-types.ts";
+import type { ProjectContext } from "../context/types.ts";
 import { AgentError } from "../errors.ts";
 import type { MailClient } from "../mail/client.ts";
 import type { MailStore } from "../mail/store.ts";
@@ -260,6 +262,24 @@ async function executePostWorktreeSteps(
 		}
 	}
 
+	// 8c. Load project context for overlay
+	let projectContextRendered: string | undefined;
+	if (config.context?.enabled !== false) {
+		try {
+			const cachePath = config.context?.cachePath ?? ".overstory/project-context.json";
+			const fullPath = join(config.project.root, cachePath);
+			const file = Bun.file(fullPath);
+			if (await file.exists()) {
+				const data = JSON.parse(await file.text()) as { version?: number; signals?: unknown };
+				if (data?.version === 1 && data?.signals) {
+					projectContextRendered = renderCompactContext(data as ProjectContext);
+				}
+			}
+		} catch {
+			projectContextRendered = undefined;
+		}
+	}
+
 	// Resolve runtime before overlayConfig so we can pass runtime.instructionPath
 	const runtime = deps.runtime();
 
@@ -280,6 +300,7 @@ async function executePostWorktreeSteps(
 		baseDefinition,
 		profileContent,
 		mulchExpertise,
+		projectContext: projectContextRendered,
 		skipScout: opts.skipScout && capability === "lead",
 		skipReview: opts.skipReview && capability === "lead",
 		maxAgentsOverride: opts.dispatchMaxAgents,

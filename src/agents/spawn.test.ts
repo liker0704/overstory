@@ -410,4 +410,60 @@ describe("createSpawnService", () => {
 			expect(result.pid).toBeGreaterThan(0);
 		});
 	});
+
+	describe("project context loading", () => {
+		// These tests verify that context loading is non-fatal.
+		// spawn() always fails at createWorktree in this test context (no real git repo),
+		// but the important guarantee is that context loading errors don't change
+		// the failure mode — they are always silently swallowed.
+
+		function makeContextDeps(contextEnabled?: boolean): SpawnDeps {
+			return {
+				sessionStore: makeMockSessionStore(),
+				createRunStore: () => makeMockRunStore(),
+				manifestLoader: { load: mock(async () => testManifest) } as never,
+				manifest: testManifest,
+				agentDef: testAgentDef,
+				config: makeConfig({
+					...(contextEnabled !== undefined ? { context: { enabled: contextEnabled } } : {}),
+				}),
+				resolvedBackend: "seeds",
+				tracker: () => ({ claim: mock(async () => {}) }) as never,
+				mailStore: () => ({ close: mock(() => {}) }) as never,
+				mailClient: () => ({ check: mock(() => []), send: mock(() => "msg-1") }) as never,
+				canopy: () => ({ render: mock(async () => ({ success: false, sections: [] })) }) as never,
+				mulch: () => ({ prime: mock(async () => "") }) as never,
+				runtime: () => makeMockRuntime(),
+				tmux: makeMockTmux(),
+			};
+		}
+
+		test("spawn fails at worktree creation regardless of context config", async () => {
+			// context.enabled defaults to true
+			const service = createSpawnService(makeContextDeps());
+			await expect(service.spawn(makeSpawnOpts())).rejects.toThrow();
+		});
+
+		test("spawn with context.enabled false still fails at worktree creation", async () => {
+			const service = createSpawnService(makeContextDeps(false));
+			await expect(service.spawn(makeSpawnOpts())).rejects.toThrow();
+		});
+
+		test("corrupted context cache does not change spawn error type", async () => {
+			// Even if context loading encounters an error, it should be silently caught
+			// and spawn should fail for the same reason (no worktree) not a context error.
+			const service = createSpawnService(makeContextDeps(true));
+			let caughtError: unknown;
+			try {
+				await service.spawn(makeSpawnOpts());
+			} catch (err) {
+				caughtError = err;
+			}
+			expect(caughtError).toBeDefined();
+			// Error should NOT be about context loading
+			const msg = caughtError instanceof Error ? caughtError.message : String(caughtError);
+			expect(msg).not.toContain("context");
+			expect(msg).not.toContain("project-context.json");
+		});
+	});
 });

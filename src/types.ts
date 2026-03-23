@@ -246,6 +246,8 @@ export interface OverlayConfig {
 	profileContent?: string;
 	/** Pre-fetched mulch expertise output to embed directly in the overlay. */
 	mulchExpertise?: string;
+	/** Pre-rendered project context markdown for embedding in the overlay. */
+	projectContext?: string;
 	/** When true, lead agents should skip Phase 1 (scout) and go straight to Phase 2 (build). */
 	skipScout?: boolean;
 	/** When true, lead agents should skip Phase 3 review and self-verify instead. */

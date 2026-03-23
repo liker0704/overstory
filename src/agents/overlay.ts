@@ -66,6 +66,17 @@ function formatMulchExpertise(expertise: string | undefined): string {
 	].join("\n");
 }
 
+/**
+ * Format pre-rendered project context for embedding in the overlay.
+ * Returns empty string if no context was provided (omits the section entirely).
+ */
+function formatProjectContext(context?: string): string {
+	if (!context || context.trim().length === 0) {
+		return "";
+	}
+	return ["## Project Context", "", context].join("\n");
+}
+
 /** Capabilities that are read-only and should not get quality gates for commits/tests/lint. */
 const READ_ONLY_CAPABILITIES = new Set(["scout", "reviewer"]);
 
@@ -335,6 +346,7 @@ export async function generateOverlay(config: OverlayConfig): Promise<string> {
 		"{{FILE_SCOPE}}": formatFileScope(config.fileScope),
 		"{{MULCH_DOMAINS}}": formatMulchDomains(config.mulchDomains),
 		"{{MULCH_EXPERTISE}}": formatMulchExpertise(config.mulchExpertise),
+		"{{PROJECT_CONTEXT}}": formatProjectContext(config.projectContext),
 		"{{CAN_SPAWN}}": formatCanSpawn(config),
 		"{{QUALITY_GATES}}": formatQualityGates(config),
 		"{{CONSTRAINTS}}": formatConstraints(config),

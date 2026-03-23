@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cleanupTempDir, createTempGitRepo } from "../test-helpers.ts";
 import type { AgentSession } from "../types.ts";
-import { primeCommand } from "./prime.ts";
+import { loadCachedProjectContext, primeCommand, renderCompactContext } from "./prime.ts";
 
 /**
  * Tests for `overstory prime` command.
@@ -442,6 +442,252 @@ sessions.db
 			const statAfter = await Bun.file(gitignorePath).stat();
 			const mtimeAfter = statAfter?.mtime;
 			expect(mtimeAfter).toEqual(mtimeBefore);
+		});
+	});
+});
+
+// === Sample ProjectContext for context-related tests ===
+
+const sampleContextData = {
+	version: 1,
+	generatedAt: "2026-01-01T00:00:00Z",
+	structuralHash: "abc123",
+	signals: {
+		languages: [{ language: "TypeScript", framework: "bun", configFile: "tsconfig.json" }],
+		directoryProfile: { sourceRoots: ["src"], testRoots: ["src"], zones: [] },
+		namingVocabulary: {
+			commonPrefixes: [],
+			conventions: [{ pattern: "camel", description: "camelCase vars" }],
+		},
+		testConventions: {
+			framework: "bun:test",
+			filePattern: "*.test.ts",
+			testRoots: [],
+			setupFiles: [],
+		},
+		errorPatterns: { baseClass: "OverstoryError", throwStyle: "throw new X()", patterns: [] },
+		importHotspots: [{ module: "src/types.ts", importCount: 42 }],
+		configZones: [],
+		sharedInvariants: [
+			{ type: "wal", description: "WAL mode on all SQLite DBs", source: "config.ts" },
+		],
+	},
+};
+
+describe("renderCompactContext", () => {
+	test("renders stack from languages", () => {
+		const result = renderCompactContext(sampleContextData as never);
+		expect(result).toContain("**Stack:** TypeScript/bun");
+	});
+
+	test("renders source roots", () => {
+		const result = renderCompactContext(sampleContextData as never);
+		expect(result).toContain("**Source roots:** `src`");
+	});
+
+	test("renders test conventions", () => {
+		const result = renderCompactContext(sampleContextData as never);
+		expect(result).toContain("**Tests:** bun:test (*.test.ts)");
+	});
+
+	test("renders error base class", () => {
+		const result = renderCompactContext(sampleContextData as never);
+		expect(result).toContain("**Errors:** extends `OverstoryError`");
+	});
+
+	test("renders naming conventions", () => {
+		const result = renderCompactContext(sampleContextData as never);
+		expect(result).toContain("**Naming:** camelCase vars");
+	});
+
+	test("renders import hotspots", () => {
+		const result = renderCompactContext(sampleContextData as never);
+		expect(result).toContain("**Key modules:** `src/types.ts` (42)");
+	});
+
+	test("renders shared invariants", () => {
+		const result = renderCompactContext(sampleContextData as never);
+		expect(result).toContain("**Invariants:** WAL mode on all SQLite DBs");
+	});
+
+	test("caps hotspots at 5", () => {
+		const ctx = {
+			...sampleContextData,
+			signals: {
+				...sampleContextData.signals,
+				importHotspots: Array.from({ length: 8 }, (_, i) => ({
+					module: `mod-${i}.ts`,
+					importCount: 10 - i,
+				})),
+			},
+		};
+		const result = renderCompactContext(ctx as never);
+		const matches = result.match(/`mod-\d+\.ts`/g);
+		expect(matches?.length).toBe(5);
+	});
+});
+
+describe("loadCachedProjectContext", () => {
+	let tempDir: string;
+
+	beforeEach(async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "ctx-cache-test-"));
+	});
+
+	afterEach(async () => {
+		await cleanupTempDir(tempDir);
+	});
+
+	test("returns null when cache file does not exist", async () => {
+		const result = await loadCachedProjectContext(tempDir, ".overstory/project-context.json");
+		expect(result).toBeNull();
+	});
+
+	test("returns ProjectContext when valid cache exists", async () => {
+		await Bun.write(
+			join(tempDir, ".overstory", "project-context.json"),
+			JSON.stringify(sampleContextData),
+		);
+		const result = await loadCachedProjectContext(tempDir, ".overstory/project-context.json");
+		expect(result).not.toBeNull();
+		expect(result?.version).toBe(1);
+		expect(result?.signals.languages[0]?.language).toBe("TypeScript");
+	});
+
+	test("returns null for corrupted JSON", async () => {
+		await Bun.write(join(tempDir, ".overstory", "project-context.json"), "{ not valid json");
+		const result = await loadCachedProjectContext(tempDir, ".overstory/project-context.json");
+		expect(result).toBeNull();
+	});
+
+	test("returns null when version field is missing", async () => {
+		const invalid = { generatedAt: "2026-01-01", signals: {} };
+		await Bun.write(join(tempDir, ".overstory", "project-context.json"), JSON.stringify(invalid));
+		const result = await loadCachedProjectContext(tempDir, ".overstory/project-context.json");
+		expect(result).toBeNull();
+	});
+
+	test("respects custom cachePath", async () => {
+		await Bun.write(join(tempDir, "custom-ctx.json"), JSON.stringify(sampleContextData));
+		const result = await loadCachedProjectContext(tempDir, "custom-ctx.json");
+		expect(result).not.toBeNull();
+	});
+});
+
+describe("Project Context in primeCommand", () => {
+	let chunks: string[];
+	let originalWrite: typeof process.stdout.write;
+	let originalStderrWrite: typeof process.stderr.write;
+	let stderrChunks: string[];
+	let tempDir: string;
+	let originalCwd: string;
+
+	beforeEach(async () => {
+		chunks = [];
+		originalWrite = process.stdout.write;
+		process.stdout.write = ((chunk: string) => {
+			chunks.push(chunk);
+			return true;
+		}) as typeof process.stdout.write;
+
+		stderrChunks = [];
+		originalStderrWrite = process.stderr.write;
+		process.stderr.write = ((chunk: string) => {
+			stderrChunks.push(chunk);
+			return true;
+		}) as typeof process.stderr.write;
+
+		tempDir = await mkdtemp(join(tmpdir(), "prime-ctx-test-"));
+		const overstoryDir = join(tempDir, ".overstory");
+		await Bun.write(
+			join(overstoryDir, "config.yaml"),
+			`project:\n  name: ctx-test\n  root: ${tempDir}\n  canonicalBranch: main\nmulch:\n  enabled: false\n`,
+		);
+
+		originalCwd = process.cwd();
+		process.chdir(tempDir);
+	});
+
+	afterEach(async () => {
+		process.stdout.write = originalWrite;
+		process.stderr.write = originalStderrWrite;
+		process.chdir(originalCwd);
+		await cleanupTempDir(tempDir);
+	});
+
+	function output(): string {
+		return chunks.join("");
+	}
+
+	async function writeContextCache(): Promise<void> {
+		await Bun.write(
+			join(tempDir, ".overstory", "project-context.json"),
+			JSON.stringify(sampleContextData),
+		);
+	}
+
+	describe("Orchestrator with cached context", () => {
+		test("shows ## Project Context when cache exists", async () => {
+			await writeContextCache();
+			await primeCommand({});
+			expect(output()).toContain("## Project Context");
+			expect(output()).toContain("**Stack:** TypeScript/bun");
+		});
+
+		test("does NOT show Project Context when cache is absent", async () => {
+			await primeCommand({});
+			expect(output()).not.toContain("## Project Context");
+		});
+
+		test("--compact does NOT show Project Context", async () => {
+			await writeContextCache();
+			await primeCommand({ compact: true });
+			expect(output()).not.toContain("## Project Context");
+		});
+
+		test("corrupted cache is silently skipped", async () => {
+			await Bun.write(
+				join(tempDir, ".overstory", "project-context.json"),
+				"{ this is not valid json",
+			);
+			await primeCommand({});
+			expect(output()).toContain("# Overstory Context");
+			expect(output()).not.toContain("## Project Context");
+		});
+
+		// NOTE: context.enabled: false cannot be set via YAML until config-schema.ts adds
+		// 'context' to KNOWN_FIELDS.root. That schema update is outside this builder's
+		// file scope. The logic is tested through loadCachedProjectContext unit tests above.
+	});
+
+	describe("Agent with cached context", () => {
+		async function writeAgentIdentity(agentName: string): Promise<void> {
+			const agentDir = join(tempDir, ".overstory", "agents", agentName);
+			await Bun.write(
+				join(agentDir, "identity.yaml"),
+				`name: ${agentName}\ncapability: builder\ncreated: "2026-01-01T00:00:00Z"\nsessionsCompleted: 0\nexpertiseDomains: []\nrecentTasks: []\n`,
+			);
+		}
+
+		test("shows ## Project Context when cache exists", async () => {
+			await writeAgentIdentity("ctx-agent");
+			await writeContextCache();
+			await primeCommand({ agent: "ctx-agent" });
+			expect(output()).toContain("## Project Context");
+			expect(output()).toContain("**Stack:** TypeScript/bun");
+		});
+
+		test("does NOT show Project Context when cache is absent", async () => {
+			await writeAgentIdentity("no-ctx-agent");
+			await primeCommand({ agent: "no-ctx-agent" });
+			expect(output()).not.toContain("## Project Context");
+		});
+
+		test("--compact does NOT show Project Context", async () => {
+			await writeAgentIdentity("compact-ctx-agent");
+			await writeContextCache();
+			await primeCommand({ agent: "compact-ctx-agent", compact: true });
+			expect(output()).not.toContain("## Project Context");
 		});
 	});
 });

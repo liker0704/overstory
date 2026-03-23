@@ -974,3 +974,48 @@ describe("quality gate placeholders in base definitions", () => {
 		expect(output).not.toContain("{{QUALITY_GATE");
 	});
 });
+
+describe("projectContext in overlay", () => {
+	test("generateOverlay with projectContext includes '## Project Context'", async () => {
+		const config = makeConfig({ projectContext: "**Stack:** TypeScript (bun)" });
+		const output = await generateOverlay(config);
+
+		expect(output).toContain("## Project Context");
+		expect(output).toContain("**Stack:** TypeScript (bun)");
+	});
+
+	test("generateOverlay without projectContext omits Project Context section", async () => {
+		const config = makeConfig();
+		const output = await generateOverlay(config);
+
+		expect(output).not.toContain("## Project Context");
+		expect(output).not.toContain("{{PROJECT_CONTEXT}}");
+	});
+
+	test("generateOverlay with empty string projectContext omits section", async () => {
+		const config = makeConfig({ projectContext: "" });
+		const output = await generateOverlay(config);
+
+		expect(output).not.toContain("## Project Context");
+	});
+
+	test("generateOverlay with whitespace-only projectContext omits section", async () => {
+		const config = makeConfig({ projectContext: "   \n  " });
+		const output = await generateOverlay(config);
+
+		expect(output).not.toContain("## Project Context");
+	});
+
+	test("projectContext appears after Expertise section", async () => {
+		const config = makeConfig({
+			projectContext: "**Stack:** TypeScript",
+			mulchExpertise: "some expertise",
+		});
+		const output = await generateOverlay(config);
+
+		const expertiseIdx = output.indexOf("Pre-loaded Expertise");
+		const contextIdx = output.indexOf("## Project Context");
+		expect(expertiseIdx).toBeGreaterThan(-1);
+		expect(contextIdx).toBeGreaterThan(expertiseIdx);
+	});
+});

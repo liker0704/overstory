@@ -12,6 +12,7 @@ import { loadCheckpoint } from "../agents/checkpoint.ts";
 import { loadIdentity } from "../agents/identity.ts";
 import { createManifestLoader } from "../agents/manifest.ts";
 import { loadConfig } from "../config.ts";
+import type { ProjectContext } from "../context/types.ts";
 import { jsonOutput } from "../json.ts";
 import { printWarning } from "../logging/color.ts";
 import { createMetricsStore } from "../metrics/store.ts";
@@ -20,6 +21,78 @@ import { openSessionStore } from "../sessions/compat.ts";
 import type { AgentIdentity, AgentManifest, SessionCheckpoint, SessionMetrics } from "../types.ts";
 import { getCurrentSessionName } from "../worktree/tmux.ts";
 import { OVERSTORY_GITIGNORE } from "./init.ts";
+
+/**
+ * Load a cached ProjectContext from disk. Returns null if missing, unreadable, or invalid.
+ * Non-fatal: all failures are silently caught.
+ */
+export async function loadCachedProjectContext(
+	projectRoot: string,
+	cachePath: string,
+): Promise<ProjectContext | null> {
+	try {
+		const fullPath = join(projectRoot, cachePath);
+		const file = Bun.file(fullPath);
+		if (!(await file.exists())) return null;
+		const data = JSON.parse(await file.text());
+		if (data && typeof data === "object" && data.version === 1 && data.signals) {
+			return data as ProjectContext;
+		}
+		return null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Render a compact single-paragraph summary of a ProjectContext.
+ * Output is intentionally brief (< 2KB) for injection into overlays and prime output.
+ */
+export function renderCompactContext(ctx: ProjectContext): string {
+	const lines: string[] = [];
+	const s = ctx.signals;
+
+	if (s.languages.length > 0) {
+		const langs = s.languages.map((l) => {
+			let desc = l.language;
+			if (l.framework) desc += `/${l.framework}`;
+			if (l.packageManager) desc += ` (${l.packageManager})`;
+			return desc;
+		});
+		lines.push(`**Stack:** ${langs.join(", ")}`);
+	}
+
+	if (s.directoryProfile.sourceRoots.length > 0) {
+		lines.push(
+			`**Source roots:** ${s.directoryProfile.sourceRoots.map((r) => `\`${r}\``).join(", ")}`,
+		);
+	}
+
+	if (s.testConventions.framework) {
+		lines.push(`**Tests:** ${s.testConventions.framework} (${s.testConventions.filePattern})`);
+	}
+
+	if (s.errorPatterns.baseClass) {
+		lines.push(`**Errors:** extends \`${s.errorPatterns.baseClass}\``);
+	}
+
+	if (s.namingVocabulary.conventions.length > 0) {
+		const conv = s.namingVocabulary.conventions.map((c) => c.description).join(", ");
+		lines.push(`**Naming:** ${conv}`);
+	}
+
+	if (s.importHotspots.length > 0) {
+		const top = s.importHotspots.slice(0, 5).map((h) => `\`${h.module}\` (${h.importCount})`);
+		lines.push(`**Key modules:** ${top.join(", ")}`);
+	}
+
+	if (s.sharedInvariants.length > 0) {
+		const invs = s.sharedInvariants.map((i) => i.description);
+		lines.push(`**Invariants:** ${invs.join("; ")}`);
+	}
+
+	return lines.join("\n");
+}
 
 export interface PrimeOptions {
 	agent?: string;
@@ -259,6 +332,19 @@ async function outputAgentContext(
 		sections.push(expertiseOutput.trim());
 	}
 
+	// Project Context section (skipped in compact mode)
+	if (!compact && config.context?.enabled !== false) {
+		const cachePath = config.context?.cachePath ?? ".overstory/project-context.json";
+		const cached = await loadCachedProjectContext(config.project.root, cachePath);
+		if (cached) {
+			const rendered = renderCompactContext(cached);
+			if (rendered.trim().length > 0) {
+				sections.push("\n## Project Context");
+				sections.push(rendered);
+			}
+		}
+	}
+
 	process.stdout.write(`${sections.join("\n")}\n`);
 }
 
@@ -350,6 +436,19 @@ async function outputOrchestratorContext(
 		if (expertiseOutput !== null) {
 			sections.push("\n## Expertise");
 			sections.push(expertiseOutput.trim());
+		}
+
+		// Project Context section
+		if (config.context?.enabled !== false) {
+			const cachePath = config.context?.cachePath ?? ".overstory/project-context.json";
+			const cached = await loadCachedProjectContext(config.project.root, cachePath);
+			if (cached) {
+				const rendered = renderCompactContext(cached);
+				if (rendered.trim().length > 0) {
+					sections.push("\n## Project Context");
+					sections.push(rendered);
+				}
+			}
 		}
 	}
 
