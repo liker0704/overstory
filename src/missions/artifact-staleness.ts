@@ -263,6 +263,8 @@ export async function computeArtifactStaleness(
 		capturedAt: checkedAt,
 	});
 
-	const overallStatus: ArtifactStatus = results.some((r) => r.status !== "fresh") ? "stale" : "fresh";
+	const overallStatus: ArtifactStatus = results.some((r) => r.status !== "fresh")
+		? "stale"
+		: "fresh";
 	return { missionDir, results, overallStatus, checkedAt };
 }
