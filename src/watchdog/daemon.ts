@@ -20,6 +20,7 @@
  * truth. See health.ts for the full ZFC documentation.
  */
 
+import { existsSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { nudgeAgent } from "../commands/nudge.ts";
 import { createEventStore } from "../events/store.ts";
@@ -34,6 +35,9 @@ import { createHeadroomStore } from "../headroom/store.ts";
 import { evaluateThrottlePolicy } from "../headroom/throttle.ts";
 import type { ThrottlePolicy } from "../headroom/throttle-types.ts";
 import type { HeadroomConfig, HeadroomStore } from "../headroom/types.ts";
+import { runPolicyEvaluation } from "../health/policy/orchestrator.ts";
+import { computeScore } from "../health/score.ts";
+import { collectSignals } from "../health/signals.ts";
 import { sanitize } from "../logging/sanitizer.ts";
 import { createMailClient } from "../mail/client.ts";
 import { createMailStore, type MailStore } from "../mail/store.ts";
@@ -45,7 +49,13 @@ import { getConnection, removeConnection } from "../runtimes/connections.ts";
 import { getRuntime } from "../runtimes/registry.ts";
 import type { RateLimitState, RuntimeConnection } from "../runtimes/types.ts";
 import { openSessionStore } from "../sessions/compat.ts";
-import type { AgentSession, EventStore, HealthCheck, OverstoryConfig } from "../types.ts";
+import type {
+	AgentSession,
+	EventStore,
+	HealthCheck,
+	MailMessage,
+	OverstoryConfig,
+} from "../types.ts";
 import { cleanupWorktreeForRespawn } from "../worktree/cleanup.ts";
 import {
 	capturePaneContent,
@@ -675,6 +685,30 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 			ownHeadroomStore = true;
 		} catch {
 			// Non-fatal: headroom features disabled for this tick
+		}
+	}
+
+	// Stale spawn-paused sentinel cleanup on daemon tick
+	if (options.config?.healthPolicy?.enabled) {
+		try {
+			const sentinelPath = join(overstoryDir, "spawn-paused");
+			if (existsSync(sentinelPath)) {
+				const maxPauseMs = options.config.healthPolicy.maxPauseDurationMs;
+				const stat = statSync(sentinelPath);
+				const age = Date.now() - stat.mtimeMs;
+				if (age > maxPauseMs) {
+					unlinkSync(sentinelPath);
+					recordEvent(eventStore, {
+						runId,
+						agentName: "watchdog",
+						eventType: "custom",
+						level: "info",
+						data: { type: "stale_sentinel_cleaned", ageMs: age, maxPauseMs },
+					});
+				}
+			}
+		} catch {
+			// Non-fatal: sentinel cleanup failure doesn't block the tick
 		}
 	}
 
@@ -1333,6 +1367,67 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 				}
 			} catch {
 				// Non-fatal: headroom polling failure doesn't block the tick
+			}
+		}
+
+		// === Health policy evaluation ===
+		if (options.config?.healthPolicy?.enabled) {
+			try {
+				const signals = collectSignals({ overstoryDir });
+				const score = computeScore(signals);
+				const policyResult = await runPolicyEvaluation({
+					overstoryDir,
+					config: options.config,
+					score,
+					history: [],
+					mailSend: (to, subject, body, type, _payload) => {
+						try {
+							const policyMailStore = createMailStore(join(overstoryDir, "mail.db"));
+							const mc = createMailClient(policyMailStore);
+							mc.send({
+								from: "watchdog",
+								to,
+								subject,
+								body,
+								type: type as MailMessage["type"],
+								priority: "normal",
+							});
+							policyMailStore.close();
+						} catch {
+							// Non-fatal
+						}
+					},
+					logEvent: (eventType, data) => {
+						recordEvent(eventStore, {
+							runId,
+							agentName: "watchdog",
+							eventType: eventType as "custom",
+							level: "info",
+							data,
+						});
+					},
+				});
+				if (policyResult && eventStore) {
+					for (const evaluation of policyResult.evaluations) {
+						if (evaluation.triggered) {
+							recordEvent(eventStore, {
+								runId,
+								agentName: "watchdog",
+								eventType: "custom",
+								level: "info",
+								data: {
+									type: "health_action",
+									ruleId: evaluation.rule.id,
+									action: evaluation.rule.action,
+									suppressed: evaluation.suppressed,
+									dryRun: evaluation.dryRun,
+								},
+							});
+						}
+					}
+				}
+			} catch {
+				// Error boundary: policy evaluation must never crash the daemon
 			}
 		}
 	} finally {

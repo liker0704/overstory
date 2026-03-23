@@ -15,6 +15,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { existsSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -3227,6 +3228,169 @@ describe("resilience engine integration", () => {
 			}
 		} finally {
 			resilienceStore.close();
+		}
+	});
+});
+
+describe("health policy integration", () => {
+	const HEALTH_POLICY_CONFIG: NonNullable<OverstoryConfig["healthPolicy"]> = {
+		enabled: true,
+		dryRun: true,
+		rules: [
+			{
+				id: "test-rule",
+				action: "pause_spawning",
+				condition: { grade: "F", operator: "lte" },
+				cooldownMs: 0,
+				priority: "low",
+			},
+		],
+		defaultCooldownMs: 600_000,
+		evaluationIntervalMs: 0,
+		maxPauseDurationMs: 300_000,
+	};
+
+	const BASE_POLICY_CONFIG: OverstoryConfig = {
+		project: { name: "test", root: "/tmp/test", canonicalBranch: "main" },
+		agents: {
+			manifestPath: "",
+			baseDir: "",
+			maxConcurrent: 10,
+			staggerDelayMs: 0,
+			maxDepth: 2,
+			maxSessionsPerRun: 0,
+			maxAgentsPerLead: 0,
+		},
+		worktrees: { baseDir: "" },
+		taskTracker: { backend: "auto", enabled: false },
+		mulch: { enabled: false, domains: [], primeFormat: "markdown" },
+		merge: { aiResolveEnabled: false, reimagineEnabled: false },
+		providers: {},
+		watchdog: {
+			tier0Enabled: true,
+			tier0IntervalMs: 30_000,
+			tier1Enabled: false,
+			tier2Enabled: false,
+			staleThresholdMs: 30_000,
+			zombieThresholdMs: 120_000,
+			nudgeIntervalMs: 60_000,
+		},
+		models: {},
+		logging: { verbose: false, redactSecrets: false },
+		healthPolicy: HEALTH_POLICY_CONFIG,
+	};
+
+	test("policy evaluation fires when enabled without crashing tick", async () => {
+		const eventStore = createEventStore(":memory:");
+		try {
+			await runDaemonTick({
+				root: tempRoot,
+				...THRESHOLDS,
+				config: BASE_POLICY_CONFIG,
+				_tmux: tmuxAllAlive(),
+				_recordFailure: async () => {},
+				_nudge: async () => ({ delivered: true }),
+				_getConnection: () => undefined,
+				_capturePaneContent: async () => null,
+				_eventStore: eventStore,
+			});
+			// Tick must complete without throwing
+			expect(true).toBe(true);
+		} finally {
+			eventStore.close();
+		}
+	});
+
+	test("policy evaluation skipped when healthPolicy is absent", async () => {
+		const eventStore = createEventStore(":memory:");
+		try {
+			const config: OverstoryConfig = { ...BASE_POLICY_CONFIG, healthPolicy: undefined };
+			await runDaemonTick({
+				root: tempRoot,
+				...THRESHOLDS,
+				config,
+				_tmux: tmuxAllAlive(),
+				_recordFailure: async () => {},
+				_nudge: async () => ({ delivered: true }),
+				_getConnection: () => undefined,
+				_capturePaneContent: async () => null,
+				_eventStore: eventStore,
+			});
+			const events = eventStore.getByAgent("watchdog");
+			const healthActionEvents = events.filter((e) => {
+				try {
+					const d = JSON.parse(e.data ?? "{}") as { type?: string };
+					return d.type === "health_action";
+				} catch {
+					return false;
+				}
+			});
+			expect(healthActionEvents.length).toBe(0);
+		} finally {
+			eventStore.close();
+		}
+	});
+
+	test("error in policy evaluation does not crash tick", async () => {
+		const eventStore = createEventStore(":memory:");
+		try {
+			const config: OverstoryConfig = {
+				...BASE_POLICY_CONFIG,
+				healthPolicy: {
+					enabled: true,
+					dryRun: false,
+					// null rule causes internal throw to verify error boundary
+					rules: [null] as unknown as NonNullable<OverstoryConfig["healthPolicy"]>["rules"],
+					defaultCooldownMs: 600_000,
+					evaluationIntervalMs: 0,
+					maxPauseDurationMs: 300_000,
+				},
+			};
+			await runDaemonTick({
+				root: tempRoot,
+				...THRESHOLDS,
+				config,
+				_tmux: tmuxAllAlive(),
+				_recordFailure: async () => {},
+				_nudge: async () => ({ delivered: true }),
+				_getConnection: () => undefined,
+				_capturePaneContent: async () => null,
+				_eventStore: eventStore,
+			});
+			// Tick must complete without throwing despite internal policy error
+			expect(true).toBe(true);
+		} finally {
+			eventStore.close();
+		}
+	});
+
+	test("stale spawn-paused sentinel is cleaned on tick", async () => {
+		const sentinelPath = join(tempRoot, ".overstory", "spawn-paused");
+		writeFileSync(sentinelPath, "");
+
+		const eventStore = createEventStore(":memory:");
+		try {
+			const config: OverstoryConfig = {
+				...BASE_POLICY_CONFIG,
+				healthPolicy: {
+					...HEALTH_POLICY_CONFIG,
+					maxPauseDurationMs: 0, // any age exceeds 0ms
+				},
+			};
+			await runDaemonTick({
+				root: tempRoot,
+				...THRESHOLDS,
+				config,
+				_tmux: tmuxAllAlive(),
+				_recordFailure: async () => {},
+				_nudge: async () => ({ delivered: true }),
+				_getConnection: () => undefined,
+				_capturePaneContent: async () => null,
+				_eventStore: eventStore,
+			});
+			expect(existsSync(sentinelPath)).toBe(false);
+		} finally {
+			eventStore.close();
 		}
 	});
 });
