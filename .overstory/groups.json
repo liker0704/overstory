@@ -1304,8 +1304,19 @@
 		"memberIssueIds": [
 			"overstory-4bd2"
 		],
-		"status": "active",
+		"status": "completed",
 		"createdAt": "2026-03-23T21:29:40.487Z",
+		"completedAt": "2026-03-23T21:56:00.810Z"
+	},
+	{
+		"id": "group-a67e2fb9",
+		"name": "holistic-context-batch-2",
+		"memberIssueIds": [
+			"overstory-b39e",
+			"overstory-37d0"
+		],
+		"status": "active",
+		"createdAt": "2026-03-23T21:59:43.909Z",
 		"completedAt": null
 	}
 ]
