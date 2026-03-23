@@ -27,5 +27,9 @@ export function classifySpecMeta(meta: { status: SpecMetaStatus } | null): Artif
 			return "stale";
 		case "superseded":
 			return "superseded";
+		case "unscored":
+			return "unscored";
+		case "under-target":
+			return "under-target";
 	}
 }
