@@ -7,7 +7,7 @@ config_overrides:
     strictMode: true
 
 startup_actions:
-  - command: bash evals/semantic-conflict/setup-branches.sh create-branch-a
+  - command: bash setup-branches.sh create-branch-a
     description: "Create branch A that removes email from User interface"
-  - command: bash evals/semantic-conflict/setup-branches.sh create-branch-b
+  - command: bash setup-branches.sh create-branch-b
     description: "Create branch B that adds notifyUser reading user.email"
