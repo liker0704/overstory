@@ -1147,5 +1147,17 @@
 		"status": "active",
 		"createdAt": "2026-03-23T00:59:48.434Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-514b80b2",
+		"name": "wave-2-migrations",
+		"memberIssueIds": [
+			"overstory-b07e",
+			"overstory-9d0e",
+			"overstory-d421"
+		],
+		"status": "active",
+		"createdAt": "2026-03-23T01:08:48.760Z",
+		"completedAt": null
 	}
 ]
