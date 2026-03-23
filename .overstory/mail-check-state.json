@@ -1,10 +1,10 @@
 {
 	"status-health-builder": 1774230145503,
-	"execution-director": 1774298751408,
+	"execution-director": 1774299394835,
 	"cli-surfaces-lead": 1774230229335,
 	"review-builder": 1774230104640,
 	"coordinator": 1774295137034,
-	"mission-analyst": 1774298459848,
+	"mission-analyst": 1774299395392,
 	"plan-review-lead": 1774295040614,
 	"plan-devil-advocate": 1774294935016,
 	"plan-second-opinion": 1774293715193,
@@ -71,9 +71,12 @@
 	"compat-gate-builder": 1774297623573,
 	"review-compat-gate": 1774297888004,
 	"compat-reroute-lead": 1774298738546,
-	"compat-eval-lead": 1774298755934,
+	"compat-eval-lead": 1774299394529,
 	"build-notify-b813": 1774298362940,
 	"compat-eval-builder": 1774298590662,
 	"review-notify-b813": 1774298624179,
-	"review-compat-eval": 1774298746563
+	"review-compat-eval": 1774298856552,
+	"compat-eval-fixer": 1774299168635,
+	"review-compat-eval-v2": 1774299226686,
+	"review-eval-v2": 1774299375821
 }
