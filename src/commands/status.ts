@@ -18,10 +18,14 @@ import { renderHeader } from "../logging/theme.ts";
 import { createMailStore } from "../mail/store.ts";
 import { createMergeQueue } from "../merge/queue.ts";
 import { createMetricsStore } from "../metrics/store.ts";
+import { computeArtifactStaleness } from "../missions/artifact-staleness.ts";
 import type { MissionRoleStates } from "../missions/runtime-context.ts";
 import { resolveMissionRoleStates } from "../missions/runtime-context.ts";
+import { listSpecMeta } from "../missions/spec-meta.ts";
 import { createMissionStore } from "../missions/store.ts";
 import { createResilienceStore } from "../resilience/store.ts";
+import { createReviewStore } from "../review/store.ts";
+import type { ReviewSubjectType } from "../review/types.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import type { AgentSession, Mission } from "../types.ts";
 import { evaluateHealth } from "../watchdog/health.ts";
@@ -95,6 +99,18 @@ export interface StatusData {
 	verboseDetails?: Record<string, VerboseAgentDetail>;
 	mission?: Mission | null;
 	missionRoles?: MissionRoleStates | null;
+	artifactStatus?: {
+		missionArtifacts: Array<{ type: string; status: string }>;
+		reviews: { total: number; fresh: number; stale: number; underTarget: number; unscored: number };
+		specs: {
+			total: number;
+			current: number;
+			stale: number;
+			superseded: number;
+			unscored: number;
+			underTarget: number;
+		};
+	};
 	resilience?: {
 		openBreakers: Array<{ capability: string; since: string | null; failureCount: number }>;
 		activeRetries: Array<{ taskId: string; attempt: number; startedAt: string }>;
@@ -264,6 +280,71 @@ export async function gatherStatus(
 			// mission store unavailable
 		}
 
+		let artifactStatus: StatusData["artifactStatus"];
+		if (mission) {
+			try {
+				const missionDir = mission.artifactRoot ?? join(overstoryDir, "missions", mission.id);
+				const stalenessReport = await computeArtifactStaleness(missionDir);
+				const missionArtifacts = stalenessReport.results.map((r) => ({
+					type: r.artifactType as string,
+					status: r.status as string,
+				}));
+
+				let reviews = { total: 0, fresh: 0, stale: 0, underTarget: 0, unscored: 0 };
+				const reviewDbPath = join(overstoryDir, "reviews.db");
+				const reviewDbFile = Bun.file(reviewDbPath);
+				if (await reviewDbFile.exists()) {
+					const reviewStore = createReviewStore(reviewDbPath);
+					try {
+						const subjectTypes: ReviewSubjectType[] = ["session", "handoff", "spec", "mission"];
+						let total = 0;
+						let fresh = 0;
+						let staleCount = 0;
+						let underTarget = 0;
+						let unscored = 0;
+						for (const type of subjectTypes) {
+							for (const rec of reviewStore.getByType(type)) {
+								total++;
+								if (rec.artifactStatus === "fresh") fresh++;
+								else if (rec.artifactStatus === "stale") staleCount++;
+								else if (rec.artifactStatus === "under-target") underTarget++;
+								else if (rec.artifactStatus === "unscored") unscored++;
+							}
+						}
+						reviews = { total, fresh, stale: staleCount, underTarget, unscored };
+					} finally {
+						reviewStore.close();
+					}
+				}
+
+				const specMetas = await listSpecMeta(root);
+				let specCurrent = 0;
+				let specStale = 0;
+				let specSuperseded = 0;
+				let specUnscored = 0;
+				let specUnderTarget = 0;
+				for (const s of specMetas) {
+					if (s.status === "current") specCurrent++;
+					else if (s.status === "stale") specStale++;
+					else if (s.status === "superseded") specSuperseded++;
+					else if (s.status === "unscored") specUnscored++;
+					else if (s.status === "under-target") specUnderTarget++;
+				}
+				const specs = {
+					total: specMetas.length,
+					current: specCurrent,
+					stale: specStale,
+					superseded: specSuperseded,
+					unscored: specUnscored,
+					underTarget: specUnderTarget,
+				};
+
+				artifactStatus = { missionArtifacts, reviews, specs };
+			} catch {
+				// artifact status unavailable
+			}
+		}
+
 		let resilience: StatusData["resilience"];
 		try {
 			const resilienceDbPath = join(root, ".overstory", "resilience.db");
@@ -317,6 +398,7 @@ export async function gatherStatus(
 			verboseDetails,
 			mission,
 			missionRoles,
+			artifactStatus,
 			resilience,
 			headroom,
 		};
@@ -373,6 +455,42 @@ export function printStatus(data: StatusData): void {
 		w(`   Coordinator:  ${roles?.coordinator ?? "unknown"}\n`);
 		w(`   Analyst:      ${roles?.analyst ?? "unknown"}\n`);
 		w(`   Exec Dir:     ${roles?.executionDirector ?? "unknown"}\n`);
+		w("\n");
+	}
+
+	// Artifact status (only when mission is active)
+	if (data.artifactStatus) {
+		const as = data.artifactStatus;
+		w("Artifacts:\n");
+		if (as.missionArtifacts.length > 0) {
+			w("  Mission:\n");
+			for (const a of as.missionArtifacts) {
+				const statusColor =
+					a.status === "fresh"
+						? color.green
+						: a.status === "stale"
+							? color.yellow
+							: a.status === "under-target"
+								? color.red
+								: (s: string) => s;
+				w(`    ${a.type}: ${statusColor(a.status)}\n`);
+			}
+		}
+		const r = as.reviews;
+		const reviewParts: string[] = [];
+		if (r.fresh > 0) reviewParts.push(color.green(`${r.fresh} fresh`));
+		if (r.stale > 0) reviewParts.push(color.yellow(`${r.stale} stale`));
+		if (r.underTarget > 0) reviewParts.push(color.red(`${r.underTarget} under-target`));
+		if (r.unscored > 0) reviewParts.push(`${r.unscored} unscored`);
+		w(`  Reviews: ${r.total}${reviewParts.length > 0 ? ` (${reviewParts.join(", ")})` : ""}\n`);
+		const s = as.specs;
+		const specParts: string[] = [];
+		if (s.current > 0) specParts.push(color.green(`${s.current} current`));
+		if (s.stale > 0) specParts.push(color.yellow(`${s.stale} stale`));
+		if (s.superseded > 0) specParts.push(`${s.superseded} superseded`);
+		if (s.underTarget > 0) specParts.push(color.red(`${s.underTarget} under-target`));
+		if (s.unscored > 0) specParts.push(`${s.unscored} unscored`);
+		w(`  Specs: ${s.total}${specParts.length > 0 ? ` (${specParts.join(", ")})` : ""}\n`);
 		w("\n");
 	}
 

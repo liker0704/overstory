@@ -16,6 +16,7 @@ import { computeScore } from "../health/score.ts";
 import { collectSignals } from "../health/signals.ts";
 import type { HealthSnapshot } from "../health/types.ts";
 import { jsonError, jsonOutput } from "../json.ts";
+import { computeArtifactStaleness } from "../missions/artifact-staleness.ts";
 import type { MissionScore } from "../missions/score.ts";
 import { computeMissionScore } from "../missions/score.ts";
 import { createMissionStore } from "../missions/store.ts";
@@ -68,6 +69,15 @@ export async function executeHealth(opts: HealthOptions): Promise<void> {
 	const recommendation = selectRecommendations(score)[0] ?? null;
 
 	let missionScore: MissionScore | null = null;
+	let artifactStaleness:
+		| {
+				totalArtifacts: number;
+				freshCount: number;
+				staleCount: number;
+				unscoredCount: number;
+				freshnessPercent: number;
+		  }
+		| undefined;
 	const sessionsDb = join(overstoryDir, "sessions.db");
 	if (existsSync(sessionsDb)) {
 		const missionStore = createMissionStore(sessionsDb);
@@ -75,6 +85,25 @@ export async function executeHealth(opts: HealthOptions): Promise<void> {
 			const active = missionStore.getActive();
 			if (active) {
 				missionScore = computeMissionScore(overstoryDir, active);
+				try {
+					const missionDir = active.artifactRoot ?? join(overstoryDir, "missions", active.id);
+					const report = await computeArtifactStaleness(missionDir);
+					const totalArtifacts = report.results.length;
+					const freshCount = report.results.filter((r) => r.status === "fresh").length;
+					const staleCount = report.results.filter((r) => r.status === "stale").length;
+					const unscoredCount = report.results.filter((r) => r.status === "unscored").length;
+					const freshnessPercent =
+						totalArtifacts > 0 ? Math.round((freshCount / totalArtifacts) * 100) : 100;
+					artifactStaleness = {
+						totalArtifacts,
+						freshCount,
+						staleCount,
+						unscoredCount,
+						freshnessPercent,
+					};
+				} catch {
+					// artifact staleness unavailable
+				}
 			}
 		} finally {
 			missionStore.close();
@@ -117,6 +146,9 @@ export async function executeHealth(opts: HealthOptions): Promise<void> {
 		}
 		if (missionScore) {
 			out.missionScore = missionScore;
+		}
+		if (artifactStaleness !== undefined) {
+			out.artifactStaleness = artifactStaleness;
 		}
 		jsonOutput("health", out);
 		return;
