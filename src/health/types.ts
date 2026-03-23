@@ -145,6 +145,22 @@ export interface HealthRecommendation {
 	priority: "low" | "medium" | "high" | "critical";
 	/** Key of the HealthFactor that triggered this recommendation. */
 	factor: string;
+	/** Estimated improvement to overall score if addressed: (100 - factor.score) × factor.weight */
+	estimatedImpact?: number;
+	/** Human-readable explanation of ranking position */
+	rankReason?: string;
+}
+
+/** Context passed to recommendation sources for scoped recommendations */
+export interface RecommendationContext {
+	runId?: string;
+	missionId?: string;
+}
+
+/** Interface for pluggable recommendation sources */
+export interface RecommendationSource {
+	name: string;
+	collect(score: HealthScore, context?: RecommendationContext): HealthRecommendation[];
 }
 
 // === Snapshot ===

@@ -1,20 +1,25 @@
 /**
  * Health recommendation engine.
  *
- * Selects the single highest-priority improvement recommendation based on
- * the computed HealthScore. Rules are deterministic and require no LLM.
+ * selectRecommendations() returns all matching recommendations ranked by
+ * estimated impact. selectRecommendation() is a backward-compatible wrapper
+ * that returns the top result.
  *
  * Selection strategy
  * ------------------
- * Each factor has a rule that fires when the factor score falls below a
- * threshold. Rules are sorted by: priority descending, then by weighted
- * contribution ascending (most impactful low-scoring factor wins).
- *
- * If no factor breaches its threshold, selectRecommendation returns null
- * (the swarm is operating well and no specific improvement is urgent).
+ * Each factor has rules that fire when the factor score falls below a
+ * threshold. Per-factor deduplication keeps only the highest-priority rule
+ * per factor. Surviving candidates are sorted by estimatedImpact descending,
+ * with priority as a tiebreaker.
  */
 
-import type { HealthFactor, HealthRecommendation, HealthScore } from "./types.ts";
+import type {
+	HealthFactor,
+	HealthRecommendation,
+	HealthScore,
+	RecommendationContext,
+	RecommendationSource,
+} from "./types.ts";
 
 /** Priority ordering for sorting. */
 const PRIORITY_ORDER: Record<HealthRecommendation["priority"], number> = {
@@ -169,22 +174,6 @@ const RULES: RecommendationRule[] = [
 		}),
 	},
 
-	// --- headroom ---
-	{
-		factor: "headroom",
-		threshold: 50,
-		priority: "high",
-		build: (f) => ({
-			title: "Address critically low API quota headroom",
-			whyNow: `${f.details}. Critically low quota headroom will cause agent spawn failures and rate limiting.`,
-			expectedImpact: "Prevent agent failures from API rate limits and ensure continued operation.",
-			action:
-				"Reduce concurrent agents or wait for rate-limit window reset. Check `ov status` for per-runtime headroom details.",
-			verificationStep:
-				"Run `ov status` and confirm headroom percentages have recovered. Re-run `ov health`.",
-		}),
-	},
-
 	// --- resilience ---
 	{
 		factor: "resilience",
@@ -203,49 +192,107 @@ const RULES: RecommendationRule[] = [
 ];
 
 /**
+ * Pluggable recommendation source backed by the static RULES array.
+ *
+ * Returns all recommendations whose factor score falls below the rule
+ * threshold. Per-factor deduplication and impact scoring are handled
+ * by selectRecommendations() after collecting.
+ */
+export const factorRuleSource: RecommendationSource = {
+	name: "factor-rules",
+	collect(score: HealthScore): HealthRecommendation[] {
+		const factorMap = new Map<string, HealthFactor>(score.factors.map((f) => [f.name, f]));
+		const results: HealthRecommendation[] = [];
+
+		for (const rule of RULES) {
+			const factor = factorMap.get(rule.factor);
+			if (factor === undefined) continue;
+			if (factor.score < rule.threshold) {
+				const built = rule.build(factor);
+				results.push({
+					...built,
+					priority: rule.priority,
+					factor: rule.factor,
+				});
+			}
+		}
+
+		return results;
+	},
+};
+
+/**
+ * Select all matching recommendations from a HealthScore, ranked by estimated impact.
+ *
+ * Multiple rules may fire for the same factor (e.g. doctor_failures has both
+ * critical and medium thresholds). Per-factor deduplication keeps only the
+ * highest-priority rule. Survivors are sorted by estimatedImpact descending,
+ * with priority as a tiebreaker. Returns an empty array when all factors are healthy.
+ *
+ * @param score        A computed HealthScore from computeScore().
+ * @param context      Optional scoping context (runId, missionId).
+ * @param extraSources Additional recommendation sources to collect from.
+ */
+export function selectRecommendations(
+	score: HealthScore,
+	context?: RecommendationContext,
+	extraSources?: RecommendationSource[],
+): HealthRecommendation[] {
+	const factorMap = new Map<string, HealthFactor>(score.factors.map((f) => [f.name, f]));
+
+	// Collect from all sources
+	const allSources: RecommendationSource[] = [factorRuleSource, ...(extraSources ?? [])];
+	const allRecs: HealthRecommendation[] = [];
+	for (const source of allSources) {
+		allRecs.push(...source.collect(score, context));
+	}
+
+	// Deduplicate per-factor: keep highest-priority rule per factor
+	const byFactor = new Map<string, HealthRecommendation>();
+	for (const rec of allRecs) {
+		const existing = byFactor.get(rec.factor);
+		if (
+			existing === undefined ||
+			PRIORITY_ORDER[rec.priority] > PRIORITY_ORDER[existing.priority]
+		) {
+			byFactor.set(rec.factor, rec);
+		}
+	}
+
+	// Compute estimatedImpact for each survivor
+	const candidates: HealthRecommendation[] = [];
+	for (const rec of byFactor.values()) {
+		const factor = factorMap.get(rec.factor);
+		const estimatedImpact = factor !== undefined ? (100 - factor.score) * factor.weight : 0;
+		candidates.push({ ...rec, estimatedImpact });
+	}
+
+	// Sort by estimatedImpact desc, then priority desc as tiebreaker
+	candidates.sort((a, b) => {
+		const impactDiff = (b.estimatedImpact ?? 0) - (a.estimatedImpact ?? 0);
+		if (impactDiff !== 0) return impactDiff;
+		return PRIORITY_ORDER[b.priority] - PRIORITY_ORDER[a.priority];
+	});
+
+	// Assign rankReason
+	return candidates.map((rec, idx) => ({
+		...rec,
+		rankReason:
+			idx === 0
+				? "Highest estimated impact on overall score"
+				: `Ranked #${idx + 1} by estimated impact`,
+	}));
+}
+
+/**
  * Select the single highest-priority recommendation from a HealthScore.
  *
  * Returns null if all factors are healthy (no rule threshold is breached).
+ * Backward-compatible wrapper around selectRecommendations().
  *
  * @param score  A computed HealthScore from computeScore().
  */
 export function selectRecommendation(score: HealthScore): HealthRecommendation | null {
-	const factorMap = new Map<string, HealthFactor>(score.factors.map((f) => [f.name, f]));
-
-	// Collect all fired rules with their associated factor and contribution
-	const candidates: Array<{
-		rule: RecommendationRule;
-		factor: HealthFactor;
-	}> = [];
-
-	for (const rule of RULES) {
-		const factor = factorMap.get(rule.factor);
-		if (factor === undefined) continue;
-		if (factor.score < rule.threshold) {
-			candidates.push({ rule, factor });
-		}
-	}
-
-	if (candidates.length === 0) {
-		return null;
-	}
-
-	// Sort: priority descending, then weighted contribution ascending
-	// (lower contribution = more impactful degradation to fix first)
-	candidates.sort((a, b) => {
-		const priorityDiff = PRIORITY_ORDER[b.rule.priority] - PRIORITY_ORDER[a.rule.priority];
-		if (priorityDiff !== 0) return priorityDiff;
-		return a.factor.contribution - b.factor.contribution;
-	});
-
-	const best = candidates[0];
-	if (best === undefined) return null;
-
-	const built = best.rule.build(best.factor);
-
-	return {
-		...built,
-		priority: best.rule.priority,
-		factor: best.rule.factor,
-	};
+	const all = selectRecommendations(score);
+	return all[0] ?? null;
 }
