@@ -186,7 +186,7 @@ export async function executeContextShow(opts: ContextShowOptions): Promise<void
 	}
 
 	const compact = opts.compact !== false;
-	const rendered = renderContext(cached, { compact: !compact });
+	const rendered = renderContext(cached, { compact });
 	process.stdout.write(`${rendered}\n`);
 }
 

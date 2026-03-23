@@ -16,6 +16,7 @@ import { cleanCommand } from "./commands/clean.ts";
 import { createContextCommand } from "./commands/context.ts";
 import { createCompatCommand } from "./commands/compat.ts";
 import { createCompletionsCommand } from "./commands/completions.ts";
+import { createContextCommand } from "./commands/context.ts";
 import { createCoordinatorCommand } from "./commands/coordinator.ts";
 import { createCostsCommand } from "./commands/costs.ts";
 import { createDashboardCommand } from "./commands/dashboard.ts";
@@ -99,6 +100,7 @@ const COMMANDS = [
 	"inspect",
 	"clean",
 	"doctor",
+	"context",
 	"coordinator",
 	"supervisor",
 	"hooks",
@@ -272,6 +274,7 @@ program.hook("postAction", () => {
 program.addCommand(createAgentsCommand());
 program.addCommand(createAttachCommand());
 program.addCommand(createDoctorCommand());
+program.addCommand(createContextCommand());
 program.addCommand(createCoordinatorCommand());
 program.addCommand(createSupervisorCommand());
 program.addCommand(createHooksCommand());
