@@ -1159,5 +1159,15 @@
 		"status": "active",
 		"createdAt": "2026-03-23T01:08:48.760Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-618f6ef1",
+		"name": "wave-3-surfaces",
+		"memberIssueIds": [
+			"overstory-760c"
+		],
+		"status": "active",
+		"createdAt": "2026-03-23T01:33:44.505Z",
+		"completedAt": null
 	}
 ]
