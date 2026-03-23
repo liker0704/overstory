@@ -13,6 +13,9 @@ domains:
   - recovery
   - worktree
   - dashboard
+  - merge
+  - mail
+  - resilience
 governance:
   max_entries: 100
   warn_entries: 150

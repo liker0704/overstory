@@ -1246,5 +1246,25 @@
 		"status": "active",
 		"createdAt": "2026-03-23T18:34:17.029Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-7d67a8ef",
+		"name": "batch-1-types",
+		"memberIssueIds": [
+			"overstory-0641"
+		],
+		"status": "active",
+		"createdAt": "2026-03-23T19:22:51.289Z",
+		"completedAt": null
+	},
+	{
+		"id": "group-c907016c",
+		"name": "batch-2-extractor",
+		"memberIssueIds": [
+			"overstory-9da7"
+		],
+		"status": "active",
+		"createdAt": "2026-03-23T19:35:04.754Z",
+		"completedAt": null
 	}
 ]
