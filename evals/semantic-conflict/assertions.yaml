@@ -1,0 +1,8 @@
+assertions:
+  - kind: custom
+    label: "Compat gate detected breaking change on branch A"
+    expected: true
+    hookPath: hooks/check-compat-detection.ts
+  - kind: merge_queue_empty
+    label: "Merge queue drained"
+    expected: true

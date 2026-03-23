@@ -1,0 +1,13 @@
+description: "Semantic conflict: two branches merge cleanly but are jointly incompatible due to type surface changes"
+timeout_ms: 300000
+
+config_overrides:
+  compat:
+    enabled: true
+    strictMode: true
+
+startup_actions:
+  - command: bash evals/semantic-conflict/setup-branches.sh create-branch-a
+    description: "Create branch A that removes email from User interface"
+  - command: bash evals/semantic-conflict/setup-branches.sh create-branch-b
+    description: "Create branch B that adds notifyUser reading user.email"

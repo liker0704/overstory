@@ -1,0 +1,5 @@
+compat:
+  enabled: true
+  strictMode: true
+  skipPatterns: []
+  aiThreshold: 5
