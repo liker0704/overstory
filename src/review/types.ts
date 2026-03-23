@@ -4,6 +4,8 @@
  * Self-contained module — all review types live here, not in src/types.ts.
  */
 
+import type { ArtifactStatus } from "../artifact-status/types.ts";
+
 // === Dimension Types ===
 
 /** The six axes along which an artifact is scored. */
@@ -60,6 +62,8 @@ export interface ReviewRecord {
 	staleSince: string | null;
 	/** Human-readable reason for staleness, or null if not stale. */
 	staleReason: string | null;
+	/** Classified artifact status based on score and staleness. */
+	artifactStatus: ArtifactStatus;
 }
 
 /**

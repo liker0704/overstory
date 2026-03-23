@@ -67,11 +67,13 @@ describe("ReviewRecord", () => {
 			stale: false,
 			staleSince: null,
 			staleReason: null,
+			artifactStatus: "fresh",
 		};
 		expect(record.reviewerSource).toBe("deterministic");
 		expect(record.stale).toBe(false);
 		expect(record.staleSince).toBeNull();
 		expect(record.staleReason).toBeNull();
+		expect(record.artifactStatus).toBe("fresh");
 	});
 
 	it("supports stale state", () => {
@@ -87,10 +89,12 @@ describe("ReviewRecord", () => {
 			stale: true,
 			staleSince: "2026-03-11T00:00:00.000Z",
 			staleReason: "Subject files modified since review",
+			artifactStatus: "stale",
 		};
 		expect(record.stale).toBe(true);
 		expect(record.staleSince).toBe("2026-03-11T00:00:00.000Z");
 		expect(record.staleReason).toBe("Subject files modified since review");
+		expect(record.artifactStatus).toBe("stale");
 	});
 });
 

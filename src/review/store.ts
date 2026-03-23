@@ -8,7 +8,9 @@
  */
 
 import { Database } from "bun:sqlite";
-import { ensureMigrations, type Migration, rebuildTable } from "../db/migrate.ts";
+import { classifyReviewRecord } from "../artifact-status/classify.ts";
+import type { ArtifactStatus } from "../artifact-status/types.ts";
+import { ensureMigrations, hasColumn, type Migration, rebuildTable } from "../db/migrate.ts";
 import type {
 	DimensionScore,
 	InsertReviewRecord,
@@ -45,6 +47,7 @@ interface ReviewRow {
 	stale: number;
 	stale_since: string | null;
 	stale_reason: string | null;
+	artifact_status: string;
 }
 
 interface StalenessStateRow {
@@ -68,6 +71,7 @@ function rowToReview(row: ReviewRow): ReviewRecord {
 		stale: row.stale === 1,
 		staleSince: row.stale_since,
 		staleReason: row.stale_reason,
+		artifactStatus: row.artifact_status as ArtifactStatus,
 	};
 }
 
@@ -85,7 +89,8 @@ CREATE TABLE IF NOT EXISTS reviews (
   reviewer_source TEXT NOT NULL DEFAULT 'deterministic',
   stale INTEGER NOT NULL DEFAULT 0,
   stale_since TEXT,
-  stale_reason TEXT
+  stale_reason TEXT,
+  artifact_status TEXT NOT NULL DEFAULT 'fresh'
 )`;
 
 /** Migrations for the reviews store. */
@@ -129,6 +134,15 @@ const REVIEW_MIGRATIONS: Migration[] = [
 				.get({});
 			return !!row && row.sql.includes("'mission'");
 		},
+	},
+	{
+		version: 2,
+		description: "add artifact_status column",
+		up: (db) => {
+			if (hasColumn(db, "reviews", "artifact_status")) return;
+			db.exec("ALTER TABLE reviews ADD COLUMN artifact_status TEXT NOT NULL DEFAULT 'fresh'");
+		},
+		detect: (db) => hasColumn(db, "reviews", "artifact_status"),
 	},
 ];
 
@@ -176,12 +190,13 @@ export function createReviewStore(dbPath: string): ReviewStore {
 			$overall_score: number;
 			$notes: string;
 			$reviewer_source: string;
+			$artifact_status: string;
 		}
 	>(`
 		INSERT INTO reviews
-			(id, subject_type, subject_id, timestamp, dimensions, overall_score, notes, reviewer_source)
+			(id, subject_type, subject_id, timestamp, dimensions, overall_score, notes, reviewer_source, artifact_status)
 		VALUES
-			($id, $subject_type, $subject_id, $timestamp, $dimensions, $overall_score, $notes, $reviewer_source)
+			($id, $subject_type, $subject_id, $timestamp, $dimensions, $overall_score, $notes, $reviewer_source, $artifact_status)
 	`);
 
 	const getByIdStmt = db.prepare<ReviewRow, { $id: string }>(`
@@ -197,7 +212,7 @@ export function createReviewStore(dbPath: string): ReviewStore {
 		{ $id: string; $stale_since: string; $stale_reason: string }
 	>(`
 		UPDATE reviews
-		SET stale = 1, stale_since = $stale_since, stale_reason = $stale_reason
+		SET stale = 1, stale_since = $stale_since, stale_reason = $stale_reason, artifact_status = 'stale'
 		WHERE id = $id
 	`);
 
@@ -217,6 +232,10 @@ export function createReviewStore(dbPath: string): ReviewStore {
 		insert(record: InsertReviewRecord): ReviewRecord {
 			const id = crypto.randomUUID();
 			const timestamp = new Date().toISOString();
+			const artifactStatus = classifyReviewRecord({
+				stale: false,
+				overallScore: record.overallScore,
+			});
 			insertStmt.run({
 				$id: id,
 				$subject_type: record.subjectType,
@@ -226,6 +245,7 @@ export function createReviewStore(dbPath: string): ReviewStore {
 				$overall_score: record.overallScore,
 				$notes: JSON.stringify(record.notes),
 				$reviewer_source: record.reviewerSource,
+				$artifact_status: artifactStatus,
 			});
 			return {
 				id,
@@ -239,6 +259,7 @@ export function createReviewStore(dbPath: string): ReviewStore {
 				stale: false,
 				staleSince: null,
 				staleReason: null,
+				artifactStatus,
 			};
 		},
 
@@ -277,7 +298,7 @@ export function createReviewStore(dbPath: string): ReviewStore {
 			const result = db
 				.prepare<void, { $subject_type: string; $stale_since: string; $stale_reason: string }>(`
 					UPDATE reviews
-					SET stale = 1, stale_since = $stale_since, stale_reason = $stale_reason
+					SET stale = 1, stale_since = $stale_since, stale_reason = $stale_reason, artifact_status = 'stale'
 					WHERE subject_type = $subject_type AND stale = 0
 				`)
 				.run({ $subject_type: subjectType, $stale_since: staleSince, $stale_reason: reason });

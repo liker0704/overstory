@@ -59,6 +59,21 @@ describe("ReviewStore", () => {
 		expect(record.timestamp).toBeString();
 	});
 
+	test("insert assigns artifactStatus fresh for score >= 70", () => {
+		const record = store.insert(makeInsert({ overallScore: 80 }));
+		expect(record.artifactStatus).toBe("fresh");
+	});
+
+	test("insert assigns artifactStatus under-target for score < 70", () => {
+		const record = store.insert(makeInsert({ overallScore: 60 }));
+		expect(record.artifactStatus).toBe("under-target");
+	});
+
+	test("insert assigns artifactStatus fresh for score exactly 70", () => {
+		const record = store.insert(makeInsert({ overallScore: 70 }));
+		expect(record.artifactStatus).toBe("fresh");
+	});
+
 	test("insert generates unique ids for each record", () => {
 		const a = store.insert(makeInsert());
 		const b = store.insert(makeInsert());
@@ -73,6 +88,12 @@ describe("ReviewStore", () => {
 		expect(found).not.toBeNull();
 		expect(found?.id).toBe(inserted.id);
 		expect(found?.subjectId).toBe("agent-foo");
+	});
+
+	test("getById returns artifactStatus field", () => {
+		const inserted = store.insert(makeInsert({ overallScore: 80 }));
+		const found = store.getById(inserted.id);
+		expect(found?.artifactStatus).toBe("fresh");
 	});
 
 	test("getById returns null for unknown id", () => {
@@ -238,6 +259,22 @@ describe("ReviewStore", () => {
 		expect(loaded?.stale).toBe(true);
 		expect(loaded?.staleReason).toBe("specific reason");
 		expect(loaded?.staleSince).toBeString();
+	});
+
+	test("markStale sets artifactStatus to stale", () => {
+		const a = store.insert(makeInsert({ subjectType: "session", overallScore: 80 }));
+		store.markStale("session", "changed");
+
+		const loaded = store.getById(a.id);
+		expect(loaded?.artifactStatus).toBe("stale");
+	});
+
+	test("markStaleById sets artifactStatus to stale", () => {
+		const a = store.insert(makeInsert({ overallScore: 90 }));
+		store.markStaleById(a.id, "stale reason");
+
+		const loaded = store.getById(a.id);
+		expect(loaded?.artifactStatus).toBe("stale");
 	});
 
 	// --- getSummary ---
