@@ -169,6 +169,49 @@ describe("validateCurrentMissionSpec", () => {
 		expect(result.taskId).toBe("task-001");
 		expect(result.reason).toBeNull();
 	});
+
+	test("fails when spec metadata is superseded", async () => {
+		const specPath = join(tempDir, ".overstory", "specs", "task-001.md");
+		await mkdir(join(tempDir, ".overstory", "specs"), { recursive: true });
+		await Bun.write(specPath, "# Spec\n");
+		const currentRevision = await computeBriefRevision(briefPath);
+		await writeSpecMeta(tempDir, "task-001", {
+			taskId: "task-001",
+			workstreamId: "ws-auth",
+			briefPath: normalizeTrackedPath(tempDir, briefPath),
+			briefRevision: currentRevision,
+			specRevision: "spec-revision",
+			status: "superseded",
+			generatedAt: "2026-03-13T00:00:00.000Z",
+			generatedBy: "lead-auth",
+		});
+
+		const result = await validateCurrentMissionSpec(tempDir, specPath);
+
+		expect(result.ok).toBe(false);
+		expect(result.reason).toContain("superseded");
+	});
+
+	test("passes when spec metadata is under-target", async () => {
+		const specPath = join(tempDir, ".overstory", "specs", "task-001.md");
+		await mkdir(join(tempDir, ".overstory", "specs"), { recursive: true });
+		await Bun.write(specPath, "# Spec\n");
+		const currentRevision = await computeBriefRevision(briefPath);
+		await writeSpecMeta(tempDir, "task-001", {
+			taskId: "task-001",
+			workstreamId: "ws-auth",
+			briefPath: normalizeTrackedPath(tempDir, briefPath),
+			briefRevision: currentRevision,
+			specRevision: "spec-revision",
+			status: "under-target",
+			generatedAt: "2026-03-13T00:00:00.000Z",
+			generatedBy: "lead-auth",
+		});
+
+		const result = await validateCurrentMissionSpec(tempDir, specPath);
+
+		expect(result.ok).toBe(true);
+	});
 });
 
 describe("validateWorkstreamResume", () => {
@@ -219,5 +262,24 @@ describe("validateWorkstreamResume", () => {
 		expect(result.ok).toBe(true);
 		expect(result.specCount).toBe(1);
 		expect(result.reason).toBeNull();
+	});
+
+	test("blocks resume when a workstream spec is superseded", async () => {
+		const currentRevision = await computeBriefRevision(briefPath);
+		await writeSpecMeta(tempDir, "task-001", {
+			taskId: "task-001",
+			workstreamId: "ws-auth",
+			briefPath: normalizeTrackedPath(tempDir, briefPath),
+			briefRevision: currentRevision,
+			specRevision: "spec-revision",
+			status: "superseded",
+			generatedAt: "2026-03-13T00:00:00.000Z",
+			generatedBy: "lead-auth",
+		});
+
+		const result = await validateWorkstreamResume(tempDir, mission, "ws-auth");
+
+		expect(result.ok).toBe(false);
+		expect(result.reason).toContain("superseded");
 	});
 });

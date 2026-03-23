@@ -14,12 +14,14 @@ import { join } from "node:path";
 
 // === Types ===
 
-export type SpecMetaStatus = "current" | "stale" | "superseded";
+export type SpecMetaStatus = "current" | "stale" | "superseded" | "unscored" | "under-target";
 
 export const SPEC_META_STATUSES: readonly SpecMetaStatus[] = [
 	"current",
 	"stale",
 	"superseded",
+	"unscored",
+	"under-target",
 ] as const;
 
 export interface SpecMeta {
@@ -154,4 +156,18 @@ export async function markStale(projectRoot: string, taskId: string): Promise<vo
 		return;
 	}
 	await writeSpecMeta(projectRoot, taskId, { ...existing, status: "stale" });
+}
+
+/**
+ * Mark a spec as superseded.
+ *
+ * Reads the existing meta.json, sets status to 'superseded', and writes it back.
+ * No-op if the file does not exist.
+ */
+export async function markSuperseded(projectRoot: string, taskId: string): Promise<void> {
+	const existing = await readSpecMeta(projectRoot, taskId);
+	if (existing === null) {
+		return;
+	}
+	await writeSpecMeta(projectRoot, taskId, { ...existing, status: "superseded" });
 }

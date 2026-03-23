@@ -11,6 +11,7 @@ import { join } from "node:path";
 import {
 	listSpecMeta,
 	markStale,
+	markSuperseded,
 	readSpecMeta,
 	SPEC_META_STATUSES,
 	type SpecMeta,
@@ -44,11 +45,13 @@ function makeMeta(overrides: Partial<SpecMeta> = {}): SpecMeta {
 // === SPEC_META_STATUSES ===
 
 describe("SPEC_META_STATUSES", () => {
-	test("contains all three statuses", () => {
+	test("contains all five statuses", () => {
 		expect(SPEC_META_STATUSES).toContain("current");
 		expect(SPEC_META_STATUSES).toContain("stale");
 		expect(SPEC_META_STATUSES).toContain("superseded");
-		expect(SPEC_META_STATUSES).toHaveLength(3);
+		expect(SPEC_META_STATUSES).toContain("unscored");
+		expect(SPEC_META_STATUSES).toContain("under-target");
+		expect(SPEC_META_STATUSES).toHaveLength(5);
 	});
 });
 
@@ -207,5 +210,37 @@ describe("markStale", () => {
 		await markStale(tempDir, "task-001");
 		const result = await readSpecMeta(tempDir, "task-001");
 		expect(result?.status).toBe("stale");
+	});
+});
+
+// === markSuperseded ===
+
+describe("markSuperseded", () => {
+	test("no-op when meta file does not exist", async () => {
+		await expect(markSuperseded(tempDir, "task-missing")).resolves.toBeUndefined();
+	});
+
+	test("sets status to superseded on existing meta", async () => {
+		await writeSpecMeta(tempDir, "task-001", makeMeta({ status: "current" }));
+		await markSuperseded(tempDir, "task-001");
+		const result = await readSpecMeta(tempDir, "task-001");
+		expect(result?.status).toBe("superseded");
+	});
+
+	test("preserves other fields when marking superseded", async () => {
+		const original = makeMeta({ briefRevision: "cafebabe", specRevision: "deadbeef" });
+		await writeSpecMeta(tempDir, "task-001", original);
+		await markSuperseded(tempDir, "task-001");
+		const result = await readSpecMeta(tempDir, "task-001");
+		expect(result?.briefRevision).toBe("cafebabe");
+		expect(result?.specRevision).toBe("deadbeef");
+		expect(result?.taskId).toBe("task-001");
+	});
+
+	test("idempotent — calling twice keeps status superseded", async () => {
+		await writeSpecMeta(tempDir, "task-001", makeMeta({ status: "superseded" }));
+		await markSuperseded(tempDir, "task-001");
+		const result = await readSpecMeta(tempDir, "task-001");
+		expect(result?.status).toBe("superseded");
 	});
 });

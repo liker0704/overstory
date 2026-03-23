@@ -34,7 +34,7 @@ import {
 	sendMissionControlMail,
 } from "./messaging.ts";
 import { startExecutionDirector } from "./roles.ts";
-import { listSpecMeta, readSpecMeta, type SpecMeta } from "./spec-meta.ts";
+import { listSpecMeta, readSpecMeta, type SpecMeta, type SpecMetaStatus } from "./spec-meta.ts";
 import { createMissionStore } from "./store.ts";
 import {
 	ensureCanonicalWorkstreamTasks,
@@ -195,7 +195,8 @@ export async function validateCurrentMissionSpec(
 		};
 	}
 
-	if (meta.status !== "current") {
+	const blockingStatuses: readonly SpecMetaStatus[] = ["stale", "superseded"];
+	if (blockingStatuses.includes(meta.status)) {
 		return {
 			ok: false,
 			taskId,
@@ -256,7 +257,8 @@ export async function validateWorkstreamResume(
 	}
 
 	for (const meta of metas) {
-		if (meta.status !== "current") {
+		const blockingStatuses: readonly SpecMetaStatus[] = ["stale", "superseded"];
+		if (blockingStatuses.includes(meta.status)) {
 			return {
 				ok: false,
 				workstream: entry.workstream,
