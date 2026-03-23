@@ -1180,5 +1180,17 @@
 		"status": "active",
 		"createdAt": "2026-03-23T02:07:22.265Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-36e01695",
+		"name": "temporal-reminders-batch",
+		"memberIssueIds": [
+			"overstory-abd3",
+			"overstory-6bef",
+			"overstory-3589"
+		],
+		"status": "active",
+		"createdAt": "2026-03-23T02:45:53.386Z",
+		"completedAt": null
 	}
 ]
