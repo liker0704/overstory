@@ -1,5 +1,7 @@
 import { KNOWN_FIELDS } from "./config-schema.ts";
 import { ValidationError } from "./errors.ts";
+import { KNOWN_FACTORS } from "./health/policy/types.ts";
+import type { PolicyAction, PolicyConditionOperator } from "./health/policy/types.ts";
 
 /** Returns true when val is a plain object (not null, not array). */
 function isObj(val: unknown): val is Record<string, unknown> {
@@ -158,4 +160,23 @@ export function validateUnknownFields(raw: Record<string, unknown>): void {
 
 	// models: Record<string, ModelRef> — dynamic keys, scalar values, no nested check needed.
 	// runtime.capabilities: Record<string, string> — dynamic keys, no nested check needed.
+
+	if (isObj(raw.healthPolicy)) {
+		assertKnownKeys(raw.healthPolicy, KNOWN_FIELDS.healthPolicy, "healthPolicy");
+		if (Array.isArray(raw.healthPolicy.rules)) {
+			for (let i = 0; i < raw.healthPolicy.rules.length; i++) {
+				const rule = raw.healthPolicy.rules[i];
+				if (isObj(rule)) {
+					assertKnownKeys(rule, KNOWN_FIELDS.healthPolicyRule, `healthPolicy.rules[${i}]`);
+					if (isObj(rule.condition)) {
+						assertKnownKeys(
+							rule.condition,
+							KNOWN_FIELDS.healthPolicyCondition,
+							`healthPolicy.rules[${i}].condition`,
+						);
+					}
+				}
+			}
+		}
+	}
 }

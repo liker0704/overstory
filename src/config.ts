@@ -8,6 +8,8 @@ import {
 import { validateUnknownFields } from "./config-validate.ts";
 import { deepMerge, parseYaml } from "./config-yaml.ts";
 import { ConfigError, ValidationError } from "./errors.ts";
+import { KNOWN_FACTORS } from "./health/policy/types.ts";
+import type { PolicyAction, PolicyConditionOperator } from "./health/policy/types.ts";
 import type {
 	CoordinatorExitTriggers,
 	OverstoryConfig,
@@ -168,6 +170,14 @@ export const DEFAULT_CONFIG: OverstoryConfig = {
 			enabled: false,
 			maxReroutes: 2,
 		},
+	},
+	healthPolicy: {
+		enabled: false,
+		dryRun: false,
+		rules: [],
+		defaultCooldownMs: 300_000, // 5 minutes
+		evaluationIntervalMs: 60_000, // 1 minute
+		maxPauseDurationMs: 600_000, // 10 minutes
 	},
 };
 
@@ -685,6 +695,98 @@ function validateConfig(config: OverstoryConfig): void {
 						field: `models.${role}`,
 						value: model,
 					},
+				);
+			}
+		}
+	}
+
+	// healthPolicy: validate semantic constraints if section is present
+	if (config.healthPolicy !== undefined) {
+		const hp = config.healthPolicy;
+
+		const validActions: PolicyAction[] = [
+			"pause_spawning",
+			"resume_spawning",
+			"prioritize_merger",
+			"escalate_mission_refresh",
+			"trigger_recovery",
+		];
+		const validOperators: PolicyConditionOperator[] = ["lt", "lte", "eq", "gt", "gte"];
+		const validGrades = ["A", "B", "C", "D", "F"];
+
+		if (hp.defaultCooldownMs <= 0) {
+			throw new ValidationError("healthPolicy.defaultCooldownMs must be positive", {
+				field: "healthPolicy.defaultCooldownMs",
+				value: hp.defaultCooldownMs,
+			});
+		}
+
+		if (hp.evaluationIntervalMs <= 0) {
+			throw new ValidationError("healthPolicy.evaluationIntervalMs must be positive", {
+				field: "healthPolicy.evaluationIntervalMs",
+				value: hp.evaluationIntervalMs,
+			});
+		}
+
+		if (hp.maxPauseDurationMs <= 0) {
+			throw new ValidationError("healthPolicy.maxPauseDurationMs must be positive", {
+				field: "healthPolicy.maxPauseDurationMs",
+				value: hp.maxPauseDurationMs,
+			});
+		}
+
+		const seenIds = new Set<string>();
+		for (let i = 0; i < hp.rules.length; i++) {
+			const rule = hp.rules[i];
+			if (!rule) continue;
+
+			if (!rule.id || typeof rule.id !== "string") {
+				throw new ValidationError(`healthPolicy.rules[${i}].id must be a non-empty string`, {
+					field: `healthPolicy.rules[${i}].id`,
+					value: rule.id,
+				});
+			}
+			if (seenIds.has(rule.id)) {
+				throw new ValidationError(
+					`healthPolicy.rules[${i}].id '${rule.id}' is a duplicate. Rule IDs must be unique.`,
+					{ field: `healthPolicy.rules[${i}].id`, value: rule.id },
+				);
+			}
+			seenIds.add(rule.id);
+
+			if (!validActions.includes(rule.action as PolicyAction)) {
+				throw new ValidationError(
+					`healthPolicy.rules[${i}].action must be one of: ${validActions.join(", ")}`,
+					{ field: `healthPolicy.rules[${i}].action`, value: rule.action },
+				);
+			}
+
+			if (rule.cooldownMs <= 0) {
+				throw new ValidationError(`healthPolicy.rules[${i}].cooldownMs must be positive`, {
+					field: `healthPolicy.rules[${i}].cooldownMs`,
+					value: rule.cooldownMs,
+				});
+			}
+
+			const cond = rule.condition;
+			if (cond.operator !== undefined && !validOperators.includes(cond.operator as PolicyConditionOperator)) {
+				throw new ValidationError(
+					`healthPolicy.rules[${i}].condition.operator must be one of: ${validOperators.join(", ")}`,
+					{ field: `healthPolicy.rules[${i}].condition.operator`, value: cond.operator },
+				);
+			}
+
+			if (cond.factor !== undefined && !(KNOWN_FACTORS as readonly string[]).includes(cond.factor)) {
+				throw new ValidationError(
+					`healthPolicy.rules[${i}].condition.factor '${cond.factor}' is not a known factor. Valid: ${KNOWN_FACTORS.join(", ")}`,
+					{ field: `healthPolicy.rules[${i}].condition.factor`, value: cond.factor },
+				);
+			}
+
+			if (cond.grade !== undefined && !validGrades.includes(cond.grade)) {
+				throw new ValidationError(
+					`healthPolicy.rules[${i}].condition.grade must be one of: ${validGrades.join(", ")}`,
+					{ field: `healthPolicy.rules[${i}].condition.grade`, value: cond.grade },
 				);
 			}
 		}

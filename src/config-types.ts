@@ -209,4 +209,19 @@ export interface OverstoryConfig {
 	};
 	headroom?: HeadroomConfig;
 	reminders?: ReminderConfig;
+	healthPolicy?: {
+		enabled: boolean;
+		dryRun: boolean;
+		rules: Array<{
+			id: string;
+			action: string;
+			condition: { factor?: string; threshold?: number; grade?: string; operator?: string };
+			cooldownMs: number;
+			priority?: string;
+		}>;
+		defaultCooldownMs: number;
+		evaluationIntervalMs: number;
+		/** Auto-resume timeout to prevent spawn-pause deadlock. */
+		maxPauseDurationMs: number;
+	};
 }

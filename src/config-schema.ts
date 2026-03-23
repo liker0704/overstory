@@ -35,6 +35,7 @@ export const KNOWN_FIELDS = {
 		"resilience",
 		"headroom",
 		"reminders",
+		"healthPolicy",
 	]),
 	project: new Set(["name", "root", "canonicalBranch", "qualityGates"]),
 	qualityGateItem: new Set(["name", "command", "description"]),
@@ -122,4 +123,14 @@ export const KNOWN_FIELDS = {
 		"staleEscalationMaxAgeMs",
 		"escalationResponseMinRate",
 	]),
+	healthPolicy: new Set([
+		"enabled",
+		"dryRun",
+		"rules",
+		"defaultCooldownMs",
+		"evaluationIntervalMs",
+		"maxPauseDurationMs",
+	]),
+	healthPolicyRule: new Set(["id", "action", "condition", "cooldownMs", "priority"]),
+	healthPolicyCondition: new Set(["factor", "threshold", "grade", "operator"]),
 } as const;
