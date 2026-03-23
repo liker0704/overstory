@@ -10,8 +10,10 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Command } from "commander";
 import { loadConfig } from "../config.ts";
+import { createEvalSource } from "../health/eval-source.ts";
 import { selectRecommendations } from "../health/recommendations.ts";
 import { renderHealthScore } from "../health/render.ts";
+import { createReviewSource } from "../health/review-source.ts";
 import { computeScore } from "../health/score.ts";
 import { collectSignals } from "../health/signals.ts";
 import type { HealthSnapshot } from "../health/types.ts";
@@ -66,7 +68,8 @@ export async function executeHealth(opts: HealthOptions): Promise<void> {
 	}
 
 	const score = computeScore(signals);
-	const recommendation = selectRecommendations(score)[0] ?? null;
+	const extraSources = [createReviewSource(overstoryDir), createEvalSource(overstoryDir)];
+	const recommendation = selectRecommendations(score, undefined, extraSources)[0] ?? null;
 
 	let missionScore: MissionScore | null = null;
 	let artifactStaleness:
@@ -132,6 +135,8 @@ export async function executeHealth(opts: HealthOptions): Promise<void> {
 	}
 
 	if (json) {
+		const reviewRecs = extraSources[0] ? extraSources[0].collect(score) : [];
+		const evalRecs = extraSources[1] ? extraSources[1].collect(score) : [];
 		const out: Record<string, unknown> = {
 			score: {
 				overall: score.overall,
@@ -150,6 +155,12 @@ export async function executeHealth(opts: HealthOptions): Promise<void> {
 		if (artifactStaleness !== undefined) {
 			out.artifactStaleness = artifactStaleness;
 		}
+		out.qualitySignals = {
+			reviewSourceActive: true,
+			evalSourceActive: true,
+			reviewRecommendationCount: reviewRecs.length,
+			evalRecommendationCount: evalRecs.length,
+		};
 		jsonOutput("health", out);
 		return;
 	}

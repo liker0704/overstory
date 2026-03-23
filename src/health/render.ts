@@ -130,4 +130,8 @@ export function renderRecommendation(rec: HealthRecommendation, index: number): 
 	w(`       ${muted("Expected:")} ${color.green(rec.expectedImpact)}\n`);
 	w(`       ${muted("Action:")}  ${rec.action}\n`);
 	w(`       ${muted("Verify:")}  ${muted(rec.verificationStep)}\n`);
+	if (rec.source !== undefined) {
+		const sourceInfo = rec.sourceArtifact ? `${rec.source} (${rec.sourceArtifact})` : rec.source;
+		w(`       ${muted("Source:")}  ${sourceInfo}\n`);
+	}
 }

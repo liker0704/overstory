@@ -8,8 +8,10 @@
 import { join } from "node:path";
 import { Command } from "commander";
 import { loadConfig } from "../config.ts";
+import { createEvalSource } from "../health/eval-source.ts";
 import { selectRecommendations } from "../health/recommendations.ts";
 import { renderRecommendation } from "../health/render.ts";
+import { createReviewSource } from "../health/review-source.ts";
 import { computeScore } from "../health/score.ts";
 import { collectSignals } from "../health/signals.ts";
 import { jsonError, jsonOutput } from "../json.ts";
@@ -61,7 +63,8 @@ export async function executeNextImprovement(opts: NextImprovementOptions): Prom
 	}
 
 	const score = computeScore(signals);
-	const recommendations = selectRecommendations(score);
+	const extraSources = [createReviewSource(overstoryDir), createEvalSource(overstoryDir)];
+	const recommendations = selectRecommendations(score, undefined, extraSources);
 
 	if (json) {
 		const selected = opts.all ? recommendations : recommendations.slice(0, 1);
