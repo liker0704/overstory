@@ -1137,5 +1137,15 @@
 		"status": "active",
 		"createdAt": "2026-03-23T00:31:24.847Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-1f83c10c",
+		"name": "wave-1-foundation",
+		"memberIssueIds": [
+			"overstory-2404"
+		],
+		"status": "active",
+		"createdAt": "2026-03-23T00:59:48.434Z",
+		"completedAt": null
 	}
 ]
