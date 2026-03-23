@@ -10,16 +10,29 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Command } from "commander";
 import { loadConfig } from "../config.ts";
-import { renderReport, renderSummaryLine } from "../eval/report.ts";
+import { runProbabilisticEval } from "../eval/probabilistic.ts";
+import {
+	renderProbabilisticReport,
+	renderProbabilisticSummaryLine,
+	renderReport,
+	renderSummaryLine,
+} from "../eval/report.ts";
 import { runEval } from "../eval/runner.ts";
 import { loadScenario } from "../eval/scenario.ts";
-import { writeArtifacts } from "../eval/store.ts";
-import type { EvalMetrics, EvalResult, EvalRunConfig } from "../eval/types.ts";
+import { evaluateStochasticAssertions } from "../eval/stochastic.ts";
+import { writeArtifacts, writeProbabilisticArtifacts } from "../eval/store.ts";
+import type {
+	EvalMetrics,
+	EvalResult,
+	EvalRunConfig,
+	ProbabilisticEvalResult,
+} from "../eval/types.ts";
 import { jsonError, jsonOutput } from "../json.ts";
 
 interface EvalRunOpts {
 	json?: boolean;
 	timeout?: string;
+	trials?: string;
 }
 
 interface EvalShowOpts {
@@ -117,6 +130,60 @@ async function executeEvalRun(scenarioPath: string, opts: EvalRunOpts): Promise<
 		timeoutMs,
 	};
 
+	// Determine trial count: CLI --trials > scenario.trials?.count > undefined
+	const trialCount = opts.trials
+		? Number.parseInt(opts.trials, 10)
+		: (scenario.trials?.count ?? undefined);
+
+	// Write artifacts to the project root
+	const cwd = process.cwd();
+	const projectConfig = await loadConfig(cwd);
+	const projectRoot = projectConfig.project.root;
+
+	if (trialCount !== undefined && trialCount > 1) {
+		// Probabilistic path
+		let probResult: ProbabilisticEvalResult;
+		try {
+			probResult = await runProbabilisticEval(config, { count: trialCount });
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : String(err);
+			if (json) {
+				jsonError("eval run", msg);
+			} else {
+				process.stderr.write(`Error: ${msg}\n`);
+			}
+			process.exitCode = 1;
+			return;
+		}
+
+		const stochasticAssertions = evaluateStochasticAssertions(
+			scenario.assertions,
+			probResult.aggregateStats,
+			probResult.trials,
+		);
+		probResult.stochasticAssertions = stochasticAssertions;
+		probResult.passed = stochasticAssertions.every((a) => a.passed);
+
+		try {
+			await writeProbabilisticArtifacts(probResult, projectRoot);
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : String(err);
+			process.stderr.write(`Warning: Failed to write artifacts: ${msg}\n`);
+		}
+
+		if (json) {
+			jsonOutput("eval run", probResult as unknown as Record<string, unknown>);
+		} else {
+			process.stdout.write(`${renderProbabilisticReport(probResult)}\n`);
+		}
+
+		if (!probResult.passed) {
+			process.exitCode = 1;
+		}
+		return;
+	}
+
+	// Deterministic path (existing flow)
 	let result: EvalResult;
 	try {
 		result = await runEval(config);
@@ -130,11 +197,6 @@ async function executeEvalRun(scenarioPath: string, opts: EvalRunOpts): Promise<
 		process.exitCode = 1;
 		return;
 	}
-
-	// Write artifacts to the project root
-	const cwd = process.cwd();
-	const projectConfig = await loadConfig(cwd);
-	const projectRoot = projectConfig.project.root;
 
 	try {
 		await writeArtifacts(result, projectRoot);
@@ -162,7 +224,33 @@ async function executeEvalShow(runId: string, opts: EvalShowOpts): Promise<void>
 	const config = await loadConfig(cwd);
 	const projectRoot = config.project.root;
 
-	const summaryPath = join(projectRoot, ".overstory", "eval-runs", runId, "summary.json");
+	const runDir = join(projectRoot, ".overstory", "eval-runs", runId);
+	const probSummaryPath = join(runDir, "probabilistic-summary.json");
+	const probSummaryFile = Bun.file(probSummaryPath);
+
+	if (await probSummaryFile.exists()) {
+		let probResult: ProbabilisticEvalResult;
+		try {
+			probResult = JSON.parse(await probSummaryFile.text()) as ProbabilisticEvalResult;
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : String(err);
+			if (json) {
+				jsonError("eval show", `Failed to parse probabilistic summary: ${msg}`);
+			} else {
+				process.stderr.write(`Error: Failed to parse probabilistic summary: ${msg}\n`);
+			}
+			process.exitCode = 1;
+			return;
+		}
+		if (json) {
+			jsonOutput("eval show", probResult as unknown as Record<string, unknown>);
+		} else {
+			process.stdout.write(`${renderProbabilisticReport(probResult)}\n`);
+		}
+		return;
+	}
+
+	const summaryPath = join(runDir, "summary.json");
 	const summaryFile = Bun.file(summaryPath);
 
 	if (!(await summaryFile.exists())) {
@@ -215,35 +303,84 @@ async function executeEvalList(opts: EvalListOpts): Promise<void> {
 	}
 
 	const entries = readdirSync(evalRunsDir, { withFileTypes: true });
-	const runs: EvalResult[] = [];
+	const deterministicRuns: EvalResult[] = [];
+	const probabilisticRuns: ProbabilisticEvalResult[] = [];
 
 	for (const entry of entries) {
 		if (!entry.isDirectory()) continue;
-		const summaryPath = join(evalRunsDir, entry.name, "summary.json");
-		const summaryFile = Bun.file(summaryPath);
+		const runEntryDir = join(evalRunsDir, entry.name);
+
+		const probSummaryFile = Bun.file(join(runEntryDir, "probabilistic-summary.json"));
+		if (await probSummaryFile.exists()) {
+			try {
+				const parsed = JSON.parse(await probSummaryFile.text()) as ProbabilisticEvalResult;
+				probabilisticRuns.push(parsed);
+				continue;
+			} catch {
+				// skip unreadable runs
+			}
+		}
+
+		const summaryFile = Bun.file(join(runEntryDir, "summary.json"));
 		if (!(await summaryFile.exists())) continue;
 		try {
-			const text = await summaryFile.text();
-			const parsed = JSON.parse(text) as EvalResult;
-			runs.push(parsed);
+			const parsed = JSON.parse(await summaryFile.text()) as EvalResult;
+			deterministicRuns.push(parsed);
 		} catch {
 			// skip unreadable runs
 		}
 	}
 
-	runs.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+	deterministicRuns.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+	probabilisticRuns.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
 
 	if (json) {
-		jsonOutput("eval list", { runs } as unknown as Record<string, unknown>);
+		jsonOutput("eval list", { runs: deterministicRuns, probabilisticRuns } as unknown as Record<
+			string,
+			unknown
+		>);
 	} else {
-		if (runs.length === 0) {
+		if (deterministicRuns.length === 0 && probabilisticRuns.length === 0) {
 			process.stdout.write("No eval runs found.\n");
 		} else {
-			for (const run of runs) {
+			for (const run of probabilisticRuns) {
+				process.stdout.write(`${renderProbabilisticSummaryLine(run)}\n`);
+			}
+			for (const run of deterministicRuns) {
 				process.stdout.write(`${renderSummaryLine(run)}\n`);
 			}
 		}
 	}
+}
+
+async function loadEvalRun(
+	evalRunsDir: string,
+	runId: string,
+): Promise<
+	| { kind: "deterministic"; result: EvalResult }
+	| { kind: "probabilistic"; result: ProbabilisticEvalResult }
+	| null
+> {
+	const probFile = Bun.file(join(evalRunsDir, runId, "probabilistic-summary.json"));
+	if (await probFile.exists()) {
+		try {
+			return {
+				kind: "probabilistic",
+				result: JSON.parse(await probFile.text()) as ProbabilisticEvalResult,
+			};
+		} catch {
+			return null;
+		}
+	}
+	const detFile = Bun.file(join(evalRunsDir, runId, "summary.json"));
+	if (await detFile.exists()) {
+		try {
+			return { kind: "deterministic", result: JSON.parse(await detFile.text()) as EvalResult };
+		} catch {
+			return null;
+		}
+	}
+	return null;
 }
 
 async function executeEvalCompare(
@@ -257,10 +394,10 @@ async function executeEvalCompare(
 	const projectRoot = config.project.root;
 	const evalRunsDir = join(projectRoot, ".overstory", "eval-runs");
 
-	const fileA = Bun.file(join(evalRunsDir, runIdA, "summary.json"));
-	const fileB = Bun.file(join(evalRunsDir, runIdB, "summary.json"));
+	const loadedA = await loadEvalRun(evalRunsDir, runIdA);
+	const loadedB = await loadEvalRun(evalRunsDir, runIdB);
 
-	if (!(await fileA.exists())) {
+	if (loadedA === null) {
 		if (json) {
 			jsonError("eval compare", `Eval run not found: ${runIdA}`);
 		} else {
@@ -270,7 +407,7 @@ async function executeEvalCompare(
 		return;
 	}
 
-	if (!(await fileB.exists())) {
+	if (loadedB === null) {
 		if (json) {
 			jsonError("eval compare", `Eval run not found: ${runIdB}`);
 		} else {
@@ -280,33 +417,89 @@ async function executeEvalCompare(
 		return;
 	}
 
-	let resultA: EvalResult;
-	let resultB: EvalResult;
-
-	try {
-		resultA = JSON.parse(await fileA.text()) as EvalResult;
-	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
-		if (json) {
-			jsonError("eval compare", `Failed to parse run A: ${msg}`);
-		} else {
-			process.stderr.write(`Error: Failed to parse run A: ${msg}\n`);
+	// Both probabilistic: compare aggregate stats
+	if (loadedA.kind === "probabilistic" && loadedB.kind === "probabilistic") {
+		const pA = loadedA.result;
+		const pB = loadedB.result;
+		const lines: string[] = [];
+		lines.push("Comparing probabilistic eval runs:");
+		lines.push(
+			`  A: ${runIdA} (${pA.scenarioName}) - ${pA.passed ? "PASS" : "FAIL"} (${pA.config.count} trials)`,
+		);
+		lines.push(
+			`  B: ${runIdB} (${pB.scenarioName}) - ${pB.passed ? "PASS" : "FAIL"} (${pB.config.count} trials)`,
+		);
+		lines.push("");
+		lines.push("Aggregate Stats (B - A):");
+		const metricKeys = ["durationMs", "estimatedCostUsd", "totalAgents", "stallRate"] as const;
+		for (const key of metricKeys) {
+			const aAgg = pA.aggregateStats.metrics[key];
+			const bAgg = pB.aggregateStats.metrics[key];
+			if (aAgg !== undefined && bAgg !== undefined) {
+				const delta = bAgg.mean - aAgg.mean;
+				const sign = delta > 0 ? "+" : "";
+				lines.push(
+					`  ${key}: A mean=${aAgg.mean.toFixed(2)} B mean=${bAgg.mean.toFixed(2)} delta=${sign}${delta.toFixed(2)}`,
+				);
+			}
 		}
-		process.exitCode = 1;
+		if (json) {
+			jsonOutput("eval compare", {
+				runA: runIdA,
+				runB: runIdB,
+				kind: "probabilistic",
+				passedA: pA.passed,
+				passedB: pB.passed,
+			} as unknown as Record<string, unknown>);
+		} else {
+			process.stdout.write(`${lines.join("\n")}\n`);
+		}
 		return;
 	}
 
-	try {
-		resultB = JSON.parse(await fileB.text()) as EvalResult;
-	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
-		if (json) {
-			jsonError("eval compare", `Failed to parse run B: ${msg}`);
-		} else {
-			process.stderr.write(`Error: Failed to parse run B: ${msg}\n`);
+	// Mixed: warn and compare what's possible
+	if (loadedA.kind !== loadedB.kind) {
+		const warning =
+			"Warning: comparing a probabilistic run against a deterministic run — results may not be directly comparable.";
+		if (!json) {
+			process.stderr.write(`${warning}\n`);
 		}
-		process.exitCode = 1;
-		return;
+	}
+
+	// Extract deterministic results for comparison (use trial 0 for probabilistic)
+	let resultA: EvalResult;
+	let resultB: EvalResult;
+
+	if (loadedA.kind === "deterministic") {
+		resultA = loadedA.result;
+	} else {
+		const firstTrial = loadedA.result.trials[0];
+		if (firstTrial === undefined) {
+			if (json) {
+				jsonError("eval compare", `Run A has no trials: ${runIdA}`);
+			} else {
+				process.stderr.write(`Error: Run A has no trials: ${runIdA}\n`);
+			}
+			process.exitCode = 1;
+			return;
+		}
+		resultA = firstTrial.evalResult;
+	}
+
+	if (loadedB.kind === "deterministic") {
+		resultB = loadedB.result;
+	} else {
+		const firstTrial = loadedB.result.trials[0];
+		if (firstTrial === undefined) {
+			if (json) {
+				jsonError("eval compare", `Run B has no trials: ${runIdB}`);
+			} else {
+				process.stderr.write(`Error: Run B has no trials: ${runIdB}\n`);
+			}
+			process.exitCode = 1;
+			return;
+		}
+		resultB = firstTrial.evalResult;
 	}
 
 	const mA = resultA.metrics as ExtendedMetrics;
@@ -386,6 +579,7 @@ export function createEvalCommand(): Command {
 		.description("Run an eval scenario against a fixture repo")
 		.option("--json", "JSON output")
 		.option("--timeout <ms>", "Override scenario timeout (ms)")
+		.option("--trials <count>", "Number of probabilistic trials")
 		.action(async (scenarioPath: string, opts: EvalRunOpts) => {
 			await executeEvalRun(scenarioPath, opts);
 		});

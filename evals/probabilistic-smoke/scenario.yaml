@@ -1,0 +1,10 @@
+description: "Probabilistic smoke: dispatch reliability over 3 trials"
+timeout_ms: 600000
+trials:
+  count: 3
+config_overrides:
+  agents:
+    maxConcurrent: 4
+startup_actions:
+  - command: sd create --title "Write hello.txt" --type task --priority 2
+    description: "Create task for dispatch"

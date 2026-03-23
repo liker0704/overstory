@@ -8,7 +8,16 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { createEventStore } from "../events/store.ts";
 import { createSessionStore } from "../sessions/store.ts";
-import type { EvalArtifacts, EvalResult } from "./types.ts";
+import type { EvalArtifacts, EvalResult, ProbabilisticEvalResult } from "./types.ts";
+
+interface ProbabilisticEvalArtifacts {
+	dir: string;
+	probabilisticSummary: string;
+	aggregateStats: string;
+	stochasticAssertions: string;
+	manifest: string;
+	trialsDir: string;
+}
 
 /**
  * Write eval run artifacts for the given result.
@@ -98,5 +107,60 @@ export async function writeArtifacts(
 		metrics,
 		sessions,
 		events,
+	};
+}
+
+/**
+ * Write probabilistic eval run artifacts for the given result.
+ * Returns a ProbabilisticEvalArtifacts object with paths to each written file.
+ */
+export async function writeProbabilisticArtifacts(
+	result: ProbabilisticEvalResult,
+	projectRoot: string,
+): Promise<ProbabilisticEvalArtifacts> {
+	const dir = join(projectRoot, ".overstory", "eval-runs", result.runId);
+	mkdirSync(dir, { recursive: true });
+
+	// manifest.json
+	const manifestData = {
+		runId: result.runId,
+		scenarioName: result.scenarioName,
+		scenarioPath: result.scenarioPath,
+		startedAt: result.startedAt,
+		completedAt: result.completedAt,
+		totalDurationMs: result.totalDurationMs,
+		passed: result.passed,
+		probabilistic: true,
+	};
+	const manifest = join(dir, "manifest.json");
+	await Bun.write(manifest, JSON.stringify(manifestData, null, 2));
+
+	// probabilistic-summary.json — full ProbabilisticEvalResult
+	const probabilisticSummary = join(dir, "probabilistic-summary.json");
+	await Bun.write(probabilisticSummary, JSON.stringify(result, null, 2));
+
+	// aggregate-stats.json
+	const aggregateStatsPath = join(dir, "aggregate-stats.json");
+	await Bun.write(aggregateStatsPath, JSON.stringify(result.aggregateStats, null, 2));
+
+	// stochastic-assertions.json
+	const stochasticAssertionsPath = join(dir, "stochastic-assertions.json");
+	await Bun.write(stochasticAssertionsPath, JSON.stringify(result.stochasticAssertions, null, 2));
+
+	// trials/ subdirectory — one file per trial
+	const trialsDir = join(dir, "trials");
+	mkdirSync(trialsDir, { recursive: true });
+	for (const trial of result.trials) {
+		const trialPath = join(trialsDir, `trial-${trial.trialIndex}.json`);
+		await Bun.write(trialPath, JSON.stringify(trial.evalResult, null, 2));
+	}
+
+	return {
+		dir,
+		probabilisticSummary,
+		aggregateStats: aggregateStatsPath,
+		stochasticAssertions: stochasticAssertionsPath,
+		manifest,
+		trialsDir,
 	};
 }

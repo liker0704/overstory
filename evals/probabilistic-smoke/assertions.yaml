@@ -1,0 +1,12 @@
+assertions:
+  - kind: min_workers_spawned
+    label: "At least 1 worker per trial"
+    expected: 1
+  - kind: success_ratio
+    label: "All 3 trials pass"
+    expected: 1.0
+  - kind: percentile_bound
+    label: "p95 duration under 10min"
+    expected: 600000
+    metric: durationMs
+    percentile: 95
