@@ -1192,5 +1192,15 @@
 		"status": "active",
 		"createdAt": "2026-03-23T02:45:53.386Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-ea87d570",
+		"name": "batch-1-policy-types",
+		"memberIssueIds": [
+			"overstory-0abe"
+		],
+		"status": "active",
+		"createdAt": "2026-03-23T12:54:44.698Z",
+		"completedAt": null
 	}
 ]
