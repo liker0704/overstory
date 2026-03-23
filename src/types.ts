@@ -147,6 +147,8 @@ export type {
 	MulchReadyResult,
 	MulchStatus,
 } from "./mulch/types.ts";
+// Reminder types
+export type { ReminderConfig, ReminderPolicy, TemporalSignals } from "./reminders/types.ts";
 // Resilience types
 export type {
 	CircuitBreakerConfig,

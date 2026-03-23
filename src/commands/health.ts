@@ -22,6 +22,7 @@ import { computeArtifactStaleness } from "../missions/artifact-staleness.ts";
 import type { MissionScore } from "../missions/score.ts";
 import { computeMissionScore } from "../missions/score.ts";
 import { createMissionStore } from "../missions/store.ts";
+import { createReminderSource } from "../reminders/source.ts";
 
 export interface HealthOptions {
 	json?: boolean;
@@ -68,7 +69,11 @@ export async function executeHealth(opts: HealthOptions): Promise<void> {
 	}
 
 	const score = computeScore(signals);
-	const extraSources = [createReviewSource(overstoryDir), createEvalSource(overstoryDir)];
+	const extraSources = [
+		createReviewSource(overstoryDir),
+		createEvalSource(overstoryDir),
+		createReminderSource(overstoryDir),
+	];
 	const recommendation = selectRecommendations(score, undefined, extraSources)[0] ?? null;
 
 	let missionScore: MissionScore | null = null;
@@ -137,6 +142,7 @@ export async function executeHealth(opts: HealthOptions): Promise<void> {
 	if (json) {
 		const reviewRecs = extraSources[0] ? extraSources[0].collect(score) : [];
 		const evalRecs = extraSources[1] ? extraSources[1].collect(score) : [];
+		const reminderRecs = extraSources[2] ? extraSources[2].collect(score) : [];
 		const out: Record<string, unknown> = {
 			score: {
 				overall: score.overall,
@@ -158,8 +164,10 @@ export async function executeHealth(opts: HealthOptions): Promise<void> {
 		out.qualitySignals = {
 			reviewSourceActive: true,
 			evalSourceActive: true,
+			reminderSourceActive: true,
 			reviewRecommendationCount: reviewRecs.length,
 			evalRecommendationCount: evalRecs.length,
+			reminderRecommendationCount: reminderRecs.length,
 		};
 		jsonOutput("health", out);
 		return;
