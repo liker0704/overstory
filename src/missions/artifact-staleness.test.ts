@@ -157,7 +157,7 @@ describe("writeSnapshot / readSnapshot round-trip", () => {
 describe("checkArtifactStaleness", () => {
 	test("not stale on first run (stored=null)", async () => {
 		const result = await checkArtifactStaleness(tempDir, "brief", null);
-		expect(result.isStale).toBe(false);
+		expect(result.status).toBe("fresh");
 		expect(result.changedDependencies).toHaveLength(0);
 		expect(result.storedHashes).toBeNull();
 	});
@@ -180,7 +180,7 @@ describe("checkArtifactStaleness", () => {
 		};
 
 		const result = await checkArtifactStaleness(tempDir, "brief", stored);
-		expect(result.isStale).toBe(false);
+		expect(result.status).toBe("fresh");
 		expect(result.changedDependencies).toHaveLength(0);
 	});
 
@@ -199,7 +199,7 @@ describe("checkArtifactStaleness", () => {
 		await writeFile(join(tempDir, "mission.md"), "# Updated\n");
 
 		const result = await checkArtifactStaleness(tempDir, "brief", stored);
-		expect(result.isStale).toBe(true);
+		expect(result.status).toBe("stale");
 		expect(result.changedDependencies).toContain("mission.md");
 	});
 
@@ -216,7 +216,7 @@ describe("checkArtifactStaleness", () => {
 		};
 
 		const result = await checkArtifactStaleness(tempDir, "brief", stored);
-		expect(result.isStale).toBe(true);
+		expect(result.status).toBe("stale");
 		expect(result.changedDependencies).toContain("mission.md");
 		expect(result.missingDependencies).toContain("mission.md");
 	});
@@ -236,7 +236,7 @@ describe("checkArtifactStaleness", () => {
 		await writeFile(join(tempDir, "plan", "workstreams.json"), '{"updated":true}');
 
 		const result = await checkArtifactStaleness(tempDir, "brief", stored);
-		expect(result.isStale).toBe(true);
+		expect(result.status).toBe("stale");
 		expect(result.changedDependencies).toContain("mission.md");
 		expect(result.changedDependencies).toContain("plan/workstreams.json");
 	});
@@ -250,7 +250,7 @@ describe("computeArtifactStaleness", () => {
 		const report = await computeArtifactStaleness(nonExistentDir);
 		expect(report.missionDir).toBe(nonExistentDir);
 		expect(report.results).toHaveLength(0);
-		expect(report.anyStale).toBe(false);
+		expect(report.overallStatus).toBe("fresh");
 	});
 
 	test("returns results for all 5 artifact types on fresh run", async () => {
@@ -266,9 +266,9 @@ describe("computeArtifactStaleness", () => {
 
 	test("not stale on first run (fresh state)", async () => {
 		const report = await computeArtifactStaleness(tempDir);
-		expect(report.anyStale).toBe(false);
+		expect(report.overallStatus).toBe("fresh");
 		for (const result of report.results) {
-			expect(result.isStale).toBe(false);
+			expect(result.status).toBe("fresh");
 		}
 	});
 
@@ -286,10 +286,10 @@ describe("computeArtifactStaleness", () => {
 
 		// Second run should detect change
 		const report = await computeArtifactStaleness(tempDir);
-		expect(report.anyStale).toBe(true);
+		expect(report.overallStatus).toBe("stale");
 
 		const briefResult = report.results.find((r) => r.artifactType === "brief");
-		expect(briefResult?.isStale).toBe(true);
+		expect(briefResult?.status).toBe("stale");
 		expect(briefResult?.changedDependencies).toContain("mission.md");
 	});
 

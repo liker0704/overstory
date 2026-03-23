@@ -4,7 +4,7 @@ import { classifyMissionArtifact, classifyReviewRecord, classifySpecMeta } from 
 
 const baseResult: ArtifactStalenessResult = {
 	artifactType: "brief",
-	isStale: false,
+	status: "fresh",
 	changedDependencies: [],
 	missingDependencies: [],
 	currentHashes: {},
@@ -13,18 +13,18 @@ const baseResult: ArtifactStalenessResult = {
 
 describe("classifyMissionArtifact", () => {
 	test("fresh when not stale", () => {
-		expect(classifyMissionArtifact({ ...baseResult, isStale: false })).toBe("fresh");
+		expect(classifyMissionArtifact({ ...baseResult, status: "fresh" })).toBe("fresh");
 	});
 
 	test("stale when stale", () => {
-		expect(classifyMissionArtifact({ ...baseResult, isStale: true })).toBe("stale");
+		expect(classifyMissionArtifact({ ...baseResult, status: "stale" })).toBe("stale");
 	});
 
 	test("fresh even with missing deps (not stale)", () => {
 		expect(
 			classifyMissionArtifact({
 				...baseResult,
-				isStale: false,
+				status: "fresh",
 				missingDependencies: ["some-file.md"],
 			}),
 		).toBe("fresh");

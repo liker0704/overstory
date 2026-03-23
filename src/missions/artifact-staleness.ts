@@ -10,6 +10,8 @@
 
 import { stat } from "node:fs/promises";
 
+import type { ArtifactStatus } from "../artifact-status/types.ts";
+
 // === Constants ===
 
 /** Sentinel value for files that do not exist on disk. */
@@ -24,8 +26,8 @@ export type ArtifactType = "brief" | "spec" | "mission-plan" | "review-output" |
 
 export interface ArtifactStalenessResult {
 	artifactType: ArtifactType;
-	/** Whether the artifact is stale relative to its dependencies. */
-	isStale: boolean;
+	/** Status of the artifact relative to its dependencies. */
+	status: ArtifactStatus;
 	/** Dependency file paths (relative to missionDir) whose hashes changed. */
 	changedDependencies: string[];
 	/** Dependency file paths (relative to missionDir) that do not exist. */
@@ -48,8 +50,8 @@ export interface ArtifactStalenessReport {
 	missionDir: string;
 	/** Per-artifact-type staleness results. */
 	results: ArtifactStalenessResult[];
-	/** True if any artifact type is stale. */
-	anyStale: boolean;
+	/** Unified status: "stale" if any result is stale, "fresh" otherwise. */
+	overallStatus: ArtifactStatus;
 	/** ISO 8601 timestamp when this report was generated. */
 	checkedAt: string;
 }
@@ -182,7 +184,7 @@ export async function checkArtifactStaleness(
 	if (storedHashes === null) {
 		return {
 			artifactType,
-			isStale: false,
+			status: "fresh" as ArtifactStatus,
 			changedDependencies: [],
 			missingDependencies,
 			currentHashes,
@@ -199,9 +201,10 @@ export async function checkArtifactStaleness(
 		}
 	}
 
+	const status: ArtifactStatus = changedDependencies.length > 0 ? "stale" : "fresh";
 	return {
 		artifactType,
-		isStale: changedDependencies.length > 0,
+		status,
 		changedDependencies,
 		missingDependencies,
 		currentHashes,
@@ -226,10 +229,10 @@ export async function computeArtifactStaleness(
 	try {
 		const s = await stat(missionDir);
 		if (!s.isDirectory()) {
-			return { missionDir, results: [], anyStale: false, checkedAt };
+			return { missionDir, results: [], overallStatus: "fresh" as ArtifactStatus, checkedAt };
 		}
 	} catch {
-		return { missionDir, results: [], anyStale: false, checkedAt };
+		return { missionDir, results: [], overallStatus: "fresh" as ArtifactStatus, checkedAt };
 	}
 
 	const stored = await readSnapshot(missionDir);
@@ -260,6 +263,6 @@ export async function computeArtifactStaleness(
 		capturedAt: checkedAt,
 	});
 
-	const anyStale = results.some((r) => r.isStale);
-	return { missionDir, results, anyStale, checkedAt };
+	const overallStatus: ArtifactStatus = results.some((r) => r.status !== "fresh") ? "stale" : "fresh";
+	return { missionDir, results, overallStatus, checkedAt };
 }

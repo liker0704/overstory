@@ -5,7 +5,7 @@ import type { ArtifactStatus } from "./types.ts";
 const DEFAULT_SCORE_THRESHOLD = 70;
 
 export function classifyMissionArtifact(result: ArtifactStalenessResult): ArtifactStatus {
-	return result.isStale ? "stale" : "fresh";
+	return result.status;
 }
 
 export function classifyReviewRecord(
