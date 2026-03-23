@@ -8,7 +8,7 @@
 import { join } from "node:path";
 import { Command } from "commander";
 import { loadConfig } from "../config.ts";
-import { selectRecommendation } from "../health/recommendations.ts";
+import { selectRecommendations } from "../health/recommendations.ts";
 import { renderRecommendation } from "../health/render.ts";
 import { computeScore } from "../health/score.ts";
 import { collectSignals } from "../health/signals.ts";
@@ -61,8 +61,7 @@ export async function executeNextImprovement(opts: NextImprovementOptions): Prom
 	}
 
 	const score = computeScore(signals);
-	const recommendation = selectRecommendation(score);
-	const recommendations = recommendation !== null ? [recommendation] : [];
+	const recommendations = selectRecommendations(score);
 
 	if (json) {
 		const selected = opts.all ? recommendations : recommendations.slice(0, 1);
