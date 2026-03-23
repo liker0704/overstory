@@ -1,9 +1,9 @@
 {
 	"status-health-builder": 1774230145503,
-	"execution-director": 1774272170153,
+	"execution-director": 1774282251138,
 	"cli-surfaces-lead": 1774230229335,
 	"review-builder": 1774230104640,
-	"coordinator": 1774272152223,
+	"coordinator": 1774282192980,
 	"mission-analyst": 1774270259837,
 	"plan-review-lead": 1774270214592,
 	"plan-devil-advocate": 1774269807735,
@@ -30,5 +30,8 @@
 	"lead-overstory-6c8b": 1774272102000,
 	"build-mail-6c8b": 1774271511177,
 	"build-core-6c8b": 1774271639517,
-	"build-exec-6c8b": 1774271939253
+	"build-exec-6c8b": 1774271939253,
+	"lead-overstory-46be": 1774282228958,
+	"builder-recorder-46be": 1774281754856,
+	"builder-daemon-46be": 1774282022684
 }
