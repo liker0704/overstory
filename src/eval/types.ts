@@ -38,6 +38,8 @@ export interface Assertion {
 	selector?: EventSelector; // for event_count
 	windowMs?: number; // for within
 	hookPath?: string; // relative to scenario dir, for custom
+	metric?: string; // for percentile_bound
+	percentile?: number; // for percentile_bound
 }
 
 /** Result of evaluating a single assertion. */
@@ -77,6 +79,8 @@ export interface EvalScenario {
 	timeoutMs: number;
 	/** Assertions to evaluate after the run. */
 	assertions: Assertion[];
+	/** Optional probabilistic trial configuration. */
+	trials?: ProbabilisticConfig;
 }
 
 /** Runtime config for an eval run (combines scenario + CLI options). */

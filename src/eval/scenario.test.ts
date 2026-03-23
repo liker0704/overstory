@@ -342,4 +342,159 @@ startup_actions:
 			expect(a?.hookPath).toBe("/path/to/hook.ts");
 		});
 	});
+
+	describe("trials section parsing", () => {
+		test("parses scenario with trials section", async () => {
+			const scenarioDir = join(tempDir, "with-trials");
+			await mkdir(scenarioDir);
+			await writeScenarioFiles(
+				scenarioDir,
+				`description: "With trials"
+trials:
+  count: 10
+  maxConcurrent: 2
+`,
+				`assertions:
+  - kind: no_zombies
+    expected: true
+`,
+			);
+
+			const scenario = await loadScenario(scenarioDir);
+			expect(scenario.trials).toEqual({ count: 10, maxConcurrent: 2 });
+		});
+
+		test("scenario without trials section has undefined trials", async () => {
+			const scenarioDir = join(tempDir, "no-trials");
+			await mkdir(scenarioDir);
+			await writeScenarioFiles(
+				scenarioDir,
+				`description: "No trials"
+`,
+				`assertions:
+  - kind: no_zombies
+    expected: true
+`,
+			);
+
+			const scenario = await loadScenario(scenarioDir);
+			expect(scenario.trials).toBeUndefined();
+		});
+	});
+
+	describe("stochastic assertion parsing", () => {
+		test("parses success_ratio assertion", async () => {
+			const scenarioDir = join(tempDir, "success-ratio");
+			await mkdir(scenarioDir);
+			await writeScenarioFiles(
+				scenarioDir,
+				`description: "Success ratio"
+`,
+				`assertions:
+  - kind: success_ratio
+    expected: 0.8
+`,
+			);
+
+			const scenario = await loadScenario(scenarioDir);
+			expect(scenario.assertions[0]).toEqual({ kind: "success_ratio", expected: 0.8 });
+		});
+
+		test("parses percentile_bound assertion with metric and percentile", async () => {
+			const scenarioDir = join(tempDir, "percentile-bound");
+			await mkdir(scenarioDir);
+			await writeScenarioFiles(
+				scenarioDir,
+				`description: "Percentile bound"
+`,
+				`assertions:
+  - kind: percentile_bound
+    metric: durationMs
+    percentile: 95
+    expected: 300000
+`,
+			);
+
+			const scenario = await loadScenario(scenarioDir);
+			expect(scenario.assertions[0]).toEqual({
+				kind: "percentile_bound",
+				expected: 300000,
+				metric: "durationMs",
+				percentile: 95,
+			});
+		});
+
+		test("throws for percentile_bound missing metric", async () => {
+			const scenarioDir = join(tempDir, "percentile-no-metric");
+			await mkdir(scenarioDir);
+			await writeScenarioFiles(
+				scenarioDir,
+				`description: "Missing metric"
+`,
+				`assertions:
+  - kind: percentile_bound
+    percentile: 95
+    expected: 300000
+`,
+			);
+
+			await expect(loadScenario(scenarioDir)).rejects.toThrow(EvalScenarioError);
+		});
+
+		test("throws for percentile_bound missing percentile", async () => {
+			const scenarioDir = join(tempDir, "percentile-no-percentile");
+			await mkdir(scenarioDir);
+			await writeScenarioFiles(
+				scenarioDir,
+				`description: "Missing percentile"
+`,
+				`assertions:
+  - kind: percentile_bound
+    metric: durationMs
+    expected: 300000
+`,
+			);
+
+			await expect(loadScenario(scenarioDir)).rejects.toThrow(EvalScenarioError);
+		});
+
+		test("parses max_retry_frequency assertion with selector", async () => {
+			const scenarioDir = join(tempDir, "max-retry");
+			await mkdir(scenarioDir);
+			await writeScenarioFiles(
+				scenarioDir,
+				`description: "Max retry frequency"
+`,
+				`assertions:
+  - kind: max_retry_frequency
+    expected: 0.1
+    selector:
+      eventType: error
+`,
+			);
+
+			const scenario = await loadScenario(scenarioDir);
+			expect(scenario.assertions[0]).toEqual({
+				kind: "max_retry_frequency",
+				expected: 0.1,
+				selector: { eventType: "error" },
+			});
+		});
+
+		test("throws for max_retry_frequency missing selector", async () => {
+			const scenarioDir = join(tempDir, "max-retry-no-selector");
+			await mkdir(scenarioDir);
+			await writeScenarioFiles(
+				scenarioDir,
+				`description: "Missing selector"
+`,
+				`assertions:
+  - kind: max_retry_frequency
+    expected: 0.1
+`,
+			);
+
+			await expect(loadScenario(scenarioDir)).rejects.toThrow(EvalScenarioError);
+		});
+	});
 });

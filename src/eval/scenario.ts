@@ -8,6 +8,7 @@ import type {
 	ConfigOverrides,
 	EvalScenario,
 	EventSelector,
+	ProbabilisticConfig,
 	StartupAction,
 } from "./types.ts";
 
@@ -195,6 +196,9 @@ const VALID_ASSERTION_KINDS: Set<string> = new Set([
 	"after",
 	"within",
 	"event_count",
+	"success_ratio",
+	"percentile_bound",
+	"max_retry_frequency",
 ]);
 
 function parseEventSelector(raw: unknown, path: string): EventSelector {
@@ -298,6 +302,48 @@ function parseAssertions(raw: unknown, scenarioPath: string): Assertion[] {
 			if (obj.hookPath !== undefined && typeof obj.hookPath === "string") {
 				assertion.hookPath = obj.hookPath;
 			}
+		} else if (kind === "success_ratio") {
+			if (typeof expected !== "number") {
+				throw new EvalScenarioError(
+					`assertion[${i}].expected must be a number for kind 'success_ratio'`,
+					{ scenarioPath },
+				);
+			}
+		} else if (kind === "percentile_bound") {
+			if (typeof expected !== "number") {
+				throw new EvalScenarioError(
+					`assertion[${i}].expected must be a number for kind 'percentile_bound'`,
+					{ scenarioPath },
+				);
+			}
+			if (typeof obj.metric !== "string") {
+				throw new EvalScenarioError(
+					`assertion[${i}].metric is required for kind 'percentile_bound'`,
+					{ scenarioPath },
+				);
+			}
+			if (typeof obj.percentile !== "number") {
+				throw new EvalScenarioError(
+					`assertion[${i}].percentile is required for kind 'percentile_bound'`,
+					{ scenarioPath },
+				);
+			}
+			assertion.metric = obj.metric;
+			assertion.percentile = obj.percentile;
+		} else if (kind === "max_retry_frequency") {
+			if (typeof expected !== "number") {
+				throw new EvalScenarioError(
+					`assertion[${i}].expected must be a number for kind 'max_retry_frequency'`,
+					{ scenarioPath },
+				);
+			}
+			if (obj.selector === undefined) {
+				throw new EvalScenarioError(
+					`assertion[${i}].selector is required for kind 'max_retry_frequency'`,
+					{ scenarioPath },
+				);
+			}
+			assertion.selector = parseEventSelector(obj.selector, `assertion[${i}].selector`);
 		}
 
 		return assertion;
@@ -420,6 +466,21 @@ export async function loadScenario(scenarioPath: string): Promise<EvalScenario> 
 		});
 	}
 
+	let trials: ProbabilisticConfig | undefined;
+	if (scenarioParsed.trials !== undefined && scenarioParsed.trials !== null) {
+		if (typeof scenarioParsed.trials !== "object" || Array.isArray(scenarioParsed.trials)) {
+			throw new EvalScenarioError("trials must be an object", { scenarioPath });
+		}
+		const trialsObj = scenarioParsed.trials as Record<string, unknown>;
+		if (typeof trialsObj.count !== "number" || trialsObj.count < 1) {
+			throw new EvalScenarioError("trials.count must be a positive number", { scenarioPath });
+		}
+		trials = { count: trialsObj.count };
+		if (typeof trialsObj.maxConcurrent === "number") {
+			trials.maxConcurrent = trialsObj.maxConcurrent;
+		}
+	}
+
 	const repoTemplateDirPath = join(scenarioPath, "repo-template");
 	const repoTemplateExists =
 		existsSync(repoTemplateDirPath) && statSync(repoTemplateDirPath).isDirectory();
@@ -435,5 +496,6 @@ export async function loadScenario(scenarioPath: string): Promise<EvalScenario> 
 		startupActions,
 		timeoutMs,
 		assertions,
+		trials,
 	};
 }
