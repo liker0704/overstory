@@ -21,7 +21,10 @@ export type AssertionKind =
 	| "before"
 	| "after"
 	| "within"
-	| "event_count";
+	| "event_count"
+	| "success_ratio"
+	| "percentile_bound"
+	| "max_retry_frequency";
 
 /** A single assertion declaration from assertions.yaml. */
 export interface Assertion {
@@ -154,4 +157,69 @@ export interface EvalArtifacts {
 	sessions: string;
 	metrics: string;
 	assertions: string;
+}
+
+/** Config for probabilistic eval runs. */
+export interface ProbabilisticConfig {
+	/** Number of trials to run. */
+	count: number;
+	/** Max concurrent trials (default: 1, sequential). */
+	maxConcurrent?: number;
+}
+
+/** Result of a single trial within a probabilistic run. */
+export interface TrialResult {
+	/** 0-based trial index. */
+	trialIndex: number;
+	/** The full single-run eval result. */
+	evalResult: EvalResult;
+}
+
+/** Aggregate values for a single numeric metric across trials. */
+export interface MetricAggregate {
+	mean: number;
+	median: number;
+	min: number;
+	max: number;
+	p5: number;
+	p95: number;
+	stddev: number;
+}
+
+/** Aggregate statistics computed across all trials. */
+export interface AggregateStats {
+	trialCount: number;
+	passCount: number;
+	failCount: number;
+	successRatio: number;
+	timeoutCount: number;
+	/** Per-metric aggregates: mean, median, p5, p95 for each numeric EvalMetrics field. */
+	metrics: Record<string, MetricAggregate>;
+}
+
+/** Result of evaluating a stochastic assertion across trials. */
+export interface StochasticAssertionResult {
+	kind: string;
+	label: string;
+	passed: boolean;
+	actual: number;
+	expected: number;
+	message: string;
+}
+
+/** Full result of a probabilistic eval run. */
+export interface ProbabilisticEvalResult {
+	runId: string;
+	scenarioName: string;
+	scenarioPath: string;
+	startedAt: string;
+	completedAt: string;
+	totalDurationMs: number;
+	config: ProbabilisticConfig;
+	trials: TrialResult[];
+	aggregateStats: AggregateStats;
+	/** Stochastic assertion results (evaluated after all trials). */
+	stochasticAssertions: StochasticAssertionResult[];
+	/** Overall pass: all stochastic assertions passed. */
+	passed: boolean;
 }

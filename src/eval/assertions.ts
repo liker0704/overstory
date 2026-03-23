@@ -270,6 +270,17 @@ async function evaluate(assertion: Assertion, context: EvalContext): Promise<Ass
 				};
 			}
 		}
+
+		case "success_ratio":
+		case "percentile_bound":
+		case "max_retry_frequency": {
+			return {
+				assertion,
+				passed: false,
+				actual: 0,
+				message: `${label}: ${assertion.kind} is a stochastic assertion — evaluate via runProbabilisticEval`,
+			};
+		}
 	}
 }
 
