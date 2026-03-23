@@ -1328,5 +1328,15 @@
 		"status": "active",
 		"createdAt": "2026-03-23T22:19:59.983Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-ca427469",
+		"name": "workflow-import-batch-1",
+		"memberIssueIds": [
+			"overstory-6f03"
+		],
+		"status": "active",
+		"createdAt": "2026-03-23T23:12:03.336Z",
+		"completedAt": null
 	}
 ]
