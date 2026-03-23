@@ -1,19 +1,26 @@
-import type { Assertion, AssertionResult, EvalMetrics } from "./types.ts";
+import { resolve } from "node:path";
+import type { StoredEvent } from "../events/types.ts";
+import type { Assertion, AssertionResult, EvalContext, EventSelector } from "./types.ts";
 
 /**
- * Evaluate a list of assertions against collected eval metrics.
+ * Evaluate a list of assertions against collected eval context.
  *
  * @returns One AssertionResult per assertion, in the same order.
  */
-export function evaluateAssertions(
+export async function evaluateAssertions(
 	assertions: Assertion[],
-	metrics: EvalMetrics,
-): AssertionResult[] {
-	return assertions.map((assertion) => evaluate(assertion, metrics));
+	context: EvalContext,
+): Promise<AssertionResult[]> {
+	const results: AssertionResult[] = [];
+	for (const assertion of assertions) {
+		results.push(await evaluate(assertion, context));
+	}
+	return results;
 }
 
-function evaluate(assertion: Assertion, metrics: EvalMetrics): AssertionResult {
+async function evaluate(assertion: Assertion, context: EvalContext): Promise<AssertionResult> {
 	const label = assertion.label ?? labelFromKind(assertion.kind);
+	const metrics = context.metrics;
 
 	switch (assertion.kind) {
 		case "min_workers_spawned": {
@@ -112,15 +119,171 @@ function evaluate(assertion: Assertion, metrics: EvalMetrics): AssertionResult {
 			};
 		}
 
-		case "custom": {
+		case "before": {
+			const eventA = assertion.eventA;
+			const eventB = assertion.eventB;
+			if (!eventA || !eventB) {
+				return {
+					assertion,
+					passed: false,
+					actual: "missing",
+					message: `${label}: before assertion requires eventA and eventB`,
+				};
+			}
+			const a = findEvent(context.events, eventA);
+			const b = findEvent(context.events, eventB);
+			if (!a || !b) {
+				return {
+					assertion,
+					passed: false,
+					actual: "not found",
+					message: `${label}: event not found — ${!a ? "eventA" : "eventB"} missing`,
+				};
+			}
+			const passed = a.createdAt < b.createdAt;
 			return {
 				assertion,
-				passed: true,
-				actual: "custom",
-				message: `${label}: custom assertion — always passes (LLM judge not yet implemented)`,
+				passed,
+				actual: a.createdAt,
+				message: passed
+					? `${label}: ${a.createdAt} is before ${b.createdAt}`
+					: `${label}: ${a.createdAt} is NOT before ${b.createdAt}`,
 			};
 		}
+
+		case "after": {
+			const eventA = assertion.eventA;
+			const eventB = assertion.eventB;
+			if (!eventA || !eventB) {
+				return {
+					assertion,
+					passed: false,
+					actual: "missing",
+					message: `${label}: after assertion requires eventA and eventB`,
+				};
+			}
+			const a = findEvent(context.events, eventA);
+			const b = findEvent(context.events, eventB);
+			if (!a || !b) {
+				return {
+					assertion,
+					passed: false,
+					actual: "not found",
+					message: `${label}: event not found — ${!a ? "eventA" : "eventB"} missing`,
+				};
+			}
+			const passed = a.createdAt > b.createdAt;
+			return {
+				assertion,
+				passed,
+				actual: a.createdAt,
+				message: passed
+					? `${label}: ${a.createdAt} is after ${b.createdAt}`
+					: `${label}: ${a.createdAt} is NOT after ${b.createdAt}`,
+			};
+		}
+
+		case "within": {
+			const eventA = assertion.eventA;
+			const eventB = assertion.eventB;
+			const windowMs = assertion.windowMs;
+			if (!eventA || !eventB || windowMs === undefined) {
+				return {
+					assertion,
+					passed: false,
+					actual: "missing",
+					message: `${label}: within assertion requires eventA, eventB, and windowMs`,
+				};
+			}
+			const a = findEvent(context.events, eventA);
+			const b = findEvent(context.events, eventB);
+			if (!a || !b) {
+				return {
+					assertion,
+					passed: false,
+					actual: "not found",
+					message: `${label}: event not found — ${!a ? "eventA" : "eventB"} missing`,
+				};
+			}
+			const diffMs = Math.abs(new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+			const passed = diffMs <= windowMs;
+			return {
+				assertion,
+				passed,
+				actual: diffMs,
+				message: passed
+					? `${label}: events are ${diffMs}ms apart (<= ${windowMs}ms)`
+					: `${label}: events are ${diffMs}ms apart, exceeds window of ${windowMs}ms`,
+			};
+		}
+
+		case "event_count": {
+			const selector = assertion.selector;
+			const expected = assertion.expected as number;
+			if (!selector) {
+				return {
+					assertion,
+					passed: false,
+					actual: 0,
+					message: `${label}: event_count assertion requires selector`,
+				};
+			}
+			const count = context.events.filter((e) => matchesSelector(e, selector)).length;
+			const passed = count >= expected;
+			return {
+				assertion,
+				passed,
+				actual: count,
+				message: passed
+					? `${label}: ${count} events matching selector (>= ${expected})`
+					: `${label}: only ${count} events matching selector, expected at least ${expected}`,
+			};
+		}
+
+		case "custom": {
+			const hookPath = assertion.hookPath;
+			if (!hookPath) {
+				return {
+					assertion,
+					passed: false,
+					actual: "missing",
+					message: `${label}: custom assertion missing hookPath`,
+				};
+			}
+			try {
+				const absolutePath = resolve(hookPath);
+				const mod = await import(absolutePath);
+				const result = (await mod.default(context)) as { passed: boolean; message: string };
+				return {
+					assertion,
+					passed: result.passed,
+					actual: result.passed ? "passed" : "failed",
+					message: result.message,
+				};
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				return {
+					assertion,
+					passed: false,
+					actual: "error",
+					message: `${label}: custom hook error — ${msg}`,
+				};
+			}
+		}
 	}
+}
+
+function findEvent(events: StoredEvent[], selector: EventSelector): StoredEvent | undefined {
+	return events.find((e) => matchesSelector(e, selector));
+}
+
+function matchesSelector(e: StoredEvent, selector: EventSelector): boolean {
+	if (e.eventType !== selector.eventType) return false;
+	if (selector.agentName !== undefined && e.agentName !== selector.agentName) return false;
+	if (selector.dataMatch !== undefined) {
+		if (e.data === null || !e.data.includes(selector.dataMatch)) return false;
+	}
+	return true;
 }
 
 function labelFromKind(kind: string): string {

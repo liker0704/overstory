@@ -208,4 +208,138 @@ startup_actions:
 		const scenario = await loadScenario(scenarioDir);
 		expect(scenario.startupActions).toEqual([]);
 	});
+
+	describe("temporal assertion parsing", () => {
+		test("parses before assertion with eventA and eventB", async () => {
+			const scenarioDir = join(tempDir, "before-assertion");
+			await mkdir(scenarioDir);
+			await writeScenarioFiles(
+				scenarioDir,
+				`description: "Before assertion test"
+`,
+				`assertions:
+  - kind: before
+    expected: true
+    eventA:
+      eventType: spawn
+      agentName: scout-1
+    eventB:
+      eventType: spawn
+      agentName: builder-1
+`,
+			);
+
+			const scenario = await loadScenario(scenarioDir);
+			const a = scenario.assertions[0];
+			expect(a?.kind).toBe("before");
+			expect(a?.eventA).toEqual({ eventType: "spawn", agentName: "scout-1" });
+			expect(a?.eventB).toEqual({ eventType: "spawn", agentName: "builder-1" });
+		});
+
+		test("parses within assertion with eventA, eventB, and windowMs", async () => {
+			const scenarioDir = join(tempDir, "within-assertion");
+			await mkdir(scenarioDir);
+			await writeScenarioFiles(
+				scenarioDir,
+				`description: "Within assertion test"
+`,
+				`assertions:
+  - kind: within
+    expected: true
+    windowMs: 60000
+    eventA:
+      eventType: spawn
+    eventB:
+      eventType: result
+`,
+			);
+
+			const scenario = await loadScenario(scenarioDir);
+			const a = scenario.assertions[0];
+			expect(a?.kind).toBe("within");
+			expect(a?.windowMs).toBe(60000);
+			expect(a?.eventA).toEqual({ eventType: "spawn" });
+			expect(a?.eventB).toEqual({ eventType: "result" });
+		});
+
+		test("parses event_count assertion with selector", async () => {
+			const scenarioDir = join(tempDir, "event-count-assertion");
+			await mkdir(scenarioDir);
+			await writeScenarioFiles(
+				scenarioDir,
+				`description: "Event count assertion test"
+`,
+				`assertions:
+  - kind: event_count
+    expected: 3
+    selector:
+      eventType: tool_start
+`,
+			);
+
+			const scenario = await loadScenario(scenarioDir);
+			const a = scenario.assertions[0];
+			expect(a?.kind).toBe("event_count");
+			expect(a?.expected).toBe(3);
+			expect(a?.selector).toEqual({ eventType: "tool_start" });
+		});
+
+		test("throws when before assertion is missing eventA", async () => {
+			const scenarioDir = join(tempDir, "before-missing-eventA");
+			await mkdir(scenarioDir);
+			await writeScenarioFiles(
+				scenarioDir,
+				`description: "Missing eventA"
+`,
+				`assertions:
+  - kind: before
+    expected: true
+    eventB:
+      eventType: spawn
+`,
+			);
+
+			await expect(loadScenario(scenarioDir)).rejects.toThrow(EvalScenarioError);
+		});
+
+		test("throws when within assertion is missing windowMs", async () => {
+			const scenarioDir = join(tempDir, "within-missing-windowMs");
+			await mkdir(scenarioDir);
+			await writeScenarioFiles(
+				scenarioDir,
+				`description: "Missing windowMs"
+`,
+				`assertions:
+  - kind: within
+    expected: true
+    eventA:
+      eventType: spawn
+    eventB:
+      eventType: result
+`,
+			);
+
+			await expect(loadScenario(scenarioDir)).rejects.toThrow(EvalScenarioError);
+		});
+
+		test("parses custom assertion with hookPath", async () => {
+			const scenarioDir = join(tempDir, "custom-hookpath");
+			await mkdir(scenarioDir);
+			await writeScenarioFiles(
+				scenarioDir,
+				`description: "Custom hook assertion"
+`,
+				`assertions:
+  - kind: custom
+    expected: true
+    hookPath: /path/to/hook.ts
+`,
+			);
+
+			const scenario = await loadScenario(scenarioDir);
+			const a = scenario.assertions[0];
+			expect(a?.kind).toBe("custom");
+			expect(a?.hookPath).toBe("/path/to/hook.ts");
+		});
+	});
 });

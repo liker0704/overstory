@@ -369,7 +369,7 @@ export async function runEval(config: EvalRunConfig): Promise<EvalResult> {
 		const context = collectContext(fixtureRoot, durationMs);
 
 		// Step 8: Evaluate assertions
-		const assertions = evaluateAssertions(config.scenario.assertions, context.metrics);
+		const assertions = await evaluateAssertions(config.scenario.assertions, context);
 
 		const passed = assertions.every((a) => a.passed);
 

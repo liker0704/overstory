@@ -1,11 +1,13 @@
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { EvalScenarioError } from "../errors.ts";
+import type { EventType } from "../events/types.ts";
 import type {
 	Assertion,
 	AssertionKind,
 	ConfigOverrides,
 	EvalScenario,
+	EventSelector,
 	StartupAction,
 } from "./types.ts";
 
@@ -189,7 +191,25 @@ const VALID_ASSERTION_KINDS: Set<string> = new Set([
 	"max_cost",
 	"max_duration_ms",
 	"custom",
+	"before",
+	"after",
+	"within",
+	"event_count",
 ]);
+
+function parseEventSelector(raw: unknown, path: string): EventSelector {
+	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+		throw new EvalScenarioError(`${path} must be an object`, { scenarioPath: path });
+	}
+	const obj = raw as Record<string, unknown>;
+	if (typeof obj.eventType !== "string") {
+		throw new EvalScenarioError(`${path}.eventType must be a string`, { scenarioPath: path });
+	}
+	const selector: EventSelector = { eventType: obj.eventType as EventType };
+	if (typeof obj.agentName === "string") selector.agentName = obj.agentName;
+	if (typeof obj.dataMatch === "string") selector.dataMatch = obj.dataMatch;
+	return selector;
+}
 
 function parseAssertions(raw: unknown, scenarioPath: string): Assertion[] {
 	if (!Array.isArray(raw)) {
@@ -228,6 +248,58 @@ function parseAssertions(raw: unknown, scenarioPath: string): Assertion[] {
 		if (typeof label === "string") {
 			assertion.label = label;
 		}
+
+		if (kind === "before" || kind === "after") {
+			if (obj.eventA === undefined) {
+				throw new EvalScenarioError(`assertion[${i}].eventA is required for kind '${kind}'`, {
+					scenarioPath,
+				});
+			}
+			if (obj.eventB === undefined) {
+				throw new EvalScenarioError(`assertion[${i}].eventB is required for kind '${kind}'`, {
+					scenarioPath,
+				});
+			}
+			assertion.eventA = parseEventSelector(obj.eventA, `assertion[${i}].eventA`);
+			assertion.eventB = parseEventSelector(obj.eventB, `assertion[${i}].eventB`);
+		} else if (kind === "within") {
+			if (obj.eventA === undefined) {
+				throw new EvalScenarioError(`assertion[${i}].eventA is required for kind 'within'`, {
+					scenarioPath,
+				});
+			}
+			if (obj.eventB === undefined) {
+				throw new EvalScenarioError(`assertion[${i}].eventB is required for kind 'within'`, {
+					scenarioPath,
+				});
+			}
+			if (typeof obj.windowMs !== "number") {
+				throw new EvalScenarioError(`assertion[${i}].windowMs must be a number for kind 'within'`, {
+					scenarioPath,
+				});
+			}
+			assertion.eventA = parseEventSelector(obj.eventA, `assertion[${i}].eventA`);
+			assertion.eventB = parseEventSelector(obj.eventB, `assertion[${i}].eventB`);
+			assertion.windowMs = obj.windowMs;
+		} else if (kind === "event_count") {
+			if (obj.selector === undefined) {
+				throw new EvalScenarioError(`assertion[${i}].selector is required for kind 'event_count'`, {
+					scenarioPath,
+				});
+			}
+			if (typeof expected !== "number") {
+				throw new EvalScenarioError(
+					`assertion[${i}].expected must be a number for kind 'event_count'`,
+					{ scenarioPath },
+				);
+			}
+			assertion.selector = parseEventSelector(obj.selector, `assertion[${i}].selector`);
+		} else if (kind === "custom") {
+			if (obj.hookPath !== undefined && typeof obj.hookPath === "string") {
+				assertion.hookPath = obj.hookPath;
+			}
+		}
+
 		return assertion;
 	});
 }
