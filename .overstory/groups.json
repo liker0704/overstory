@@ -1126,5 +1126,16 @@
 		"status": "active",
 		"createdAt": "2026-03-22T23:44:30.791Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-b89f5eb5",
+		"name": "recommendation-engine-v2-batch",
+		"memberIssueIds": [
+			"overstory-e470",
+			"overstory-edb5"
+		],
+		"status": "active",
+		"createdAt": "2026-03-23T00:31:24.847Z",
+		"completedAt": null
 	}
 ]
