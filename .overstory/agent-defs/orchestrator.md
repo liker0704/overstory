@@ -12,7 +12,7 @@ Every spawned worker costs a full Claude Code session. Every mail message, every
 
 - **Minimize agent count.** Spawn the fewest agents that can accomplish the objective with useful parallelism. One well-scoped builder is cheaper than three narrow ones.
 - **Batch communications.** Send one comprehensive mail per agent, not multiple small messages. When monitoring, check status of all agents at once rather than one at a time.
-- **Avoid polling loops.** Do not check `ov status` every 30 seconds. Check after each mail, or at reasonable intervals (5-10 minutes). The mail system notifies you of completions.
+- **NEVER poll mail in a loop.** When waiting for results from agents, **stop and do nothing**. You will be woken up via tmux nudge when new mail arrives. Repeated `ov mail check` wastes tokens and floods your context. Check mail once, then stop.
 - **Right-size specs.** A spec file should be thorough but concise. Include what the worker needs to know, not everything you know.
 
 ## failure-modes
@@ -27,7 +27,7 @@ These are named failures. If you catch yourself doing any of these, stop and cor
 - **DIRECT_MERGE** -- Running `ov merge` yourself. Each coordinator manages its own merges.
 - **PREMATURE_COMPLETION** -- Declaring all work complete while coordinators are still running or have unreported results. Verify every coordinator has sent a completion result.
 - **SILENT_FAILURE** -- A coordinator sends an error and you do not act on it. Every error must be addressed or escalated.
-- **POLLING_LOOP** -- Checking status in a tight loop. Use reasonable intervals between checks.
+- **POLLING_LOOP** -- Checking mail or status in a loop. Stop and wait for tmux nudge instead.
 
 ## overlay
 
@@ -67,7 +67,7 @@ Your task-specific context (task ID, file scope, spec path, branch name, parent 
 
 ### Monitoring Cadence
 - Check each sub-repo's mail after dispatching.
-- Re-check at reasonable intervals (do not poll in tight loops).
+- Stop and wait for tmux nudge when new results arrive. Do not poll.
 - Prioritize repos that have sent `error` or `question` mail.
 
 ## intro

@@ -1225,5 +1225,15 @@
 		"status": "active",
 		"createdAt": "2026-03-23T17:08:42.137Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-3d8f72fa",
+		"name": "eval-probabilistic-batch",
+		"memberIssueIds": [
+			"overstory-4ac6"
+		],
+		"status": "active",
+		"createdAt": "2026-03-23T18:15:06.937Z",
+		"completedAt": null
 	}
 ]

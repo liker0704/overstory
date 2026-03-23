@@ -76,46 +76,6 @@
 			"canSpawn": true,
 			"constraints": []
 		},
-		"lead-mission": {
-			"file": "lead-mission.md",
-			"model": "opus",
-			"tools": [
-				"Read",
-				"Write",
-				"Edit",
-				"Glob",
-				"Grep",
-				"Bash",
-				"Task"
-			],
-			"capabilities": [
-				"coordinate",
-				"implement",
-				"review"
-			],
-			"canSpawn": true,
-			"constraints": []
-		},
-		"coordinator-mission": {
-			"file": "coordinator-mission.md",
-			"model": "opus",
-			"tools": [
-				"Read",
-				"Glob",
-				"Grep",
-				"Bash"
-			],
-			"capabilities": [
-				"coordinate",
-				"dispatch",
-				"escalate"
-			],
-			"canSpawn": true,
-			"constraints": [
-				"read-only",
-				"no-worktree"
-			]
-		},
 		"merger": {
 			"file": "merger.md",
 			"model": "sonnet",
@@ -154,6 +114,210 @@
 				"no-worktree"
 			]
 		},
+		"coordinator-mission": {
+			"file": "coordinator-mission.md",
+			"model": "opus",
+			"tools": [
+				"Read",
+				"Glob",
+				"Grep",
+				"Bash"
+			],
+			"capabilities": [
+				"coordinate",
+				"dispatch",
+				"escalate",
+				"mission"
+			],
+			"canSpawn": true,
+			"constraints": [
+				"read-only",
+				"no-worktree"
+			]
+		},
+		"mission-analyst": {
+			"file": "mission-analyst.md",
+			"model": "opus",
+			"tools": [
+				"Read",
+				"Glob",
+				"Grep",
+				"Bash"
+			],
+			"capabilities": [
+				"research",
+				"analyze",
+				"synthesize",
+				"mission"
+			],
+			"canSpawn": true,
+			"constraints": [
+				"read-only",
+				"no-worktree"
+			]
+		},
+		"execution-director": {
+			"file": "execution-director.md",
+			"model": "opus",
+			"tools": [
+				"Read",
+				"Glob",
+				"Grep",
+				"Bash"
+			],
+			"capabilities": [
+				"dispatch",
+				"coordinate",
+				"execute",
+				"mission"
+			],
+			"canSpawn": true,
+			"constraints": [
+				"read-only",
+				"no-worktree"
+			]
+		},
+		"lead-mission": {
+			"file": "lead-mission.md",
+			"model": "opus",
+			"tools": [
+				"Read",
+				"Write",
+				"Edit",
+				"Glob",
+				"Grep",
+				"Bash",
+				"Task"
+			],
+			"capabilities": [
+				"coordinate",
+				"implement",
+				"review",
+				"mission-workstream"
+			],
+			"canSpawn": true,
+			"constraints": []
+		},
+		"plan-review-lead": {
+			"file": "plan-review-lead.md",
+			"model": "opus",
+			"tools": [
+				"Read",
+				"Glob",
+				"Grep",
+				"Bash"
+			],
+			"capabilities": [
+				"review",
+				"coordinate",
+				"plan-review"
+			],
+			"canSpawn": true,
+			"constraints": [
+				"read-only",
+				"no-worktree"
+			]
+		},
+		"plan-devil-advocate": {
+			"file": "plan-devil-advocate.md",
+			"model": "sonnet",
+			"tools": [
+				"Read",
+				"Glob",
+				"Grep",
+				"Bash"
+			],
+			"capabilities": [
+				"review",
+				"plan-critic",
+				"plan-risk"
+			],
+			"canSpawn": false,
+			"constraints": [
+				"read-only",
+				"no-worktree"
+			]
+		},
+		"plan-security-critic": {
+			"file": "plan-security-critic.md",
+			"model": "sonnet",
+			"tools": [
+				"Read",
+				"Glob",
+				"Grep",
+				"Bash"
+			],
+			"capabilities": [
+				"review",
+				"plan-critic",
+				"security"
+			],
+			"canSpawn": false,
+			"constraints": [
+				"read-only",
+				"no-worktree"
+			]
+		},
+		"plan-performance-critic": {
+			"file": "plan-performance-critic.md",
+			"model": "sonnet",
+			"tools": [
+				"Read",
+				"Glob",
+				"Grep",
+				"Bash"
+			],
+			"capabilities": [
+				"review",
+				"plan-critic",
+				"performance"
+			],
+			"canSpawn": false,
+			"constraints": [
+				"read-only",
+				"no-worktree"
+			]
+		},
+		"plan-second-opinion": {
+			"file": "plan-second-opinion.md",
+			"model": "sonnet",
+			"tools": [
+				"Read",
+				"Glob",
+				"Grep",
+				"Bash"
+			],
+			"capabilities": [
+				"review",
+				"plan-critic",
+				"independent-validation"
+			],
+			"canSpawn": false,
+			"constraints": [
+				"read-only",
+				"no-worktree"
+			]
+		},
+		"plan-simulator": {
+			"file": "plan-simulator.md",
+			"model": "sonnet",
+			"tools": [
+				"Read",
+				"Glob",
+				"Grep",
+				"Bash"
+			],
+			"capabilities": [
+				"review",
+				"plan-critic",
+				"simulation"
+			],
+			"canSpawn": false,
+			"constraints": [
+				"read-only",
+				"no-worktree"
+			]
+		},
 		"monitor": {
 			"file": "monitor.md",
 			"model": "sonnet",
@@ -172,109 +336,6 @@
 				"read-only",
 				"no-worktree"
 			]
-		},
-		"plan-review-lead": {
-			"file": "plan-review-lead.md",
-			"model": "opus",
-			"tools": [
-				"Read",
-				"Glob",
-				"Grep",
-				"Bash"
-			],
-			"capabilities": [
-				"plan-review",
-				"coordinate"
-			],
-			"canSpawn": true,
-			"constraints": [
-				"read-only"
-			]
-		},
-		"plan-devil-advocate": {
-			"file": "plan-devil-advocate.md",
-			"model": "sonnet",
-			"tools": [
-				"Read",
-				"Glob",
-				"Grep",
-				"Bash"
-			],
-			"capabilities": [
-				"plan-critique"
-			],
-			"canSpawn": false,
-			"constraints": [
-				"read-only"
-			]
-		},
-		"plan-security-critic": {
-			"file": "plan-security-critic.md",
-			"model": "sonnet",
-			"tools": [
-				"Read",
-				"Glob",
-				"Grep",
-				"Bash"
-			],
-			"capabilities": [
-				"plan-critique"
-			],
-			"canSpawn": false,
-			"constraints": [
-				"read-only"
-			]
-		},
-		"plan-performance-critic": {
-			"file": "plan-performance-critic.md",
-			"model": "sonnet",
-			"tools": [
-				"Read",
-				"Glob",
-				"Grep",
-				"Bash"
-			],
-			"capabilities": [
-				"plan-critique"
-			],
-			"canSpawn": false,
-			"constraints": [
-				"read-only"
-			]
-		},
-		"plan-second-opinion": {
-			"file": "plan-second-opinion.md",
-			"model": "sonnet",
-			"tools": [
-				"Read",
-				"Glob",
-				"Grep",
-				"Bash"
-			],
-			"capabilities": [
-				"plan-critique"
-			],
-			"canSpawn": false,
-			"constraints": [
-				"read-only"
-			]
-		},
-		"plan-simulator": {
-			"file": "plan-simulator.md",
-			"model": "sonnet",
-			"tools": [
-				"Read",
-				"Glob",
-				"Grep",
-				"Bash"
-			],
-			"capabilities": [
-				"plan-critique"
-			],
-			"canSpawn": false,
-			"constraints": [
-				"read-only"
-			]
 		}
 	},
 	"capabilityIndex": {
@@ -282,11 +343,13 @@
 			"scout"
 		],
 		"research": [
-			"scout"
+			"scout",
+			"mission-analyst"
 		],
 		"implement": [
 			"builder",
-			"lead"
+			"lead",
+			"lead-mission"
 		],
 		"refactor": [
 			"builder"
@@ -296,14 +359,25 @@
 		],
 		"review": [
 			"reviewer",
-			"lead"
+			"lead",
+			"lead-mission",
+			"plan-review-lead",
+			"plan-devil-advocate",
+			"plan-security-critic",
+			"plan-performance-critic",
+			"plan-second-opinion",
+			"plan-simulator"
 		],
 		"validate": [
 			"reviewer"
 		],
 		"coordinate": [
 			"lead",
-			"coordinator"
+			"coordinator",
+			"coordinator-mission",
+			"execution-director",
+			"lead-mission",
+			"plan-review-lead"
 		],
 		"merge": [
 			"merger"
@@ -312,26 +386,61 @@
 			"merger"
 		],
 		"dispatch": [
-			"coordinator"
+			"coordinator",
+			"coordinator-mission",
+			"execution-director"
 		],
 		"escalate": [
-			"coordinator"
+			"coordinator",
+			"coordinator-mission"
+		],
+		"mission": [
+			"coordinator-mission",
+			"mission-analyst",
+			"execution-director"
+		],
+		"analyze": [
+			"mission-analyst"
+		],
+		"synthesize": [
+			"mission-analyst"
+		],
+		"execute": [
+			"execution-director"
+		],
+		"mission-workstream": [
+			"lead-mission"
+		],
+		"plan-review": [
+			"plan-review-lead"
+		],
+		"plan-critic": [
+			"plan-devil-advocate",
+			"plan-security-critic",
+			"plan-performance-critic",
+			"plan-second-opinion",
+			"plan-simulator"
+		],
+		"plan-risk": [
+			"plan-devil-advocate"
+		],
+		"security": [
+			"plan-security-critic"
+		],
+		"performance": [
+			"plan-performance-critic"
+		],
+		"independent-validation": [
+			"plan-second-opinion"
+		],
+		"simulation": [
+			"plan-simulator"
 		],
 		"monitor": [
 			"monitor"
 		],
 		"patrol": [
 			"monitor"
-		],
-		"plan-review": [
-			"plan-review-lead"
-		],
-		"plan-critique": [
-			"plan-devil-advocate",
-			"plan-security-critic",
-			"plan-performance-critic",
-			"plan-second-opinion",
-			"plan-simulator"
 		]
 	}
 }
