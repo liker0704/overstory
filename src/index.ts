@@ -25,6 +25,7 @@ import { createEvalCommand } from "./commands/eval.ts";
 import { createFeedCommand } from "./commands/feed.ts";
 import { createGroupCommand } from "./commands/group.ts";
 import { createHealthCommand } from "./commands/health.ts";
+import { createHealthPolicyCommand } from "./commands/health-policy.ts";
 import { createHooksCommand } from "./commands/hooks.ts";
 import { initCommand } from "./commands/init.ts";
 import { createInspectCommand } from "./commands/inspect.ts";
@@ -442,6 +443,7 @@ program.addCommand(createRateLimitsCommand());
 program.addCommand(createEvalCommand());
 
 program.addCommand(createHealthCommand());
+program.addCommand(createHealthPolicyCommand());
 program.addCommand(createNextImprovementCommand());
 program.addCommand(createReviewCommand());
 

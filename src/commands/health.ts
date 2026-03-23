@@ -10,7 +10,11 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Command } from "commander";
 import { loadConfig } from "../config.ts";
+import { createEventStore } from "../events/store.ts";
 import { createEvalSource } from "../health/eval-source.ts";
+import { isPolicyDisabled } from "../health/policy/kill-switch.ts";
+import { loadRecentActions } from "../health/policy/history.ts";
+import { type PolicyStatusInfo, renderPolicyStatus } from "../health/policy/render.ts";
 import { selectRecommendations } from "../health/recommendations.ts";
 import { renderHealthScore } from "../health/render.ts";
 import { createReviewSource } from "../health/review-source.ts";
@@ -139,6 +143,37 @@ export async function executeHealth(opts: HealthOptions): Promise<void> {
 		}
 	}
 
+	// Policy status (optional)
+	let policyStatusInfo: PolicyStatusInfo | null = null;
+	if (config.healthPolicy) {
+		const disabled = isPolicyDisabled(overstoryDir, config);
+		let recentTriggered = 0;
+		let lastEvaluationAt: string | undefined;
+		const eventsDb = join(overstoryDir, "events.db");
+		if (existsSync(eventsDb)) {
+			try {
+				const eventStore = createEventStore(eventsDb);
+				const MS_1H = 60 * 60 * 1000;
+				const records = loadRecentActions(eventStore, MS_1H);
+				recentTriggered = records.filter((r) => r.triggered).length;
+				const latest = records[0];
+				if (latest !== undefined) {
+					lastEvaluationAt = latest.timestamp;
+				}
+			} catch {
+				// Non-fatal — proceed without policy history
+			}
+		}
+		policyStatusInfo = {
+			enabled: config.healthPolicy.enabled && !disabled,
+			disabled,
+			dryRun: config.healthPolicy.dryRun,
+			ruleCount: config.healthPolicy.rules.length,
+			lastEvaluationAt,
+			recentTriggered,
+		};
+	}
+
 	if (json) {
 		const reviewRecs = extraSources[0] ? extraSources[0].collect(score) : [];
 		const evalRecs = extraSources[1] ? extraSources[1].collect(score) : [];
@@ -169,6 +204,9 @@ export async function executeHealth(opts: HealthOptions): Promise<void> {
 			evalRecommendationCount: evalRecs.length,
 			reminderRecommendationCount: reminderRecs.length,
 		};
+		if (policyStatusInfo !== null) {
+			out.policyStatus = policyStatusInfo;
+		}
 		jsonOutput("health", out);
 		return;
 	}
@@ -177,6 +215,10 @@ export async function executeHealth(opts: HealthOptions): Promise<void> {
 	if (comparisonDelta !== undefined) {
 		const sign = comparisonDelta > 0 ? "+" : "";
 		process.stdout.write(`\n  Score delta vs previous snapshot: ${sign}${comparisonDelta}\n`);
+	}
+	if (policyStatusInfo !== null) {
+		process.stdout.write("\n");
+		process.stdout.write(renderPolicyStatus(policyStatusInfo) + "\n");
 	}
 }
 
