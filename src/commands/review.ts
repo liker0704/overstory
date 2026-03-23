@@ -22,7 +22,7 @@ import { analyzeSession } from "../review/analyzers/session.ts";
 import { analyzeSpec } from "../review/analyzers/spec.ts";
 import { checkAndMarkStale } from "../review/staleness.ts";
 import { createReviewStore } from "../review/store.ts";
-import type { ReviewRecord } from "../review/types.ts";
+import type { ReviewRecord, ReviewSubjectType } from "../review/types.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import type { SessionCheckpoint } from "../types.ts";
 
@@ -547,6 +547,42 @@ interface ReviewStaleOpts {
 	json?: boolean;
 }
 
+interface ArtifactStatusBreakdown {
+	fresh: number;
+	stale: number;
+	underTarget: number;
+	unscored: number;
+	superseded: number;
+}
+
+function countArtifactStatuses(records: ReviewRecord[]): ArtifactStatusBreakdown {
+	const breakdown: ArtifactStatusBreakdown = {
+		fresh: 0,
+		stale: 0,
+		underTarget: 0,
+		unscored: 0,
+		superseded: 0,
+	};
+	for (const r of records) {
+		if (r.artifactStatus === "fresh") breakdown.fresh++;
+		else if (r.artifactStatus === "stale") breakdown.stale++;
+		else if (r.artifactStatus === "under-target") breakdown.underTarget++;
+		else if (r.artifactStatus === "unscored") breakdown.unscored++;
+		else if (r.artifactStatus === "superseded") breakdown.superseded++;
+	}
+	return breakdown;
+}
+
+function formatBreakdownSuffix(b: ArtifactStatusBreakdown): string {
+	const parts: string[] = [];
+	if (b.fresh > 0) parts.push(`${b.fresh} fresh`);
+	if (b.stale > 0) parts.push(`${b.stale} stale`);
+	if (b.underTarget > 0) parts.push(`${b.underTarget} under-target`);
+	if (b.unscored > 0) parts.push(`${b.unscored} unscored`);
+	if (b.superseded > 0) parts.push(`${b.superseded} superseded`);
+	return parts.length > 0 ? ` (${parts.join(", ")})` : "";
+}
+
 async function executeReviewStale(opts: ReviewStaleOpts): Promise<void> {
 	const json = opts.json ?? false;
 
@@ -559,8 +595,25 @@ async function executeReviewStale(opts: ReviewStaleOpts): Promise<void> {
 	try {
 		const changes = await checkAndMarkStale(repoRoot, reviewStore);
 
+		const subjectTypes: ReviewSubjectType[] = ["session", "handoff", "spec", "mission"];
+		const artifactStatusByType: Record<string, ArtifactStatusBreakdown> = {};
+		for (const st of subjectTypes) {
+			const records = reviewStore.getByType(st);
+			artifactStatusByType[st] = countArtifactStatuses(records);
+		}
+
 		if (json) {
-			jsonOutput("review", { stale: changes });
+			const staleWithStatus = changes.map((c) => ({
+				...c,
+				artifactStatus: artifactStatusByType[c.subjectType] ?? {
+					fresh: 0,
+					stale: 0,
+					underTarget: 0,
+					unscored: 0,
+					superseded: 0,
+				},
+			}));
+			jsonOutput("review", { stale: staleWithStatus });
 			return;
 		}
 
@@ -569,14 +622,24 @@ async function executeReviewStale(opts: ReviewStaleOpts): Promise<void> {
 
 		let anyChanges = false;
 		for (const change of changes) {
+			const breakdown = artifactStatusByType[change.subjectType] ?? {
+				fresh: 0,
+				stale: 0,
+				underTarget: 0,
+				unscored: 0,
+				superseded: 0,
+			};
+			const suffix = formatBreakdownSuffix(breakdown);
 			if (change.changedPaths.length > 0) {
 				anyChanges = true;
-				w(`${color.yellow(change.subjectType)}: ${change.changedPaths.length} file(s) changed\n`);
+				w(
+					`${color.yellow(change.subjectType)}: ${change.changedPaths.length} file(s) changed${color.dim(suffix)}\n`,
+				);
 				for (const f of change.changedPaths) {
 					w(`  ${color.dim(`• ${f}`)}\n`);
 				}
 			} else {
-				w(`${color.green(change.subjectType)}: no changes detected\n`);
+				w(`${color.green(change.subjectType)}: no changes detected${color.dim(suffix)}\n`);
 			}
 		}
 
