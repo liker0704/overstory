@@ -1,10 +1,10 @@
 {
 	"status-health-builder": 1774230145503,
-	"execution-director": 1774304336439,
+	"execution-director": 1774304785088,
 	"cli-surfaces-lead": 1774230229335,
 	"review-builder": 1774230104640,
 	"coordinator": 1774303225600,
-	"mission-analyst": 1774304228854,
+	"mission-analyst": 1774304620207,
 	"plan-review-lead": 1774302246840,
 	"plan-devil-advocate": 1774302247264,
 	"plan-second-opinion": 1774302247175,
@@ -87,10 +87,13 @@
 	"build-context-types": 1774301668826,
 	"review-context-types": 1774302126634,
 	"lead-overstory-b39e": 1774304298426,
-	"lead-overstory-37d0": 1774304343147,
+	"lead-overstory-37d0": 1774304789987,
 	"build-analyzers-alpha": 1774303684998,
 	"build-analyzers-beta": 1774303632587,
 	"build-context-core": 1774303972971,
-	"builder-ctx-integration": 1774304336047,
-	"review-context-analyzers": 1774304235512
+	"builder-ctx-integration": 1774304492480,
+	"review-context-analyzers": 1774304235512,
+	"lead-overstory-36de": 1774304789650,
+	"review-ctx-integration": 1774304759459,
+	"build-context-cli": 1774304781304
 }

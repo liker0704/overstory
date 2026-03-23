@@ -1318,5 +1318,15 @@
 		"status": "active",
 		"createdAt": "2026-03-23T21:59:43.909Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-798f0d20",
+		"name": "holistic-context-batch-3",
+		"memberIssueIds": [
+			"overstory-36de"
+		],
+		"status": "active",
+		"createdAt": "2026-03-23T22:19:59.983Z",
+		"completedAt": null
 	}
 ]
