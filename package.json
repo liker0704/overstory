@@ -46,12 +46,12 @@
 	"dependencies": {
 		"@os-eco/mulch-cli": "^0.6.2",
 		"chalk": "^5.6.2",
-		"commander": "^14.0.3"
+		"commander": "^14.0.3",
+		"typescript": "^5.9.0"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.3.15",
 		"@types/bun": "latest",
-		"@types/js-yaml": "^4.0.9",
-		"typescript": "^5.9.0"
+		"@types/js-yaml": "^4.0.9"
 	}
 }
