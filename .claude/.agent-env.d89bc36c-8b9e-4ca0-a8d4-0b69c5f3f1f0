@@ -1,0 +1,3 @@
+export OVERSTORY_AGENT_NAME="execution-director"
+export OVERSTORY_CAPABILITY="execution-director"
+export OVERSTORY_RUNTIME_SESSION_ID="d89bc36c-8b9e-4ca0-a8d4-0b69c5f3f1f0"
