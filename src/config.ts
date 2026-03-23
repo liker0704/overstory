@@ -179,6 +179,10 @@ export const DEFAULT_CONFIG: OverstoryConfig = {
 		evaluationIntervalMs: 60_000, // 1 minute
 		maxPauseDurationMs: 600_000, // 10 minutes
 	},
+	context: {
+		enabled: true,
+		cachePath: ".overstory/project-context.json",
+	},
 };
 
 const CONFIG_FILENAME = "config.yaml";

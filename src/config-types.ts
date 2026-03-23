@@ -1,3 +1,4 @@
+import type { ContextConfig } from "./context/types.ts";
 import type { HeadroomConfig } from "./headroom/types.ts";
 import type { PlanReviewTier } from "./mail/types.ts";
 import type { ReminderConfig } from "./reminders/types.ts";
@@ -215,6 +216,7 @@ export interface OverstoryConfig {
 		maxAiCallsPerRun?: number;
 	};
 	headroom?: HeadroomConfig;
+	context?: ContextConfig;
 	reminders?: ReminderConfig;
 	healthPolicy?: {
 		enabled: boolean;

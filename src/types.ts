@@ -74,6 +74,22 @@ export type {
 	ResolvedModel,
 	TaskTrackerBackend,
 } from "./config-types.ts";
+// Context types
+export type {
+	ConfigZone,
+	ContextConfig,
+	ContextRenderer,
+	DirectoryProfile,
+	ErrorPatterns,
+	ImportHotspot,
+	LanguageInfo,
+	NamingVocabulary,
+	ProjectContext,
+	ProjectSignals,
+	SharedInvariant,
+	SignalAnalyzer,
+	TestConventions,
+} from "./context/types.ts";
 // Event types
 export type {
 	EventLevel,
