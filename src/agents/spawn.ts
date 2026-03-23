@@ -18,7 +18,7 @@
  * the beacon is sent (per overstory-036f).
  */
 
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { CanopyClient } from "../canopy/client.ts";
@@ -160,6 +160,24 @@ export function createSpawnService(deps: SpawnDeps): SpawnService {
 		async spawn(opts: SpawnOptions): Promise<SpawnResult> {
 			const { config, agentDef } = deps;
 			const overstoryDir = join(config.project.root, ".overstory");
+
+			// Check spawn-paused sentinel
+			const spawnPausedPath = join(overstoryDir, "spawn-paused");
+			if (existsSync(spawnPausedPath)) {
+				let ruleId = "unknown";
+				try {
+					const data = JSON.parse(readFileSync(spawnPausedPath, "utf-8")) as {
+						ruleId?: unknown;
+					};
+					if (data && typeof data.ruleId === "string") ruleId = data.ruleId;
+				} catch {
+					/* ignore parse errors */
+				}
+				throw new AgentError(
+					`Spawning paused by health policy (rule: ${ruleId}). Run \`ov health policy enable\` or remove .overstory/spawn-paused to resume.`,
+					{ agentName: opts.name },
+				);
+			}
 
 			// 7. Create worktree
 			const worktreeBaseDir = join(config.project.root, config.worktrees.baseDir);
