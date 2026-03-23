@@ -9,11 +9,12 @@ import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { EvalScenarioError } from "../errors.ts";
 import { createEventStore } from "../events/store.ts";
+import { createMailStore } from "../mail/store.ts";
 import { createMergeQueue } from "../merge/queue.ts";
 import { createMetricsStore } from "../metrics/store.ts";
 import { createSessionStore } from "../sessions/store.ts";
 import { evaluateAssertions } from "./assertions.ts";
-import type { EvalMetrics, EvalResult, EvalRunConfig } from "./types.ts";
+import type { EvalContext, EvalMetrics, EvalResult, EvalRunConfig } from "./types.ts";
 
 /** Run the ov CLI with the given args, returning stdout text and exit code. */
 async function runOv(
@@ -258,6 +259,48 @@ function collectMetrics(fixtureRoot: string, durationMs: number): EvalMetrics {
 	};
 }
 
+/** Collect full eval context: metrics + raw events + mail messages. */
+function collectContext(fixtureRoot: string, durationMs: number): EvalContext {
+	const metrics = collectMetrics(fixtureRoot, durationMs);
+	const ovDir = join(fixtureRoot, ".overstory");
+
+	// Events timeline
+	let events: import("../events/types.ts").StoredEvent[] = [];
+	const eventsDbPath = join(ovDir, "events.db");
+	if (existsSync(eventsDbPath)) {
+		try {
+			const eventStore = createEventStore(eventsDbPath);
+			try {
+				events = eventStore.getTimeline({ since: "2000-01-01T00:00:00Z", limit: 100000 });
+			} finally {
+				eventStore.close();
+			}
+		} catch {
+			// DB may not exist
+		}
+	}
+
+	// Mail messages
+	let mailMessages: import("../mail/types.ts").MailMessage[] = [];
+	const mailDbPath = join(ovDir, "mail.db");
+	if (existsSync(mailDbPath)) {
+		try {
+			const mailStore = createMailStore(mailDbPath);
+			try {
+				mailMessages = mailStore.getAll();
+			} finally {
+				mailStore.close();
+			}
+		} catch {
+			// DB may not exist
+		}
+	}
+
+	const missionEvents = events.filter((e) => e.eventType === "mission");
+
+	return { metrics, events, mailMessages, missionEvents };
+}
+
 /**
  * Run an eval scenario end-to-end.
  * Creates a fixture repo, runs the coordinator, collects metrics, evaluates assertions.
@@ -320,13 +363,13 @@ export async function runEval(config: EvalRunConfig): Promise<EvalResult> {
 			// Collect partial metrics on timeout
 		}
 
-		// Step 7: Compute duration and collect metrics
+		// Step 7: Compute duration and collect context
 		const completedAt = new Date().toISOString();
 		const durationMs = new Date(completedAt).getTime() - new Date(startedAt).getTime();
-		const metrics = collectMetrics(fixtureRoot, durationMs);
+		const context = collectContext(fixtureRoot, durationMs);
 
 		// Step 8: Evaluate assertions
-		const assertions = evaluateAssertions(config.scenario.assertions, metrics);
+		const assertions = evaluateAssertions(config.scenario.assertions, context.metrics);
 
 		const passed = assertions.every((a) => a.passed);
 
@@ -340,9 +383,10 @@ export async function runEval(config: EvalRunConfig): Promise<EvalResult> {
 			durationMs,
 			passed,
 			timedOut,
-			metrics,
+			metrics: context.metrics,
 			assertions,
 			fixtureRoot,
+			context,
 		};
 
 		return result;

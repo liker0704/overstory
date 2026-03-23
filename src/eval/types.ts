@@ -1,3 +1,13 @@
+import type { EventType, StoredEvent } from "../events/types.ts";
+import type { MailMessage } from "../mail/types.ts";
+
+/** Selects events from the timeline for temporal/count assertions. */
+export interface EventSelector {
+	eventType: EventType;
+	agentName?: string;
+	dataMatch?: string; // substring match on event.data
+}
+
 /** Assertion kinds supported by the eval framework. */
 export type AssertionKind =
 	| "min_workers_spawned"
@@ -7,7 +17,11 @@ export type AssertionKind =
 	| "max_stall_rate"
 	| "max_cost"
 	| "max_duration_ms"
-	| "custom";
+	| "custom"
+	| "before"
+	| "after"
+	| "within"
+	| "event_count";
 
 /** A single assertion declaration from assertions.yaml. */
 export interface Assertion {
@@ -16,6 +30,11 @@ export interface Assertion {
 	label?: string;
 	/** Threshold or expected value depending on kind. */
 	expected: number | boolean | string;
+	eventA?: EventSelector;
+	eventB?: EventSelector;
+	selector?: EventSelector; // for event_count
+	windowMs?: number; // for within
+	hookPath?: string; // relative to scenario dir, for custom
 }
 
 /** Result of evaluating a single assertion. */
@@ -102,6 +121,14 @@ export interface EvalMetrics {
 	medianSessionDurationMs: number;
 }
 
+/** Full context collected from an eval run's SQLite stores. */
+export interface EvalContext {
+	metrics: EvalMetrics;
+	events: StoredEvent[]; // full timeline from events.db
+	mailMessages: MailMessage[]; // all mail from mail.db
+	missionEvents: StoredEvent[]; // filtered: eventType === "mission"
+}
+
 /** Final result of an eval run. */
 export interface EvalResult {
 	runId: string;
@@ -115,6 +142,7 @@ export interface EvalResult {
 	passed: boolean;
 	timedOut: boolean;
 	fixtureRoot?: string;
+	context?: EvalContext;
 }
 
 /** Paths to artifact files written by the store. */
