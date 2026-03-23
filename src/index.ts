@@ -13,6 +13,7 @@ import { Command, Help } from "commander";
 import { createAgentsCommand } from "./commands/agents.ts";
 import { createAttachCommand } from "./commands/attach.ts";
 import { cleanCommand } from "./commands/clean.ts";
+import { createContextCommand } from "./commands/context.ts";
 import { createCompatCommand } from "./commands/compat.ts";
 import { createCompletionsCommand } from "./commands/completions.ts";
 import { createCoordinatorCommand } from "./commands/coordinator.ts";
@@ -495,6 +496,7 @@ program.addCommand(createUpgradeCommand());
 
 program.addCommand(createSnapshotCommand());
 program.addCommand(createRecoverCommand());
+program.addCommand(createContextCommand());
 
 // Handle unknown commands with Levenshtein fuzzy-match suggestions
 program.on("command:*", (operands) => {
