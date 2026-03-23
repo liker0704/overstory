@@ -16,7 +16,6 @@ import { cleanCommand } from "./commands/clean.ts";
 import { createContextCommand } from "./commands/context.ts";
 import { createCompatCommand } from "./commands/compat.ts";
 import { createCompletionsCommand } from "./commands/completions.ts";
-import { createContextCommand } from "./commands/context.ts";
 import { createCoordinatorCommand } from "./commands/coordinator.ts";
 import { createCostsCommand } from "./commands/costs.ts";
 import { createDashboardCommand } from "./commands/dashboard.ts";
@@ -499,7 +498,6 @@ program.addCommand(createUpgradeCommand());
 
 program.addCommand(createSnapshotCommand());
 program.addCommand(createRecoverCommand());
-program.addCommand(createContextCommand());
 
 // Handle unknown commands with Levenshtein fuzzy-match suggestions
 program.on("command:*", (operands) => {
