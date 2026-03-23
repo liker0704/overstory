@@ -24,7 +24,6 @@ export interface WorkflowMetadata {
 	status: string;
 	created: string;
 	lastUpdated: string;
-	complexity: number | null;
 	description: string;
 }
 
@@ -69,16 +68,22 @@ export interface ImportManifest {
 	sourceSlug: string;
 	importedAt: string;
 	artifactHashes: Record<string, string>; // filename -> SHA256
+	briefHashes: Record<string, string>; // workstream ID -> SHA256 of generated brief
 	taskMapping: Record<string, string>; // workstream ID -> source task ID
 }
 
 // === Transform Options ===
+
+export interface TransformOptions {
+	includeAllRisks?: boolean;
+}
 
 export interface ImportOptions {
 	sourcePath: string;
 	missionArtifactRoot: string;
 	dryRun?: boolean;
 	overwrite?: boolean;
+	transformOptions?: TransformOptions;
 }
 
 export interface ImportResult {
@@ -93,4 +98,17 @@ export interface SyncResult {
 	added: string[];
 	removed: string[];
 	unchanged: string[];
+}
+
+export interface MergeWorkstreamUpdateOptions {
+	existing: Workstream[];
+	incoming: Workstream[];
+	manifest: ImportManifest;
+}
+
+export interface MergeWorkstreamUpdateResult {
+	merged: Workstream[];
+	updatedBriefs: Array<{ workstreamId: string; path: string; content: string }>;
+	skippedBriefs: string[];
+	warnings: string[];
 }
