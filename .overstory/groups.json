@@ -1215,5 +1215,15 @@
 		"status": "active",
 		"createdAt": "2026-03-23T13:06:45.706Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-9569b6c0",
+		"name": "eval-dsl-v2-batch1",
+		"memberIssueIds": [
+			"overstory-935d"
+		],
+		"status": "active",
+		"createdAt": "2026-03-23T17:08:42.137Z",
+		"completedAt": null
 	}
 ]
