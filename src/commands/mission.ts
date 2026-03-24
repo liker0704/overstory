@@ -165,15 +165,13 @@ export function createMissionCommand(): Command {
 		.option("--file <path>", "Path to a file containing your answer")
 		.option("--mission <id-or-slug>", "Target a specific mission")
 		.option("--json", "Output as JSON")
-		.action(
-			async (opts: { body?: string; file?: string; mission?: string; json?: boolean }) => {
-				const cwd = process.cwd();
-				const config = await loadConfig(cwd);
-				const overstoryDir = join(config.project.root, ".overstory");
-				const missionId = resolveExplicitMission(overstoryDir, opts.mission);
-				await missionAnswer(overstoryDir, { ...opts, missionId });
-			},
-		);
+		.action(async (opts: { body?: string; file?: string; mission?: string; json?: boolean }) => {
+			const cwd = process.cwd();
+			const config = await loadConfig(cwd);
+			const overstoryDir = join(config.project.root, ".overstory");
+			const missionId = resolveExplicitMission(overstoryDir, opts.mission);
+			await missionAnswer(overstoryDir, { ...opts, missionId });
+		});
 
 	cmd
 		.command("artifacts")
@@ -238,12 +236,7 @@ export function createMissionCommand(): Command {
 						missionId,
 					);
 				} else {
-					await missionResumeAll(
-						overstoryDir,
-						config.project.root,
-						opts.json ?? false,
-						missionId,
-					);
+					await missionResumeAll(overstoryDir, config.project.root, opts.json ?? false, missionId);
 				}
 			},
 		);
