@@ -1,9 +1,9 @@
 {
 	"status-health-builder": 1774230145503,
-	"execution-director": 1774384901979,
+	"execution-director": 1774385317903,
 	"cli-surfaces-lead": 1774230229335,
 	"review-builder": 1774230104640,
-	"coordinator": 1774384411294,
+	"coordinator": 1774388041220,
 	"mission-analyst": 1774380067563,
 	"plan-review-lead": 1774379922854,
 	"plan-devil-advocate": 1774379780983,
@@ -267,7 +267,10 @@
 	"infra-builder": 1774383501832,
 	"wiring-builder": 1774383634415,
 	"review-lifecycle-d74c": 1774384030106,
-	"lead-overstory-38c3": 1774384903621,
+	"lead-overstory-38c3": 1774387618946,
 	"review-resource-isolation": 1774384771738,
-	"build-cli-mission-flag": 1774384903765
+	"build-cli-mission-flag": 1774385786676,
+	"review-cli-mission-flag": 1774386406964,
+	"fixup-cli-mission": 1774387166578,
+	"fixup-builder-2": 1774387497320
 }
