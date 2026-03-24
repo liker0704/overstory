@@ -1389,5 +1389,19 @@
 		"status": "active",
 		"createdAt": "2026-03-24T05:35:44.165Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-dfffa614",
+		"name": "observability-batch-1",
+		"memberIssueIds": [
+			"overstory-0899",
+			"overstory-9338",
+			"overstory-23cf",
+			"overstory-c901",
+			"overstory-0aa8"
+		],
+		"status": "active",
+		"createdAt": "2026-03-24T07:13:20.364Z",
+		"completedAt": null
 	}
 ]
