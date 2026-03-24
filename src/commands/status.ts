@@ -99,6 +99,8 @@ export interface StatusData {
 	verboseDetails?: Record<string, VerboseAgentDetail>;
 	mission?: Mission | null;
 	missionRoles?: MissionRoleStates | null;
+	missions?: Mission[];
+	missionRolesMap?: Record<string, MissionRoleStates>;
 	artifactStatus?: {
 		missionArtifacts: Array<{ type: string; status: string }>;
 		reviews: { total: number; fresh: number; stale: number; underTarget: number; unscored: number };
@@ -262,15 +264,21 @@ export async function gatherStatus(
 
 		let mission: Mission | null = null;
 		let missionRoles: MissionRoleStates | null = null;
+		let missions: Mission[] = [];
+		const missionRolesMap: Record<string, MissionRoleStates> = {};
 		try {
 			const sessionsDbPath = join(overstoryDir, "sessions.db");
 			const dbFile = Bun.file(sessionsDbPath);
 			if (await dbFile.exists()) {
 				const missionStore = createMissionStore(sessionsDbPath);
 				try {
-					mission = missionStore.getActive();
+					missions = missionStore.getActiveList();
+					for (const m of missions) {
+						missionRolesMap[m.id] = resolveMissionRoleStates(m, sessions);
+					}
+					mission = missions[0] ?? null;
 					if (mission) {
-						missionRoles = resolveMissionRoleStates(mission, sessions);
+						missionRoles = missionRolesMap[mission.id] ?? null;
 					}
 				} finally {
 					missionStore.close();
@@ -398,6 +406,8 @@ export async function gatherStatus(
 			verboseDetails,
 			mission,
 			missionRoles,
+			missions,
+			missionRolesMap,
 			artifactStatus,
 			resilience,
 			headroom,
@@ -436,8 +446,30 @@ export function printStatus(data: StatusData): void {
 		w(`Run: ${accent(data.currentRunId)}\n`);
 	}
 
-	// Mission section (only when active mission exists)
-	if (data.mission) {
+	// Mission section (only when active missions exist)
+	if (data.missions && data.missions.length > 0) {
+		w(`Missions: ${data.missions.length} active\n`);
+		for (const m of data.missions) {
+			const roles = data.missionRolesMap?.[m.id];
+			const stateColorFn = missionStateColor(m.state);
+			const stateStr = stateColorFn(`${m.state}/${m.phase}`);
+			w(`  ${accent(m.slug)} (${stateStr})\n`);
+			w(`     Objective:    ${m.objective}\n`);
+			const pending = m.pendingUserInput ? (m.pendingInputKind ?? "input") : "none";
+			w(`     Pending:      ${pending}\n`);
+			w(`     First freeze: ${m.firstFreezeAt ?? "never"}\n`);
+			w(`     Reopens:      ${m.reopenCount}\n`);
+			w(`     Paused:       ${m.pausedWorkstreamIds.length} workstreams\n`);
+			if (m.pauseReason) {
+				w(`     Pause reason: ${m.pauseReason}\n`);
+			}
+			w(`     Coordinator:  ${roles?.coordinator ?? "unknown"}\n`);
+			w(`     Analyst:      ${roles?.analyst ?? "unknown"}\n`);
+			w(`     Exec Dir:     ${roles?.executionDirector ?? "unknown"}\n`);
+			w("\n");
+		}
+	} else if (data.mission) {
+		// Backward compat fallback for old StatusData without missions[]
 		const m = data.mission;
 		const roles = data.missionRoles;
 		const stateColorFn = missionStateColor(m.state);
