@@ -57,6 +57,7 @@ import { traceCommand } from "./commands/trace.ts";
 import { createUpdateCommand } from "./commands/update.ts";
 import { createUpgradeCommand } from "./commands/upgrade.ts";
 import { createWatchCommand } from "./commands/watch.ts";
+import { createWorkflowCommand } from "./commands/workflow.ts";
 import { createWorktreeCommand } from "./commands/worktree.ts";
 import { setProjectRootOverride } from "./config.ts";
 import { ConfigError, OverstoryError, WorktreeError } from "./errors.ts";
@@ -498,6 +499,7 @@ program.addCommand(createUpgradeCommand());
 
 program.addCommand(createSnapshotCommand());
 program.addCommand(createRecoverCommand());
+program.addCommand(createWorkflowCommand());
 
 // Handle unknown commands with Levenshtein fuzzy-match suggestions
 program.on("command:*", (operands) => {
