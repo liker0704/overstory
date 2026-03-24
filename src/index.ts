@@ -43,6 +43,7 @@ import { createMonitorCommand } from "./commands/monitor.ts";
 import { createNextImprovementCommand } from "./commands/next-improvement.ts";
 import { nudgeCommand } from "./commands/nudge.ts";
 import { primeCommand } from "./commands/prime.ts";
+import { createQuickstartCommand } from "./commands/quickstart.ts";
 import { createRateLimitsCommand } from "./commands/rate-limits.ts";
 import { createRecoverCommand } from "./commands/recover.ts";
 import { createReplayCommand } from "./commands/replay.ts";
@@ -93,6 +94,7 @@ const COMMANDS = [
 	"snapshot",
 	"spec",
 	"prime",
+	"quickstart",
 	"stop",
 	"status",
 	"dashboard",
@@ -468,6 +470,7 @@ program.addCommand(createUpdateCommand());
 
 program.addCommand(createUpgradeCommand());
 
+program.addCommand(createQuickstartCommand());
 program.addCommand(createSnapshotCommand());
 program.addCommand(createRecoverCommand());
 program.addCommand(createWorkflowCommand());
