@@ -217,6 +217,7 @@ describe("SQL schema consistency", () => {
 				"fail_reason",
 				"from_agent",
 				"id",
+				"mission_id",
 				"next_retry_at",
 				"payload",
 				"priority",
