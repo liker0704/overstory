@@ -683,10 +683,13 @@ export function renderMissionsStrip(
 		currentRow++;
 	}
 
-	// Separator after mission strip
-	const sep = dimHorizontalLine(width, dimBox.tee, dimBox.teeRight);
-	content += `${CURSOR.cursorTo(currentRow, 1)}${sep}\n`;
-	currentRow++;
+	// Only add separator if we rendered extra rows beyond the first mission
+	// (renderMissionStrip already emits its own trailing separator)
+	if (additional.length > 0 || missions.length > 5) {
+		const sep = dimHorizontalLine(width, dimBox.tee, dimBox.teeRight);
+		content += `${CURSOR.cursorTo(currentRow, 1)}${sep}\n`;
+		currentRow++;
+	}
 
 	const height = currentRow - startRow;
 	return { content, height };
