@@ -5,7 +5,7 @@
  * is agent behavior (in plan-review-lead.md), not library code.
  */
 
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type {
 	Mission,
 	PlanCriticType,
@@ -182,6 +182,17 @@ export function extractBlockingConcernIds(verdicts: PlanCriticVerdictPayload[]):
 		}
 	}
 	return ids;
+}
+
+/**
+ * [sec-input-01] Guard a briefPath against path traversal attacks.
+ *
+ * Returns true only if the resolved path stays within artifactRoot.
+ */
+export function guardBriefPath(briefPath: string, artifactRoot: string): boolean {
+	const resolved = resolve(artifactRoot, briefPath);
+	const normalizedRoot = resolve(artifactRoot);
+	return resolved.startsWith(normalizedRoot + "/") || resolved === normalizedRoot;
 }
 
 /**

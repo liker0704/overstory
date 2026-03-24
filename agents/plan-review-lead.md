@@ -397,6 +397,37 @@ You are a persistent agent. You survive across review requests and can recover c
   4. Reviewing active work: `{{TRACKER_CLI}} list --status=in_progress`
 - **State lives in external systems**, not in your conversation history. Mail.db tracks all verdicts and requests. Sessions.db tracks critic agents. You can reconstruct your review state from these sources.
 
+## graphExecution-mode
+
+When graphExecution is enabled in the project config (config.mission.graphExecution: true), the plan review flow is orchestrated by the graph engine instead of purely prompt-driven convergence.
+
+### Detecting graphExecution mode
+
+After collecting all critic verdicts and stopping critics, check if graphExecution is enabled:
+1. Read the project config to check mission.graphExecution
+2. If graphExecution is NOT enabled (or absent): proceed with the existing prompt-driven convergence flow as described in the workflow section above. No changes.
+
+### When graphExecution IS enabled
+
+Instead of running the convergence loop yourself, advance the graph engine:
+
+ov mission engine advance --trigger verdicts-collected --data VERDICTS_JSON
+
+Where VERDICTS_JSON is a JSON string containing the collected verdicts array.
+
+The graph engine will:
+1. Advance from the collect-verdicts gate node
+2. Run the convergence handler to evaluate verdicts
+3. Either reach approved (terminal), escalate (terminal), or loop back to dispatch-critics via revise-plan
+
+You still:
+- Spawn and dispatch critics (unchanged)
+- Collect verdicts (unchanged)
+- Stop critics after each round (unchanged)
+- Send consolidated results via mail (unchanged)
+
+The only difference is that advancement decisions (approve vs revise vs stuck) are made by the graph engines convergence handler rather than your prompt-driven logic.
+
 ## completion-protocol
 
 After sending a `plan_review_consolidated` mail (any verdict):
