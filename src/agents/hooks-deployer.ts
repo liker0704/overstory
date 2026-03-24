@@ -26,6 +26,8 @@ const NON_IMPLEMENTATION_CAPABILITIES = new Set([
 	"monitor",
 	"mission-analyst",
 	"plan-review-lead",
+	"research-lead",
+	"researcher",
 ]);
 
 /**
@@ -38,6 +40,7 @@ const COORDINATION_CAPABILITIES = new Set([
 	"execution-director",
 	"supervisor",
 	"monitor",
+	"research-lead",
 ]);
 
 /**

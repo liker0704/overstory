@@ -323,6 +323,15 @@ async function executePostWorktreeSteps(
 		qualityGates: config.project.qualityGates,
 	});
 
+	// 9a2. Deploy MCP config for researcher agents (search providers)
+	if (capability === "researcher") {
+		const { buildMcpServers, deployMcpConfig } = await import("../research/mcp.ts");
+		const servers = buildMcpServers();
+		if (Object.keys(servers).length > 0) {
+			await deployMcpConfig(worktreePath, servers);
+		}
+	}
+
 	// 9b. Send auto-dispatch mail so it exists when SessionStart hook fires.
 	const dispatch = buildAutoDispatch({
 		agentName: name,

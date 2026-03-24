@@ -35,7 +35,7 @@ export const INTERACTIVE_TOOLS = ["AskUserQuestion", "EnterPlanMode", "EnterWork
 export const WRITE_TOOLS = ["Write", "Edit", "NotebookEdit"];
 
 /** Capabilities that may write to .overstory/ artifact paths but not source files. */
-export const ARTIFACT_WRITE_CAPABILITIES = new Set(["mission-analyst"]);
+export const ARTIFACT_WRITE_CAPABILITIES = new Set(["mission-analyst", "research-lead"]);
 
 /**
  * Bash commands that modify files and must be blocked for non-implementation agents.
