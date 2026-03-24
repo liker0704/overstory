@@ -22,13 +22,19 @@ export interface ExportSpan {
 	traceId: string;
 	name: string;
 	kind: SpanKind;
-	startTime: string; // ISO 8601
+	startTime: string;
 	endTime: string | null;
 	durationMs: number | null;
 	status: SpanStatus;
 	attributes: Record<string, string | number | boolean>;
 	events: SpanEvent[];
 	resource: SpanResource;
+}
+
+export interface Exporter {
+	readonly name: string;
+	export(spans: ExportSpan[]): Promise<ExportResult>;
+	shutdown(): Promise<void>;
 }
 
 export interface ExportResult {
@@ -44,14 +50,8 @@ export interface ExporterConfig {
 	endpoint: string;
 	authTokenEnv: string;
 	headers?: Record<string, string>;
-	batchSize?: number; // Default 100
+	batchSize?: number;
 	flushIntervalMs?: number;
 	maxQueueSize?: number;
-	timeoutMs?: number; // Default 5000
-}
-
-export interface Exporter {
-	readonly name: string;
-	export(spans: ExportSpan[]): Promise<ExportResult>;
-	shutdown(): Promise<void>;
+	timeoutMs?: number;
 }
