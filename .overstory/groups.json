@@ -1338,5 +1338,25 @@
 		"status": "active",
 		"createdAt": "2026-03-23T23:12:03.336Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-f5346b8c",
+		"name": "semantic-mulch-batch-1",
+		"memberIssueIds": [
+			"overstory-1fa9"
+		],
+		"status": "active",
+		"createdAt": "2026-03-24T01:17:05.158Z",
+		"completedAt": null
+	},
+	{
+		"id": "group-e8b1d18b",
+		"name": "semantic-mulch-batch-2",
+		"memberIssueIds": [
+			"overstory-eef9"
+		],
+		"status": "active",
+		"createdAt": "2026-03-24T01:47:11.236Z",
+		"completedAt": null
 	}
 ]
