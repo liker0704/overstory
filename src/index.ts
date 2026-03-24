@@ -131,6 +131,7 @@ const COMMANDS = [
 	"mission",
 	"update",
 	"upgrade",
+	"workflow",
 	"completions",
 ];
 
@@ -401,8 +402,6 @@ program.addCommand(createDashboardCommand());
 program.addCommand(createDiscoverCommand());
 
 program.addCommand(createInspectCommand());
-
-program.addCommand(createWorkflowCommand());
 
 program
 	.command("clean")
