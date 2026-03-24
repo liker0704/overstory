@@ -1399,10 +1399,21 @@
 			"overstory-23cf",
 			"overstory-c901",
 			"overstory-0aa8",
-			"overstory-9f7b"
+			"overstory-9f7b",
+			"overstory-3e07"
 		],
 		"status": "active",
 		"createdAt": "2026-03-24T07:13:20.364Z",
+		"completedAt": null
+	},
+	{
+		"id": "group-cf845684",
+		"name": "adaptive-parallelism-batch-1",
+		"memberIssueIds": [
+			"overstory-fa03"
+		],
+		"status": "active",
+		"createdAt": "2026-03-24T08:50:06.950Z",
 		"completedAt": null
 	}
 ]
