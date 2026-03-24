@@ -173,6 +173,7 @@ export type {
 export type { SessionMetrics, TokenSnapshot } from "./metrics/types.ts";
 // Mission types
 export type {
+	CheckpointStore,
 	GraphTransitionResult,
 	InsertMission,
 	Mission,
@@ -183,7 +184,9 @@ export type {
 	MissionState,
 	MissionStore,
 	MissionSummary,
+	NodeCheckpoint,
 	PendingInputKind,
+	TransitionRecord,
 } from "./missions/types.ts";
 // Mulch types
 export type {

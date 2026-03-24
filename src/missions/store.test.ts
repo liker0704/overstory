@@ -519,6 +519,28 @@ describe("completeMission", () => {
 	});
 });
 
+// === checkpoints accessor ===
+
+describe("checkpoints", () => {
+	test("store exposes checkpoints accessor", () => {
+		expect(store.checkpoints).toBeDefined();
+	});
+
+	test("checkpoints save and retrieve via store.checkpoints", () => {
+		store.create(makeMission());
+		store.checkpoints.saveCheckpoint("mission-001", "node-a", { data: "test" });
+		const result = store.checkpoints.getCheckpoint("mission-001", "node-a");
+		expect(result).not.toBeNull();
+		expect(result?.data).toEqual({ data: "test" });
+	});
+
+	test("checkpoints accessor backed by same db (transitions visible)", () => {
+		store.checkpoints.recordTransition("mission-001", "node-a", "node-b", "done");
+		const history = store.checkpoints.getTransitionHistory("mission-001");
+		expect(history).toHaveLength(1);
+	});
+});
+
 // === idempotency: create table twice ===
 
 describe("schema idempotency", () => {

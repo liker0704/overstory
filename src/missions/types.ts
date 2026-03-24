@@ -162,6 +162,72 @@ export interface MissionSummary {
 	updatedAt: string;
 }
 
+// === Checkpoint Persistence ===
+
+/** A persisted execution checkpoint for a graph node. */
+export interface NodeCheckpoint {
+	nodeId: string;
+	data: unknown;
+	version: number;
+	schemaVersion: number;
+	createdAt: string;
+}
+
+/** A recorded state transition between graph nodes. */
+export interface TransitionRecord {
+	fromNode: string;
+	toNode: string;
+	trigger: string;
+	data?: unknown;
+	error?: string;
+	createdAt: string;
+}
+
+/** Store for per-node checkpoints and transition history. */
+export interface CheckpointStore {
+	/** Save checkpoint data for a node (increments version). */
+	saveCheckpoint(missionId: string, nodeId: string, data: unknown): void;
+	/** Get the latest checkpoint for a node. */
+	getCheckpoint(
+		missionId: string,
+		nodeId: string,
+	): { data: unknown; version: number; schemaVersion: number } | null;
+	/** Get the most recently saved checkpoint across all nodes for a mission. */
+	getLatestCheckpoint(missionId: string): { nodeId: string; data: unknown; version: number } | null;
+	/** List all checkpoint summaries for a mission (nodeId, version, createdAt). */
+	listCheckpoints(missionId: string): Array<{ nodeId: string; version: number; createdAt: string }>;
+	/** Record a state transition. */
+	recordTransition(
+		missionId: string,
+		fromNode: string,
+		toNode: string,
+		trigger: string,
+		data?: unknown,
+		error?: string,
+	): void;
+	/** Get paginated transition history for a mission. */
+	getTransitionHistory(
+		missionId: string,
+		opts?: { limit?: number; offset?: number },
+	): Array<{
+		fromNode: string;
+		toNode: string;
+		trigger: string;
+		createdAt: string;
+		error?: string;
+	}>;
+	/** Atomically save checkpoint and record transition in a single transaction. */
+	saveStepResult(
+		missionId: string,
+		fromNode: string,
+		toNode: string,
+		trigger: string,
+		checkpointData: unknown,
+	): void;
+	/** Delete all checkpoints for a mission. */
+	deleteCheckpoints(missionId: string): void;
+}
+
 export interface MissionStore {
 	create(mission: InsertMission): Mission;
 	getById(id: string): Mission | null;
@@ -192,5 +258,7 @@ export interface MissionStore {
 	updateObjective(id: string, objective: string): void;
 	updateCurrentNode(id: string, nodeId: string): void;
 	markLearningsExtracted(id: string): void;
+	/** Access the checkpoint store backed by the same db connection. */
+	checkpoints: CheckpointStore;
 	close(): void;
 }

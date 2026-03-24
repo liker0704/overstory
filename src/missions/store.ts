@@ -15,6 +15,7 @@ import type {
 	MissionStore,
 	PendingInputKind,
 } from "../types.ts";
+import { createCheckpointStore } from "./checkpoint.ts";
 
 /** Row shape as stored in SQLite (snake_case columns). */
 interface MissionRow {
@@ -119,7 +120,32 @@ function missionColumnExpr(
 	return existingColumns.has(column) ? column : fallbackSql;
 }
 
-/** Missions migration array. */
+const CREATE_CHECKPOINT_TABLES = `
+CREATE TABLE IF NOT EXISTS mission_node_checkpoints (
+  id TEXT PRIMARY KEY,
+  mission_id TEXT NOT NULL,
+  node_id TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  snapshot_data TEXT NOT NULL,
+  schema_version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  UNIQUE(mission_id, node_id, version)
+);
+CREATE INDEX IF NOT EXISTS idx_mnc_mission ON mission_node_checkpoints(mission_id);
+CREATE INDEX IF NOT EXISTS idx_mnc_mission_version ON mission_node_checkpoints(mission_id, version DESC);
+CREATE TABLE IF NOT EXISTS mission_state_transitions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  mission_id TEXT NOT NULL,
+  from_node TEXT NOT NULL,
+  to_node TEXT NOT NULL,
+  trigger TEXT NOT NULL,
+  data TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_mst_mission ON mission_state_transitions(mission_id)`;
+
+/** All migrations for the missions domain (shared sessions.db). */
 const MISSION_MIGRATIONS: Migration[] = [
 	{
 		version: 1,
@@ -270,6 +296,26 @@ const MISSION_MIGRATIONS: Migration[] = [
 				result.sql.includes("'execute'") &&
 				result.sql.includes("'done'");
 			return hasAllColumns && hasCurrentStateConstraint && hasCurrentPhaseConstraint;
+		},
+	},
+	{
+		version: 2,
+		description: "add mission_node_checkpoints and mission_state_transitions tables",
+		up: (db) => {
+			db.exec(CREATE_CHECKPOINT_TABLES);
+		},
+		detect: (db) => {
+			const checkpoints = db
+				.prepare<{ name: string }, []>(
+					"SELECT name FROM sqlite_master WHERE type='table' AND name='mission_node_checkpoints'",
+				)
+				.get();
+			const transitions = db
+				.prepare<{ name: string }, []>(
+					"SELECT name FROM sqlite_master WHERE type='table' AND name='mission_state_transitions'",
+				)
+				.get();
+			return checkpoints !== null && transitions !== null;
 		},
 	},
 ];
@@ -690,6 +736,8 @@ export function createMissionStore(dbPath: string): MissionStore {
 				$updated_at: new Date().toISOString(),
 			});
 		},
+
+		checkpoints: createCheckpointStore(db),
 
 		close(): void {
 			try {
