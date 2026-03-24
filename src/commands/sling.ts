@@ -14,6 +14,7 @@
  */
 
 import { join, resolve } from "node:path";
+import { readEffectiveMaxConcurrent } from "../adaptive/index.ts";
 import { createManifestLoader, resolveMissionCapability } from "../agents/manifest.ts";
 import { createSpawnService, type SpawnDeps } from "../agents/spawn.ts";
 import { createCanopyClient } from "../canopy/client.ts";
@@ -736,9 +737,16 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 		}
 
 		const activeSessions = store.getActive();
-		if (activeSessions.length >= config.agents.maxConcurrent) {
+		const effectiveMax = config.agents.adaptive?.enabled
+			? readEffectiveMaxConcurrent(overstoryDir, config)
+			: config.agents.maxConcurrent;
+		if (activeSessions.length >= effectiveMax) {
+			const isAdaptiveLimit =
+				config.agents.adaptive?.enabled && effectiveMax !== config.agents.maxConcurrent;
 			throw new AgentError(
-				`Max concurrent agent limit reached: ${activeSessions.length}/${config.agents.maxConcurrent} active agents`,
+				isAdaptiveLimit
+					? `Adaptive policy limit reached: ${activeSessions.length}/${effectiveMax} active agents (static max: ${config.agents.maxConcurrent})`
+					: `Max concurrent agent limit reached: ${activeSessions.length}/${config.agents.maxConcurrent} active agents`,
 				{ agentName: name },
 			);
 		}

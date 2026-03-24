@@ -10,6 +10,7 @@
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Command, Help } from "commander";
+import { createAdaptiveCommand } from "./commands/adaptive.ts";
 import { createAgentsCommand } from "./commands/agents.ts";
 import { createAttachCommand } from "./commands/attach.ts";
 import { cleanCommand } from "./commands/clean.ts";
@@ -84,6 +85,7 @@ if ((rawArgs.includes("-v") || rawArgs.includes("--version")) && rawArgs.include
 }
 
 const COMMANDS = [
+	"adaptive",
 	"agents",
 	"attach",
 	"init",
@@ -456,6 +458,7 @@ program.addCommand(createHealthCommand());
 program.addCommand(createHealthPolicyCommand());
 program.addCommand(createNextImprovementCommand());
 program.addCommand(createReviewCommand());
+program.addCommand(createAdaptiveCommand());
 
 program.addCommand(createMetricsCommand());
 
