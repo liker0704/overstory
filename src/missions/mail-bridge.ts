@@ -28,6 +28,7 @@ export async function syncMissionPendingInputFromMail(
 		to: string;
 		type: MailMessageType;
 		subject: string;
+		missionId?: string;
 	},
 ): Promise<void> {
 	if (msg.to !== "operator" || msg.type !== "question" || !MISSION_PENDING_SENDERS.has(msg.from)) {
@@ -38,8 +39,11 @@ export async function syncMissionPendingInputFromMail(
 	const dbPath = join(overstoryDir, "sessions.db");
 	const missionStore = createMissionStore(dbPath);
 	try {
-		const missionContext = await resolveActiveMissionContext(overstoryDir);
-		let mission = missionContext ? missionStore.getById(missionContext.missionId) : null;
+		let mission = msg.missionId ? missionStore.getById(msg.missionId) : null;
+		if (!mission) {
+			const missionContext = await resolveActiveMissionContext(overstoryDir);
+			mission = missionContext ? missionStore.getById(missionContext.missionId) : null;
+		}
 		if (!mission) {
 			mission = missionStore.getActive();
 		}

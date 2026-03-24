@@ -29,6 +29,7 @@ import {
 	parseMissionFindingPayload,
 	syncMissionPendingInputFromMail,
 } from "../missions/mail-bridge.ts";
+import { resolveActiveMissionContext } from "../missions/runtime-context.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import {
 	MAIL_DELIVERY_STATES,
@@ -270,6 +271,16 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 	const type = rawType as MailMessage["type"];
 	const priority = rawPriority as MailMessage["priority"];
 
+	// Resolve active mission context (non-fatal)
+	let missionId: string | undefined;
+	try {
+		const overstoryDir = join(cwd, ".overstory");
+		const ctx = await resolveActiveMissionContext(overstoryDir);
+		missionId = ctx?.missionId ?? undefined;
+	} catch {
+		// Mission context resolution failure is non-fatal
+	}
+
 	// Validate JSON payload if provided
 	let payload: string | undefined;
 	let missionFindingPayload: MissionFindingPayload | null = null;
@@ -327,6 +338,7 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 					type,
 					priority,
 					payload,
+					missionId,
 				});
 
 				// Per-recipient side effects (mission sync, events, nudges)
@@ -366,6 +378,7 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 							to: recipient,
 							type,
 							subject,
+							missionId,
 						});
 
 						// Record mail_sent event (fire-and-forget)
@@ -436,13 +449,14 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 	// Single-recipient message (existing logic)
 	const client = openClient(cwd);
 	try {
-		const id = client.send({ from, to: canonicalTo, subject, body, type, priority, payload });
+		const id = client.send({ from, to: canonicalTo, subject, body, type, priority, payload, missionId });
 		await syncMissionPendingInputFromMail(cwd, {
 			id,
 			from,
 			to: canonicalTo,
 			type,
 			subject,
+			missionId,
 		});
 
 		// Record mail_sent event to EventStore (fire-and-forget)

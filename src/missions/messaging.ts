@@ -23,10 +23,10 @@ function openMailClient(overstoryDir: string) {
 	return createMailClient(createMailStore(join(overstoryDir, "mail.db")));
 }
 
-export function drainAgentInbox(overstoryDir: string, agentName: string): number {
+export function drainAgentInbox(overstoryDir: string, agentName: string, missionId?: string): number {
 	const client = openMailClient(overstoryDir);
 	try {
-		return client.check(agentName).length;
+		return client.check(agentName, missionId).length;
 	} finally {
 		client.close();
 	}
@@ -37,6 +37,7 @@ export async function sendMissionDispatchMail(opts: {
 	to: string;
 	subject: string;
 	body: string;
+	missionId?: string;
 }): Promise<string> {
 	const client = openMailClient(opts.overstoryDir);
 	try {
@@ -46,6 +47,7 @@ export async function sendMissionDispatchMail(opts: {
 			subject: opts.subject,
 			body: opts.body,
 			type: "dispatch",
+			missionId: opts.missionId,
 		});
 	} finally {
 		client.close();
@@ -58,6 +60,7 @@ export async function sendMissionControlMail(opts: {
 	subject: string;
 	body: string;
 	type?: "status" | "dispatch";
+	missionId?: string;
 }): Promise<string> {
 	const client = openMailClient(opts.overstoryDir);
 	try {
@@ -67,6 +70,7 @@ export async function sendMissionControlMail(opts: {
 			subject: opts.subject,
 			body: opts.body,
 			type: opts.type ?? "status",
+			missionId: opts.missionId,
 		});
 	} finally {
 		client.close();

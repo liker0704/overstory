@@ -28,6 +28,7 @@ import { printSuccess } from "../logging/color.ts";
 import { createMailClient } from "../mail/client.ts";
 import { createMailStore } from "../mail/store.ts";
 import { resolveActiveMissionContext } from "../missions/runtime-context.ts";
+import { createMissionStore } from "../missions/store.ts";
 import { validateCurrentMissionSpec } from "../missions/workstream-control.ts";
 import { createMulchClient } from "../mulch/client.ts";
 import { canDispatch } from "../resilience/circuit-breaker.ts";
@@ -620,6 +621,18 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 	const missionContext = await resolveActiveMissionContext(overstoryDir);
 	const hasMission = missionContext !== null;
 
+	// Resolve mission slug for resource isolation
+	let missionSlug: string | undefined;
+	if (missionContext) {
+		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
+		try {
+			const mission = missionStore.getById(missionContext.missionId);
+			missionSlug = mission?.slug;
+		} finally {
+			missionStore.close();
+		}
+	}
+
 	// 2. Validate depth limit
 	// Hierarchy: orchestrator(0) -> lead(1) -> specialist(2)
 	// With maxDepth=2, depth=2 is the deepest allowed leaf, so reject only depth > maxDepth
@@ -950,6 +963,7 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 			runtimeName: opts.runtime,
 			skipTaskCheck,
 			json: opts.json ?? false,
+			missionSlug,
 		});
 
 		// 14. Output result
