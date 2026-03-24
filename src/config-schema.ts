@@ -59,7 +59,8 @@ export const KNOWN_FIELDS = {
 		"activeLabel",
 		"maxConcurrent",
 	]),
-	mulch: new Set(["enabled", "domains", "primeFormat"]),
+	mulch: new Set(["enabled", "domains", "primeFormat", "semantic"]),
+	mulchSemantic: new Set(["enabled", "provider", "model"]),
 	merge: new Set(["aiResolveEnabled", "reimagineEnabled"]),
 	watchdog: new Set([
 		"tier0Enabled",

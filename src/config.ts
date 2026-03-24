@@ -297,6 +297,28 @@ function validateConfig(config: OverstoryConfig): void {
 		});
 	}
 
+	// mulch.semantic.provider must be one of the valid options (if semantic is configured)
+	if (config.mulch.semantic !== undefined) {
+		const validProviders = ["sentence-transformers", "openai", "ollama"] as const;
+		if (
+			!validProviders.includes(config.mulch.semantic.provider as (typeof validProviders)[number])
+		) {
+			throw new ValidationError(
+				`mulch.semantic.provider must be one of: ${validProviders.join(", ")}`,
+				{
+					field: "mulch.semantic.provider",
+					value: config.mulch.semantic.provider,
+				},
+			);
+		}
+		if (!config.mulch.semantic.model || typeof config.mulch.semantic.model !== "string") {
+			throw new ValidationError("mulch.semantic.model must be a non-empty string", {
+				field: "mulch.semantic.model",
+				value: config.mulch.semantic.model,
+			});
+		}
+	}
+
 	// taskTracker.backend must be one of the valid options
 	const validBackends = ["auto", "seeds", "beads", "github"] as const;
 	if (!validBackends.includes(config.taskTracker.backend as (typeof validBackends)[number])) {

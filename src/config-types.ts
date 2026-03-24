@@ -1,6 +1,7 @@
 import type { ContextConfig } from "./context/types.ts";
 import type { HeadroomConfig } from "./headroom/types.ts";
 import type { PlanReviewTier } from "./mail/types.ts";
+import type { EmbeddingProvider } from "./mulch/types.ts";
 import type { ReminderConfig } from "./reminders/types.ts";
 import type { ResilienceConfig } from "./resilience/types.ts";
 
@@ -121,6 +122,11 @@ export interface OverstoryConfig {
 		enabled: boolean;
 		domains: string[]; // Domains to prime (empty = auto-detect)
 		primeFormat: "markdown" | "xml" | "json";
+		semantic?: {
+			enabled: boolean;
+			provider: EmbeddingProvider;
+			model: string;
+		};
 	};
 	merge: {
 		aiResolveEnabled: boolean;

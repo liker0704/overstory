@@ -92,3 +92,36 @@ export interface MulchCompactResult {
 	}>;
 	message?: string;
 }
+
+// === Semantic Search Types ===
+
+/** Embedding provider backend. */
+export type EmbeddingProvider = "sentence-transformers" | "openai" | "ollama";
+
+/** Options for semantic search. */
+export interface SemanticSearchOptions {
+	domain?: string;
+	topK?: number;
+	hybrid?: boolean;
+}
+
+/** A single semantic search result with scores. */
+export interface SemanticSearchResult {
+	record: Record<string, unknown>;
+	semanticScore: number;
+	bm25Score?: number;
+	combinedScore?: number;
+}
+
+/** Status of embedding coverage. */
+export interface EmbedStatus {
+	totalRecords: number;
+	embeddedRecords: number;
+	staleRecords: number;
+	domains: Array<{
+		name: string;
+		total: number;
+		embedded: number;
+		stale: number;
+	}>;
+}
