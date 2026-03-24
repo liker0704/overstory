@@ -36,6 +36,7 @@ export const KNOWN_FIELDS = {
 		"compat",
 		"headroom",
 		"reminders",
+		"research",
 		"observability",
 		"healthPolicy",
 	]),
@@ -135,6 +136,13 @@ export const KNOWN_FIELDS = {
 		"errorRecurrenceMinCount",
 		"staleEscalationMaxAgeMs",
 		"escalationResponseMinRate",
+	]),
+	research: new Set([
+		"maxResearchers",
+		"researcherModel",
+		"researcherConcurrency",
+		"defaultProvider",
+		"outputDir",
 	]),
 	healthPolicy: new Set([
 		"enabled",

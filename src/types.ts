@@ -18,6 +18,14 @@ export { WORKFLOW_COMPONENT_ACTIONS, WORKFLOW_TDD_MODES } from "./workflow/types
 
 // === Type re-exports ===
 
+// Adaptive types
+export type {
+	AdaptiveConfig,
+	ParallelismContext,
+	ScalingDecision,
+	ScalingDirection,
+	ScalingFactor,
+} from "./adaptive/types.ts";
 // Agent types
 export type {
 	AgentDefinition,
@@ -63,14 +71,6 @@ export {
 	SURFACE_CHANGE_KINDS,
 	SYMBOL_KINDS,
 } from "./compat/types.ts";
-// Adaptive types
-export type {
-	AdaptiveConfig,
-	ParallelismContext,
-	ScalingDecision,
-	ScalingDirection,
-	ScalingFactor,
-} from "./adaptive/types.ts";
 // Config types
 export type {
 	CoordinatorExitTriggers,
@@ -226,6 +226,13 @@ export type {
 } from "./observability/types.ts";
 // Reminder types
 export type { ReminderConfig, ReminderPolicy, TemporalSignals } from "./reminders/types.ts";
+// Research types
+export type {
+	McpServerConfig,
+	ResearchConfig,
+	ResearchReport,
+	ResearchSession,
+} from "./research/types.ts";
 // Resilience types
 export type {
 	CircuitBreakerConfig,

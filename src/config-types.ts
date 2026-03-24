@@ -5,6 +5,7 @@ import type { PlanReviewTier } from "./mail/types.ts";
 import type { EmbeddingProvider } from "./mulch/types.ts";
 import type { ObservabilityConfig } from "./observability/types.ts";
 import type { ReminderConfig } from "./reminders/types.ts";
+import type { ResearchConfig } from "./research/types.ts";
 import type { ResilienceConfig } from "./resilience/types.ts";
 
 // === Model & Provider Types ===
@@ -229,6 +230,7 @@ export interface OverstoryConfig {
 	headroom?: HeadroomConfig;
 	context?: ContextConfig;
 	reminders?: ReminderConfig;
+	research?: ResearchConfig;
 	observability?: ObservabilityConfig;
 	healthPolicy?: {
 		enabled: boolean;
