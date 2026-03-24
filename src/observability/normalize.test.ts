@@ -96,7 +96,7 @@ describe("normalizeSpans", () => {
 		const span = spans[0] as ExportSpan;
 		expect(span.kind).toBe("spawn");
 		expect(span.durationMs).toBe(0);
-		expect(span.startTime).toBe(span.endTime);
+		expect(span.startTime).toBe(span.endTime as string);
 	});
 
 	it("mail_sent event → instantaneous mail span", () => {
@@ -107,7 +107,7 @@ describe("normalizeSpans", () => {
 		const span = spans[0] as ExportSpan;
 		expect(span.kind).toBe("mail");
 		expect(span.durationMs).toBe(0);
-		expect(span.startTime).toBe(span.endTime);
+		expect(span.startTime).toBe(span.endTime as string);
 	});
 
 	it("mission event → instantaneous mission span", () => {
