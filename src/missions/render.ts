@@ -10,8 +10,15 @@ import { join } from "node:path";
 import { jsonError, jsonOutput } from "../json.ts";
 import { accent, printError, printHint } from "../logging/color.ts";
 import { renderHeader, renderSubHeader, separator } from "../logging/theme.ts";
-import type { Mission } from "../types.ts";
+import {
+	MISSION_PHASES,
+	type Mission,
+	type MissionGraph,
+	type MissionPhase,
+	type MissionState,
+} from "../types.ts";
 import { getMissionArtifactPaths } from "./context.ts";
+import { getCellEngineStatus } from "./engine-wiring.ts";
 import { loadMissionEvents } from "./events.ts";
 import {
 	DEFAULT_MISSION_GRAPH,
@@ -62,7 +69,24 @@ export async function missionStatus(overstoryDir: string, json: boolean): Promis
 		const missionScore = computeMissionScore(overstoryDir, mission);
 
 		if (json) {
-			jsonOutput("mission status", { mission: toSummary(mission), roles, score: missionScore });
+			const engineStatus = (() => {
+				try {
+					return getCellEngineStatus(mission, {
+						checkpointStore: missionStore.checkpoints,
+						missionStore,
+					});
+				} catch {
+					return null;
+				}
+			})();
+			const checkpoints = engineStatus ? missionStore.checkpoints.listCheckpoints(mission.id) : [];
+			jsonOutput("mission status", {
+				mission: toSummary(mission),
+				roles,
+				score: missionScore,
+				engineStatus,
+				checkpoints,
+			});
 			return;
 		}
 
@@ -97,6 +121,54 @@ export async function missionStatus(overstoryDir: string, json: boolean): Promis
 		process.stdout.write(`  Created:      ${mission.createdAt}\n`);
 		process.stdout.write(`  Updated:      ${mission.updatedAt}\n`);
 		renderMissionScore(missionScore);
+
+		const engineStatus = (() => {
+			try {
+				return getCellEngineStatus(mission, {
+					checkpointStore: missionStore.checkpoints,
+					missionStore,
+				});
+			} catch {
+				return null;
+			}
+		})();
+
+		if (engineStatus) {
+			process.stdout.write(`\n${renderSubHeader("Graph Execution")}\n`);
+			process.stdout.write(`  Cell type:    ${engineStatus.cellType}\n`);
+			process.stdout.write(`  Current node: ${accent(engineStatus.currentNodeId)}\n`);
+			process.stdout.write(`  Transitions:  ${engineStatus.transitions.length}\n`);
+
+			const last = engineStatus.transitions[engineStatus.transitions.length - 1];
+			if (last) {
+				process.stdout.write(
+					`  Last:         ${last.fromNode} → ${last.toNode} via ${last.trigger}\n`,
+				);
+			}
+
+			if (engineStatus.transitions.length > 0) {
+				process.stdout.write(`\n  Recent transitions:\n`);
+				const recent = engineStatus.transitions.slice(-5);
+				for (const t of recent) {
+					process.stdout.write(
+						`    ${t.fromNode} → ${t.toNode} [${t.trigger}] at ${t.createdAt}\n`,
+					);
+				}
+			}
+
+			const checkpoints = missionStore.checkpoints.listCheckpoints(mission.id);
+			if (checkpoints.length > 0) {
+				process.stdout.write(`\n  Checkpoints: ${checkpoints.length}\n`);
+				const latestCp = checkpoints[checkpoints.length - 1];
+				if (latestCp) {
+					const age = Date.now() - new Date(latestCp.createdAt).getTime();
+					const ageSec = Math.round(age / 1000);
+					process.stdout.write(
+						`  Latest:      ${latestCp.nodeId} v${latestCp.version} (${ageSec}s ago)\n`,
+					);
+				}
+			}
+		}
 	} finally {
 		missionStore.close();
 	}
@@ -367,7 +439,12 @@ export async function missionGraph(
 		// Default: text format
 		renderHeader("Mission Workflow Graph");
 		if (mission) {
-			const position = renderGraphPosition(graph, mission.phase, mission.state);
+			const position = renderGraphPositionWithNode(
+				graph,
+				mission.phase,
+				mission.state,
+				mission.currentNode,
+			);
 			console.log(`\n  ${position}\n`);
 
 			const transitions = getAvailableTransitions(graph, mission.phase, mission.state);
@@ -387,4 +464,31 @@ export async function missionGraph(
 	} finally {
 		missionStore.close();
 	}
+}
+
+// === Local rendering helpers ===
+
+const VALID_PHASES_SET = new Set<string>(MISSION_PHASES);
+
+/**
+ * Extends renderGraphPosition with an optional currentNode to show subgraph position.
+ * If currentNode looks like a cell node (contains ":" but prefix is not a lifecycle phase),
+ * appends it as a state annotation.
+ */
+function renderGraphPositionWithNode(
+	graph: MissionGraph,
+	currentPhase: MissionPhase,
+	currentState: MissionState,
+	currentNode?: string | null,
+): string {
+	const base = renderGraphPosition(graph, currentPhase, currentState);
+	if (currentNode?.includes(":")) {
+		const parsed = currentNode.split(":");
+		const prefix = parsed[0];
+		const isCell = !VALID_PHASES_SET.has(prefix ?? "");
+		if (isCell) {
+			return `${base}\n  ▶ ${currentNode}`;
+		}
+	}
+	return base;
 }

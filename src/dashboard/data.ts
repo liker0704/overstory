@@ -15,6 +15,7 @@ import { extendAgentColorMap } from "../logging/format.ts";
 import { createMailStore, type MailStore } from "../mail/store.ts";
 import { createMergeQueue, type MergeQueue } from "../merge/queue.ts";
 import { createMetricsStore, type MetricsStore } from "../metrics/store.ts";
+import { getCellEngineStatus } from "../missions/engine-wiring.ts";
 import { type MissionRoleStates, resolveMissionRoleStates } from "../missions/runtime-context.ts";
 import { createMissionStore } from "../missions/store.ts";
 import { createResilienceStore } from "../resilience/store.ts";
@@ -228,6 +229,12 @@ export interface DashboardData {
 		activeRetryCount: number;
 	};
 	headroom?: HeadroomSnapshot[];
+	graphExecution?: {
+		cellType: string;
+		currentNodeId: string;
+		transitionCount: number;
+		lastTransition?: { fromNode: string; toNode: string; trigger: string; createdAt: string };
+	} | null;
 }
 
 /**
@@ -464,6 +471,7 @@ export async function loadDashboardData(
 	// Load active mission inline (fast, open/close per tick)
 	let mission: Mission | null = null;
 	let missionRoles: MissionRoleStates | null = null;
+	let graphExecution: DashboardData["graphExecution"];
 	try {
 		const sessionsDbPath = join(root, ".overstory", "sessions.db");
 		if (existsSync(sessionsDbPath)) {
@@ -472,6 +480,25 @@ export async function loadDashboardData(
 				mission = missionStore.getActive();
 				if (mission) {
 					missionRoles = resolveMissionRoleStates(mission, allSessions);
+					if (mission.currentNode) {
+						try {
+							const engineStatus = getCellEngineStatus(mission, {
+								checkpointStore: missionStore.checkpoints,
+								missionStore,
+							});
+							if (engineStatus) {
+								const lastT = engineStatus.transitions[engineStatus.transitions.length - 1];
+								graphExecution = {
+									cellType: engineStatus.cellType,
+									currentNodeId: engineStatus.currentNodeId,
+									transitionCount: engineStatus.transitions.length,
+									lastTransition: lastT,
+								};
+							}
+						} catch {
+							// engine status unavailable
+						}
+					}
 				}
 			} finally {
 				missionStore.close();
@@ -526,5 +553,6 @@ export async function loadDashboardData(
 		mission,
 		resilience,
 		headroom,
+		graphExecution,
 	};
 }
