@@ -1410,7 +1410,10 @@
 		"id": "group-cf845684",
 		"name": "adaptive-parallelism-batch-1",
 		"memberIssueIds": [
-			"overstory-fa03"
+			"overstory-fa03",
+			"overstory-66d5",
+			"overstory-38a3",
+			"overstory-8067"
 		],
 		"status": "active",
 		"createdAt": "2026-03-24T08:50:06.950Z",

@@ -1,9 +1,9 @@
 {
 	"status-health-builder": 1774230145503,
-	"execution-director": 1774343329509,
+	"execution-director": 1774346844785,
 	"cli-surfaces-lead": 1774230229335,
 	"review-builder": 1774230104640,
-	"coordinator": 1774343312249,
+	"coordinator": 1774346892686,
 	"mission-analyst": 1774343328485,
 	"plan-review-lead": 1774343059905,
 	"plan-devil-advocate": 1774342879131,
@@ -196,7 +196,18 @@
 	"scout-headroom": 1774341141123,
 	"scout-merge": 1774341319340,
 	"scout-spawning": 1774341190469,
-	"lead-overstory-fa03": 1774343332465,
+	"lead-overstory-fa03": 1774343351957,
 	"adaptive-types-builder": 1774342845349,
-	"review-adaptive-types": 1774343296521
+	"review-adaptive-types": 1774343296521,
+	"lead-overstory-66d5": 1774343999263,
+	"build-signals-66d5": 1774343736466,
+	"review-signals-66d5": 1774343960520,
+	"lead-overstory-38a3": 1774344728489,
+	"policy-builder-38a3": 1774344505262,
+	"review-policy-38a3": 1774344686273,
+	"lead-overstory-8067": 1774346515522,
+	"build-spawn-gate": 1774345731252,
+	"build-daemon-cli": 1774345501128,
+	"fix-adaptive-cli": 1774346096933,
+	"review-adaptive": 1774346451294
 }
