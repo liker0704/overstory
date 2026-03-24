@@ -62,8 +62,12 @@ export interface RunResult {
 export interface GraphEngine {
 	/** Get the current node ID. */
 	currentNodeId(): string;
-	/** Advance to the next node using the given trigger. Returns the step result. */
-	advanceNode(trigger: string): Promise<StepResult>;
+	/**
+	 * Advance from the current gate node using the given trigger, then continue
+	 * execution until the next gate, terminal, or error. Returns a RunResult.
+	 * Errors if the current node is not a gate node (gate: "human" | "async").
+	 */
+	advanceNode(trigger: string): Promise<RunResult>;
 	/** Execute one step at the current node (invoke handler, then advance). */
 	step(): Promise<StepResult>;
 	/** Run the engine until a terminal node, gate, or error. */
@@ -239,9 +243,31 @@ export function createGraphEngine(opts: GraphEngineOpts): GraphEngine {
 		}
 	};
 
+	const advanceNode = async (trigger: string): Promise<RunResult> => {
+		const node = getNode(state.currentNodeId);
+		if (node.gate !== "human" && node.gate !== "async") {
+			return {
+				status: "error",
+				steps: [],
+				currentNodeId: state.currentNodeId,
+				error: `Node '${state.currentNodeId}' is not a gate node`,
+			};
+		}
+		const stepResult = await performAdvance(state.currentNodeId, trigger);
+		if (stepResult.status === "error") {
+			return {
+				status: "error",
+				steps: [stepResult],
+				currentNodeId: state.currentNodeId,
+				error: stepResult.error,
+			};
+		}
+		return run();
+	};
+
 	return {
 		currentNodeId: () => state.currentNodeId,
-		advanceNode: (trigger) => performAdvance(state.currentNodeId, trigger),
+		advanceNode,
 		step,
 		run,
 	};

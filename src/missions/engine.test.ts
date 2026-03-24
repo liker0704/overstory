@@ -516,42 +516,68 @@ describe("step() — auto-trigger", () => {
 // === advanceNode() ===
 
 describe("advanceNode()", () => {
-	test("advances via valid trigger", async () => {
-		const engine = createGraphEngine(makeOpts(linearGraph));
-		const result = await engine.advanceNode("next");
+	test("advances gate node via valid trigger and continues to terminal", async () => {
+		// gatedGraph: start → gate(human) → end(terminal)
+		// Start at gate node, fire "answer" → should run to terminal
+		const engine = createGraphEngine(makeOpts(gatedGraph, {}, { startNodeId: "gate" }));
+		const result = await engine.advanceNode("answer");
 
-		expect(result.status).toBe("advanced");
-		expect(result.fromNodeId).toBe("start");
-		expect(result.toNodeId).toBe("end");
+		expect(result.status).toBe("completed");
+		expect(result.currentNodeId).toBe("end");
 		expect(engine.currentNodeId()).toBe("end");
 	});
 
-	test("returns error for unknown trigger", async () => {
-		const engine = createGraphEngine(makeOpts(linearGraph));
+	test("returns error for unknown trigger on gate node", async () => {
+		const engine = createGraphEngine(makeOpts(gatedGraph, {}, { startNodeId: "gate" }));
 		const result = await engine.advanceNode("bogus");
 
 		expect(result.status).toBe("error");
 		expect(result.error).toContain("bogus");
+		expect(engine.currentNodeId()).toBe("gate");
+	});
+
+	test("returns error on non-gate node", async () => {
+		// linearGraph starts at "start" which has no gate property
+		const engine = createGraphEngine(makeOpts(linearGraph));
+		const result = await engine.advanceNode("next");
+
+		expect(result.status).toBe("error");
+		expect(result.error).toContain("not a gate node");
 		expect(engine.currentNodeId()).toBe("start");
 	});
 
 	test("records transition in checkpoint store", async () => {
 		const checkpointStore = createMockCheckpointStore();
-		const engine = createGraphEngine(makeOpts(linearGraph, {}, { checkpointStore }));
-		await engine.advanceNode("next");
+		const engine = createGraphEngine(
+			makeOpts(gatedGraph, {}, { checkpointStore, startNodeId: "gate" }),
+		);
+		await engine.advanceNode("answer");
 
-		expect(checkpointStore.transitions).toHaveLength(1);
-		expect(checkpointStore.transitions[0]?.fromNode).toBe("start");
+		expect(checkpointStore.transitions.length).toBeGreaterThanOrEqual(1);
+		expect(checkpointStore.transitions[0]?.fromNode).toBe("gate");
 		expect(checkpointStore.transitions[0]?.toNode).toBe("end");
-		expect(checkpointStore.transitions[0]?.trigger).toBe("next");
+		expect(checkpointStore.transitions[0]?.trigger).toBe("answer");
 	});
 
 	test("updates missionStore.currentNode when provided", async () => {
 		const missionStore = createMockMissionStore();
-		const engine = createGraphEngine(makeOpts(linearGraph, {}, { missionStore }));
-		await engine.advanceNode("next");
+		const engine = createGraphEngine(
+			makeOpts(gatedGraph, {}, { missionStore, startNodeId: "gate" }),
+		);
+		await engine.advanceNode("answer");
 
 		expect(missionStore.currentNode).toBe("end");
+	});
+
+	test("advances async gate node via valid trigger", async () => {
+		// asyncGateGraph: start → review:dispatch(async) → end(terminal)
+		const engine = createGraphEngine(
+			makeOpts(asyncGateGraph, {}, { startNodeId: "review:dispatch" }),
+		);
+		const result = await engine.advanceNode("done");
+
+		expect(result.status).toBe("completed");
+		expect(result.currentNodeId).toBe("end");
 	});
 });
 
@@ -759,9 +785,9 @@ describe("checkpoint persistence", () => {
 	test("engine resumes from checkpoint after restart", async () => {
 		const checkpointStore = createMockCheckpointStore();
 
-		// First run: advance to 'b'
+		// First run: step once (auto-advances "a" → "b" via single outgoing edge)
 		const engine1 = createGraphEngine(makeOpts(chainGraph, {}, { checkpointStore }));
-		await engine1.advanceNode("step1");
+		await engine1.step();
 		expect(engine1.currentNodeId()).toBe("b");
 
 		// New engine instance with same checkpointStore — should resume at 'b'
