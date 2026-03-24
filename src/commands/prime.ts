@@ -200,6 +200,18 @@ async function healGitignore(overstoryDir: string): Promise<void> {
 }
 
 /**
+ * Format a single mulch record (from semantic search result) as plain text for expertise output.
+ */
+function formatSemanticRecord(record: Record<string, unknown>): string {
+	const parts: string[] = [];
+	for (const key of ["content", "description", "title", "rationale", "name"]) {
+		const v = record[key];
+		if (typeof v === "string" && v) parts.push(v);
+	}
+	return parts.join(" ");
+}
+
+/**
  * Prime command entry point.
  *
  * Gathers project state and outputs context to stdout for injection
@@ -240,17 +252,27 @@ export async function primeCommand(opts: PrimeOptions): Promise<void> {
 
 			if (semanticEnabled) {
 				if (contextFiles.length === 0) {
-					// Semantic enabled but no context signal — warn and fall back to standard prime
-					printWarning(
-						"mulch.semantic.enabled is true but no --files context signal provided; using standard prime",
+					// FIX 2: Semantic requires a context signal — exit with error
+					process.stderr.write(
+						"Error: mulch.semantic.enabled is true but no --files context signal provided\n",
 					);
-					expertiseOutput = await mulch.prime(domains, config.mulch.primeFormat);
+					process.exit(1);
+				}
+				// FIX 1: Use semanticSearch() to rerank records instead of passing --files to prime
+				const query = contextFiles.join(" ");
+				const semanticResults = await mulch.semanticSearch?.(query, {
+					domain: domains?.length === 1 ? domains[0] : undefined,
+				});
+				if (semanticResults && semanticResults.length > 0) {
+					// Format semantically ranked records as expertise output
+					expertiseOutput = semanticResults
+						.map((r) => formatSemanticRecord(r.record))
+						.filter(Boolean)
+						.join("\n");
 				} else {
-					// Use files as context signal for semantic-aware prime
-					expertiseOutput = await mulch.prime(domains, config.mulch.primeFormat, {
-						files: contextFiles,
-						sortByScore: true,
-					});
+					// Embeddings unavailable — fall back to standard prime with warning
+					printWarning("Semantic embeddings unavailable; using standard prime output");
+					expertiseOutput = await mulch.prime(domains, config.mulch.primeFormat);
 				}
 			} else {
 				expertiseOutput = await mulch.prime(domains, config.mulch.primeFormat);

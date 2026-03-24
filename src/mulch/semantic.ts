@@ -51,6 +51,9 @@ interface EmbeddingIndex {
 
 const OLLAMA_ALLOWED_HOSTNAMES = ["localhost", "127.0.0.1", "::1"];
 
+/** Module-level flag: consent notice is shown at most once per process. */
+let openaiNoticeShown = false;
+
 /**
  * Fixed Python script for sentence-transformers embedding.
  * Reads JSON array of strings from stdin, outputs JSON array of float arrays.
@@ -127,7 +130,10 @@ async function embedViaOpenAI(texts: string[], model: string): Promise<Float32Ar
 	if (!apiKey) return null;
 
 	// Log consent notice on first use — API key is never logged
-	process.stderr.write("Note: Sending text to OpenAI API for embedding generation\n");
+	if (!openaiNoticeShown) {
+		process.stderr.write("Note: Sending text to OpenAI API for embedding generation\n");
+		openaiNoticeShown = true;
+	}
 
 	const controller = new AbortController();
 	const connectTimeout = setTimeout(() => controller.abort(), 500);
