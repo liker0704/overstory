@@ -704,7 +704,7 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 	let ownMergeQueue = false;
 	if (options._mergeQueue !== undefined) {
 		mergeQueue = options._mergeQueue;
-	} else if (options.config?.agents.adaptive?.enabled) {
+	} else if (options.config?.agents?.adaptive?.enabled) {
 		try {
 			mergeQueue = createMergeQueue(join(overstoryDir, "merge-queue.db"));
 			ownMergeQueue = true;
@@ -1486,7 +1486,7 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 		}
 
 		// === Adaptive parallelism policy evaluation ===
-		if (options.config?.agents.adaptive?.enabled && headroomStore && mergeQueue) {
+		if (options.config?.agents?.adaptive?.enabled && headroomStore && mergeQueue) {
 			try {
 				const adaptiveConfig = options.config.agents.adaptive;
 				const signals = collectSignals({ overstoryDir });
