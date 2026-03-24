@@ -13,6 +13,12 @@ import {
 	validateGraph,
 	validateTransition,
 } from "./graph.ts";
+import {
+	type CellGraphNode,
+	isCellNode,
+	isLifecycleNode,
+	type LifecycleGraphNode,
+} from "./types.ts";
 
 describe("nodeId / parseNodeId", () => {
 	test("nodeId builds correct ID", () => {
@@ -93,6 +99,7 @@ describe("validateGraph", () => {
 			nodes: [
 				...DEFAULT_MISSION_GRAPH.nodes,
 				{
+					kind: "lifecycle" as const,
 					id: "orphan:active",
 					phase: "understand" as const,
 					state: "active" as const,
@@ -295,8 +302,8 @@ describe("toMermaid", () => {
 const minimalSubgraph: MissionGraph = {
 	version: 1,
 	nodes: [
-		{ id: "understand:active", phase: "understand", state: "active" },
-		{ id: "done:completed", phase: "done", state: "completed", terminal: true },
+		{ kind: "lifecycle", id: "understand:active", phase: "understand", state: "active" },
+		{ kind: "lifecycle", id: "done:completed", phase: "done", state: "completed", terminal: true },
 	],
 	edges: [{ from: "understand:active", to: "done:completed", trigger: "complete" }],
 };
@@ -305,9 +312,12 @@ const minimalSubgraph: MissionGraph = {
 function replaceNode(
 	nodes: MissionGraphNode[],
 	id: string,
-	patch: Partial<MissionGraphNode>,
+	patch: Partial<LifecycleGraphNode>,
 ): MissionGraphNode[] {
-	return nodes.map((n) => (n.id === id ? { ...n, ...patch } : n));
+	return nodes.map((n) => {
+		if (n.id !== id || n.kind !== "lifecycle") return n;
+		return { ...n, ...patch };
+	});
 }
 
 describe("validateGraph subgraph validation", () => {
@@ -354,7 +364,7 @@ describe("validateGraph subgraph validation", () => {
 	test("propagates subgraph errors with prefix", () => {
 		const badSubgraph: MissionGraph = {
 			version: 1,
-			nodes: [{ id: "understand:active", phase: "understand", state: "active" }],
+			nodes: [{ kind: "lifecycle", id: "understand:active", phase: "understand", state: "active" }],
 			edges: [{ from: "understand:active", to: "nonexistent", trigger: "x" }],
 		};
 		const graph: MissionGraph = {
@@ -388,6 +398,7 @@ describe("getSubgraphNodes", () => {
 
 	test("finds nodes with subgraphs", () => {
 		const nodeWithSub = {
+			kind: "lifecycle" as const,
 			id: "understand:active",
 			phase: "understand" as const,
 			state: "active" as const,
@@ -397,7 +408,13 @@ describe("getSubgraphNodes", () => {
 			version: 1,
 			nodes: [
 				nodeWithSub,
-				{ id: "done:completed", phase: "done", state: "completed", terminal: true },
+				{
+					kind: "lifecycle",
+					id: "done:completed",
+					phase: "done",
+					state: "completed",
+					terminal: true,
+				},
 			],
 			edges: [{ from: "understand:active", to: "done:completed", trigger: "complete" }],
 		};
@@ -417,28 +434,220 @@ describe("flattenGraph", () => {
 		const innerGraph: MissionGraph = {
 			version: 1,
 			nodes: [
-				{ id: "understand:active", phase: "understand", state: "active" },
-				{ id: "done:completed", phase: "done", state: "completed", terminal: true },
+				{ kind: "lifecycle", id: "align:active", phase: "align", state: "active" },
+				{ kind: "lifecycle", id: "done:failed", phase: "done", state: "failed", terminal: true },
 			],
-			edges: [{ from: "understand:active", to: "done:completed", trigger: "complete" }],
+			edges: [{ from: "align:active", to: "done:failed", trigger: "fail" }],
 		};
 		const outerGraph: MissionGraph = {
 			version: 1,
 			nodes: [
 				{
+					kind: "lifecycle" as const,
 					id: "understand:active",
 					phase: "understand" as const,
 					state: "active" as const,
 					subgraph: innerGraph,
 				},
-				{ id: "done:completed", phase: "done", state: "completed", terminal: true },
+				{
+					kind: "lifecycle",
+					id: "done:completed",
+					phase: "done",
+					state: "completed",
+					terminal: true,
+				},
 			],
 			edges: [{ from: "understand:active", to: "done:completed", trigger: "complete" }],
 		};
 		const all = flattenGraph(outerGraph);
-		// 2 outer nodes + 2 inner nodes
+		// 2 outer nodes + 2 inner nodes (all unique IDs)
 		expect(all).toHaveLength(4);
 		expect(all.some((n) => n.id === "understand:active")).toBe(true);
+		expect(all.some((n) => n.id === "align:active")).toBe(true);
 		expect(all.some((n) => n.id === "done:completed")).toBe(true);
+		expect(all.some((n) => n.id === "done:failed")).toBe(true);
+	});
+
+	test("cycle detection: visited set prevents duplicate nodes", () => {
+		// subgraph shares a node ID with the outer graph — simulates cycle
+		const innerGraph: MissionGraph = {
+			version: 1,
+			nodes: [{ kind: "lifecycle", id: "understand:active", phase: "understand", state: "active" }],
+			edges: [],
+		};
+		const outerGraph: MissionGraph = {
+			version: 1,
+			nodes: [
+				{
+					kind: "lifecycle" as const,
+					id: "understand:active",
+					phase: "understand" as const,
+					state: "active" as const,
+					subgraph: innerGraph,
+				},
+				{
+					kind: "lifecycle",
+					id: "done:completed",
+					phase: "done",
+					state: "completed",
+					terminal: true,
+				},
+			],
+			edges: [{ from: "understand:active", to: "done:completed", trigger: "complete" }],
+		};
+		const flat = flattenGraph(outerGraph);
+		// "understand:active" appears once (inner skipped via visited), "done:completed" once
+		expect(flat).toHaveLength(2);
+		expect(flat.filter((n) => n.id === "understand:active")).toHaveLength(1);
+	});
+});
+
+describe("discriminated union type guards", () => {
+	test("isLifecycleNode identifies lifecycle nodes", () => {
+		const node: MissionGraphNode = {
+			kind: "lifecycle",
+			id: "understand:active",
+			phase: "understand",
+			state: "active",
+		};
+		expect(isLifecycleNode(node)).toBe(true);
+		expect(isCellNode(node)).toBe(false);
+	});
+
+	test("isCellNode identifies cell nodes", () => {
+		const node: MissionGraphNode = {
+			kind: "cell",
+			id: "plan-review:dispatch",
+			cellType: "plan-review",
+		};
+		expect(isCellNode(node)).toBe(true);
+		expect(isLifecycleNode(node)).toBe(false);
+	});
+
+	test("cell node supports async gate with timeout fields", () => {
+		const node: CellGraphNode = {
+			kind: "cell",
+			id: "plan-review:dispatch",
+			cellType: "plan-review",
+			gate: "async",
+			gateTimeout: 30000,
+			onTimeout: "timeout-handler",
+		};
+		expect(node.gate).toBe("async");
+		expect(node.gateTimeout).toBe(30000);
+		expect(node.onTimeout).toBe("timeout-handler");
+	});
+
+	test("LifecycleGraphNode has phase and state fields", () => {
+		const node: LifecycleGraphNode = {
+			kind: "lifecycle",
+			id: "plan:active",
+			phase: "plan",
+			state: "active",
+		};
+		expect(node.phase).toBe("plan");
+		expect(node.state).toBe("active");
+	});
+});
+
+describe("validateGraph parameterized startNodeId", () => {
+	test("custom startNodeId allows validation from non-default entry", () => {
+		const graph: MissionGraph = {
+			version: 1,
+			nodes: [
+				{ kind: "lifecycle", id: "align:active", phase: "align", state: "active" },
+				{
+					kind: "lifecycle",
+					id: "done:completed",
+					phase: "done",
+					state: "completed",
+					terminal: true,
+				},
+			],
+			edges: [{ from: "align:active", to: "done:completed", trigger: "complete" }],
+		};
+		// Without custom startNodeId, fails because "understand:active" is not in this graph
+		const defaultResult = validateGraph(graph);
+		expect(defaultResult.valid).toBe(false);
+
+		// With custom startNodeId matching the actual entry
+		const customResult = validateGraph(graph, { startNodeId: "align:active" });
+		expect(customResult.valid).toBe(true);
+		expect(customResult.errors).toEqual([]);
+	});
+
+	test("subgraph is validated from its own first node, not default understand:active", () => {
+		const subgraph: MissionGraph = {
+			version: 1,
+			nodes: [
+				{ kind: "lifecycle", id: "align:active", phase: "align", state: "active" },
+				{
+					kind: "lifecycle",
+					id: "done:completed",
+					phase: "done",
+					state: "completed",
+					terminal: true,
+				},
+			],
+			edges: [{ from: "align:active", to: "done:completed", trigger: "complete" }],
+		};
+		const graph: MissionGraph = {
+			...DEFAULT_MISSION_GRAPH,
+			nodes: replaceNode(DEFAULT_MISSION_GRAPH.nodes, "understand:active", { subgraph }),
+		};
+		const result = validateGraph(graph);
+		// Subgraph should pass — no "start node not found" or "unreachable" subgraph errors
+		const subgraphErrors = result.errors.filter((e) => e.startsWith("Subgraph of"));
+		expect(subgraphErrors).toEqual([]);
+	});
+});
+
+describe("validateGraph cell node ID validation", () => {
+	test("valid cell node ID passes (cellType prefix matches)", () => {
+		const graph: MissionGraph = {
+			version: 1,
+			nodes: [
+				{ kind: "lifecycle", id: "understand:active", phase: "understand", state: "active" },
+				{ kind: "cell", id: "plan-review:dispatch", cellType: "plan-review" },
+				{
+					kind: "lifecycle",
+					id: "done:completed",
+					phase: "done",
+					state: "completed",
+					terminal: true,
+				},
+			],
+			edges: [
+				{ from: "understand:active", to: "plan-review:dispatch", trigger: "start" },
+				{ from: "plan-review:dispatch", to: "done:completed", trigger: "complete" },
+			],
+		};
+		const result = validateGraph(graph);
+		const cellErrors = result.errors.filter((e) => e.includes("cellType"));
+		expect(cellErrors).toEqual([]);
+	});
+
+	test("invalid cell node ID is rejected (missing cellType prefix)", () => {
+		const graph: MissionGraph = {
+			version: 1,
+			nodes: [
+				{ kind: "lifecycle", id: "understand:active", phase: "understand", state: "active" },
+				{ kind: "cell", id: "bad-id", cellType: "plan-review" },
+				{
+					kind: "lifecycle",
+					id: "done:completed",
+					phase: "done",
+					state: "completed",
+					terminal: true,
+				},
+			],
+			edges: [
+				{ from: "understand:active", to: "bad-id", trigger: "start" },
+				{ from: "bad-id", to: "done:completed", trigger: "complete" },
+			],
+		};
+		const result = validateGraph(graph);
+		expect(result.valid).toBe(false);
+		expect(result.errors.some((e) => e.includes("bad-id") && e.includes("cellType"))).toBe(true);
 	});
 });

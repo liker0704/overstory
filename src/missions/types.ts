@@ -1,7 +1,8 @@
 // === Mission Workflow Graph ===
 
-/** A node in the mission workflow graph. */
-export interface MissionGraphNode {
+/** A lifecycle node — represents a mission phase + state. */
+export interface LifecycleGraphNode {
+	kind: "lifecycle";
 	/** Unique node ID, conventionally "phase:state" (e.g., "understand:active"). */
 	id: string;
 	/** The mission phase this node represents. */
@@ -20,6 +21,42 @@ export interface MissionGraphNode {
 	handler?: string;
 	/** Static configuration passed to handler. */
 	handlerConfig?: Record<string, unknown>;
+}
+
+/** A cell node — represents a discrete workstream cell. */
+export interface CellGraphNode {
+	kind: "cell";
+	/** Unique node ID, must start with cellType + ":" (e.g., "plan-review:dispatch"). */
+	id: string;
+	/** Cell type identifier (e.g., "plan-review"). */
+	cellType: string;
+	/** Human-readable label for display. */
+	label?: string;
+	/** Whether this node blocks on input. */
+	gate?: "human" | "auto" | "async";
+	/** Whether this is a terminal (sink) node. */
+	terminal?: boolean;
+	/** Handler key that the execution engine resolves to a function. */
+	handler?: string;
+	/** Static configuration passed to handler. */
+	handlerConfig?: Record<string, unknown>;
+	/** Timeout in ms for async gate resolution. */
+	gateTimeout?: number;
+	/** Handler key to invoke on timeout. */
+	onTimeout?: string;
+}
+
+/** A node in the mission workflow graph. */
+export type MissionGraphNode = LifecycleGraphNode | CellGraphNode;
+
+/** Type guard: narrows MissionGraphNode to LifecycleGraphNode. */
+export function isLifecycleNode(node: MissionGraphNode): node is LifecycleGraphNode {
+	return node.kind === "lifecycle";
+}
+
+/** Type guard: narrows MissionGraphNode to CellGraphNode. */
+export function isCellNode(node: MissionGraphNode): node is CellGraphNode {
+	return node.kind === "cell";
 }
 
 /** An edge in the mission workflow graph. */

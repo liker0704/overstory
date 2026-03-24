@@ -45,12 +45,14 @@ function buildDefaultGraph(): MissionGraph {
 	const workingPhases: MissionPhase[] = ["understand", "align", "decide", "plan", "execute"];
 	for (const phase of workingPhases) {
 		nodes.push({
+			kind: "lifecycle",
 			id: nodeId(phase, "active"),
 			phase,
 			state: "active",
 			label: `${phase} (active)`,
 		});
 		nodes.push({
+			kind: "lifecycle",
 			id: nodeId(phase, "frozen"),
 			phase,
 			state: "frozen",
@@ -84,6 +86,7 @@ function buildDefaultGraph(): MissionGraph {
 
 		// Suspended node + resume edge
 		nodes.push({
+			kind: "lifecycle",
 			id: nodeId(phase, "suspended"),
 			phase,
 			state: "suspended",
@@ -130,6 +133,7 @@ function buildDefaultGraph(): MissionGraph {
 
 	// Terminal: done:completed
 	nodes.push({
+		kind: "lifecycle",
 		id: nodeId("done", "completed"),
 		phase: "done",
 		state: "completed",
@@ -145,6 +149,7 @@ function buildDefaultGraph(): MissionGraph {
 
 	// Terminal: done:stopped
 	nodes.push({
+		kind: "lifecycle",
 		id: nodeId("done", "stopped"),
 		phase: "done",
 		state: "stopped",
@@ -154,6 +159,7 @@ function buildDefaultGraph(): MissionGraph {
 
 	// Terminal: done:failed
 	nodes.push({
+		kind: "lifecycle",
 		id: nodeId("done", "failed"),
 		phase: "done",
 		state: "failed",
@@ -220,7 +226,10 @@ export function validateTransition(
 // === Graph validation (static lint) ===
 
 /** Validate graph structure. Returns errors if any. */
-export function validateGraph(graph: MissionGraph): { valid: boolean; errors: string[] } {
+export function validateGraph(
+	graph: MissionGraph,
+	opts?: { startNodeId?: string },
+): { valid: boolean; errors: string[] } {
 	const errors: string[] = [];
 	const nodeIds = new Set(graph.nodes.map((n) => n.id));
 
@@ -240,8 +249,8 @@ export function validateGraph(graph: MissionGraph): { valid: boolean; errors: st
 		errors.push("No terminal nodes found");
 	}
 
-	// Check for unreachable nodes (simple BFS from understand:active)
-	const startId = nodeId("understand", "active");
+	// Check for unreachable nodes (BFS from startNodeId)
+	const startId = opts?.startNodeId ?? nodeId("understand", "active");
 	if (!nodeIds.has(startId)) {
 		errors.push(`Start node '${startId}' not found`);
 	} else {
@@ -264,20 +273,31 @@ export function validateGraph(graph: MissionGraph): { valid: boolean; errors: st
 		}
 	}
 
-	// Subgraph nodes must not be terminal
 	for (const node of graph.nodes) {
-		if (node.subgraph && node.terminal) {
-			errors.push(`Node '${node.id}' cannot be both a subgraph node and terminal`);
-		}
 		// Handler strings must be non-empty when present
 		if (node.handler !== undefined && node.handler.trim() === "") {
 			errors.push(`Node '${node.id}' has an empty handler key`);
 		}
-		// Recursively validate subgraphs
-		if (node.subgraph) {
-			const sub = validateGraph(node.subgraph);
-			for (const err of sub.errors) {
-				errors.push(`Subgraph of '${node.id}': ${err}`);
+		if (node.kind === "cell") {
+			// Cell node ID must be namespaced by cellType
+			if (!node.id.startsWith(`${node.cellType}:`)) {
+				errors.push(`Cell node '${node.id}' id must start with cellType '${node.cellType}:'`);
+			}
+		} else {
+			// Subgraph nodes must not be terminal
+			if (node.subgraph && node.terminal) {
+				errors.push(`Node '${node.id}' cannot be both a subgraph node and terminal`);
+			}
+			// Recursively validate subgraphs, passing the subgraph's own entry node
+			if (node.subgraph) {
+				const firstNodeId = node.subgraph.nodes[0]?.id;
+				const sub = validateGraph(
+					node.subgraph,
+					firstNodeId !== undefined ? { startNodeId: firstNodeId } : undefined,
+				);
+				for (const err of sub.errors) {
+					errors.push(`Subgraph of '${node.id}': ${err}`);
+				}
 			}
 		}
 	}
@@ -287,16 +307,24 @@ export function validateGraph(graph: MissionGraph): { valid: boolean; errors: st
 
 /** Return all nodes in graph that have an embedded subgraph. */
 export function getSubgraphNodes(graph: MissionGraph): MissionGraphNode[] {
-	return graph.nodes.filter((n) => n.subgraph !== undefined);
+	return graph.nodes.filter((n) => {
+		if (n.kind !== "lifecycle") return false;
+		return n.subgraph !== undefined;
+	});
 }
 
-/** Recursively collect all nodes from a graph and its subgraphs. */
-export function flattenGraph(graph: MissionGraph): MissionGraphNode[] {
+/** Recursively collect all nodes from a graph and its subgraphs. Cycle-safe via visited set. */
+export function flattenGraph(
+	graph: MissionGraph,
+	visited: Set<string> = new Set(),
+): MissionGraphNode[] {
 	const result: MissionGraphNode[] = [];
 	for (const node of graph.nodes) {
+		if (visited.has(node.id)) continue;
+		visited.add(node.id);
 		result.push(node);
-		if (node.subgraph) {
-			result.push(...flattenGraph(node.subgraph));
+		if (node.kind === "lifecycle" && node.subgraph) {
+			result.push(...flattenGraph(node.subgraph, visited));
 		}
 	}
 	return result;
