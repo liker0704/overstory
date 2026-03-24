@@ -1429,5 +1429,16 @@
 		"status": "active",
 		"createdAt": "2026-03-24T10:51:14.504Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-ffc65e70",
+		"name": "verify-features-batch",
+		"memberIssueIds": [
+			"overstory-674a",
+			"overstory-7b8d"
+		],
+		"status": "active",
+		"createdAt": "2026-03-24T12:55:29.331Z",
+		"completedAt": null
 	}
 ]
