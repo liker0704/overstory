@@ -1,6 +1,6 @@
 {
 	"status-health-builder": 1774230145503,
-	"execution-director": 1774367971368,
+	"execution-director": 1774368950611,
 	"cli-surfaces-lead": 1774230229335,
 	"review-builder": 1774230104640,
 	"coordinator": 1774367518810,
@@ -240,5 +240,10 @@
 	"scout-agent-defs": 1774362112141,
 	"lead-overstory-ead0": 1774367925698,
 	"build-research-types": 1774367531382,
-	"review-research-types": 1774367825721
+	"review-research-types": 1774367825721,
+	"lead-overstory-ab40": 1774368290806,
+	"lead-overstory-5bca": 1774368899639,
+	"build-mcp-5bca": 1774368515130,
+	"build-research-agents": 1774368952683,
+	"review-mcp-5bca": 1774368820796
 }
