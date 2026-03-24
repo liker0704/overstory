@@ -47,6 +47,7 @@ import { createQuickstartCommand } from "./commands/quickstart.ts";
 import { createRateLimitsCommand } from "./commands/rate-limits.ts";
 import { createRecoverCommand } from "./commands/recover.ts";
 import { createReplayCommand } from "./commands/replay.ts";
+import { createResearchCommand } from "./commands/research.ts";
 import { createResumeCommand } from "./commands/resume.ts";
 import { createReviewCommand } from "./commands/review.ts";
 import { createRunCommand } from "./commands/run.ts";
@@ -120,6 +121,7 @@ const COMMANDS = [
 	"feed",
 	"errors",
 	"recover",
+	"research",
 	"replay",
 	"resume",
 	"run",
@@ -278,6 +280,7 @@ program.addCommand(createWatchCommand());
 program.addCommand(createGroupCommand());
 program.addCommand(createCompletionsCommand());
 program.addCommand(createCompatCommand());
+program.addCommand(createResearchCommand());
 
 // Unmigrated commands — passthrough pattern
 program
