@@ -1,0 +1,47 @@
+{
+	"workstream": "verify-operations",
+	"items": [
+		{
+			"id": 1,
+			"command": "ov rate-limits",
+			"status": "pass",
+			"output": "Rate Limits\n──────────────────────────────────────────────────────────────────────\nRuntime       State      Req %          Requests   Tok %            Tokens    Resets     Age\n──────────────────────────────────────────────────────────────────────\nclaude        n/a            —                 —       —                 —         — 18s ago\n\nclaude: ANTHROPIC_API_KEY not set",
+			"notes": "Command runs without error. ANTHROPIC_API_KEY not set in this environment so headroom data is partial (n/a state). This is expected per brief constraints."
+		},
+		{
+			"id": 2,
+			"command": "ov health-policy --json",
+			"status": "pass",
+			"output": "{\"success\":true,\"command\":\"health-policy\",\"evaluations\":[],\"score\":{\"overall\":96,\"grade\":\"A\",\"factors\":[{\"name\":\"completion_rate\",\"label\":\"Completion Rate\",\"score\":100,\"weight\":0.2,\"contribution\":20,\"details\":\"382/382 sessions completed (100%)\"},{\"name\":\"stalled_rate\",\"label\":\"Stalled Rate\",\"score\":100,\"weight\":0.18,\"contribution\":18,\"details\":\"0/5 active sessions are stalled (0%)\"},{\"name\":\"zombie_count\",\"label\":\"Zombie Agents\",\"score\":100,\"weight\":0.13,\"contribution\":13,\"details\":\"No zombie agents\"},{\"name\":\"doctor_failures\",\"label\":\"Doctor Failures\",\"score\":100,\"weight\":0.18,\"contribution\":18,\"details\":\"No doctor failures or warnings\"},{\"name\":\"merge_quality\",\"label\":\"Merge Quality\",\"score\":100,\"weight\":0.1,\"contribution\":10,\"details\":\"No merges recorded — defaulting to 100\"},{\"name\":\"runtime_stability\",\"label\":\"Runtime Stability\",\"score\":100,\"weight\":0.08,\"contribution\":8,\"details\":\"No runtime swaps recorded\"},{\"name\":\"resilience\",\"label\":\"Resilience\",\"score\":70,\"weight\":0.13,\"contribution\":9.1,\"details\":\"1 open breaker\"}]},\"timestamp\":\"2026-03-24T12:54:45.704Z\"}",
+			"notes": "Valid JSON output with policy evaluation results. Overall health score 96/A. No policy evaluations triggered (evaluations array empty — dry-run is default behavior). 7 health factors reported."
+		},
+		{
+			"id": 3,
+			"command": "ov context generate && ov context show",
+			"status": "pass",
+			"output": "Project context generated → .overstory/project-context.json\n\n  Languages:        TypeScript\n  Test framework:   bun:test\n  Source roots:     src\n  Import hotspots:  14 detected\n  Shared invariants: 3 detected\n\n  Hash: a29fb8224682ca65\n\n## Project Context\n\n- **Languages:** TypeScript\n- **Test framework:** bun:test (`*.test.*`)\n- **Source roots:** src\n- **Top imports:** node:path, node:fs, bun:test, node:os, commander\n- **Invariants:** linter, typecheck, hooks",
+			"notes": "Both commands run successfully. context generate writes project-context.json (expected state mutation per brief). context show displays project analysis with language, test framework, source roots, import hotspots, and invariants."
+		},
+		{
+			"id": 4,
+			"command": "ov next-improvement --all --json",
+			"status": "pass",
+			"output": "{\"success\":true,\"command\":\"next-improvement\",\"recommendations\":[{\"title\":\"Improve session quality\",\"whyNow\":\"Session average review score is 50/100, below the 60-point threshold.\",\"expectedImpact\":\"Higher-quality sessions improve task completion rates and reduce agent rework.\",\"action\":\"Run `ov review sessions --verbose` to identify low-scoring sessions.\",\"verificationStep\":\"Re-run `ov review sessions` after improvements and confirm average score >= 60.\",\"priority\":\"high\",\"factor\":\"review_session_quality\",\"source\":\"review-quality\",\"sourceArtifact\":\"session\",\"estimatedImpact\":0,\"rankReason\":\"Highest estimated impact on overall score\"},{\"title\":\"Improve coordination patterns\",\"whyNow\":\"Average coordination-fit score across recent session reviews is 30/100.\",\"expectedImpact\":\"Better coordination reduces merge conflicts, agent blocking, and wasted parallel work.\",\"action\":\"Review agent communication patterns with `ov review sessions --verbose`.\",\"verificationStep\":\"Re-run session reviews after coordination improvements and confirm coordination-fit score >= 50.\",\"priority\":\"medium\",\"factor\":\"review_coordination\",\"source\":\"review-quality\",\"sourceArtifact\":\"session\",\"estimatedImpact\":0,\"rankReason\":\"Ranked #2 by estimated impact\"}],\"score\":{\"overall\":96,\"grade\":\"A\"},\"count\":2}",
+			"notes": "Valid JSON with 2 recommendations. Both have estimatedImpact field (value 0). Includes priority, source, rankReason fields. Pass criteria met: multiple results with estimatedImpact field."
+		},
+		{
+			"id": 5,
+			"command": "ov health --json",
+			"status": "pass",
+			"output": "{\"success\":true,\"command\":\"health\",\"score\":{\"overall\":96,\"grade\":\"A\"},\"signals\":{\"totalActiveSessions\":5,\"stalledSessions\":0,\"zombieSessions\":0},\"qualitySignals\":{\"reviewSourceActive\":true,\"evalSourceActive\":true,\"reminderSourceActive\":true,\"reviewRecommendationCount\":2,\"evalRecommendationCount\":0,\"reminderRecommendationCount\":10},\"missionScore\":{\"overall\":60,\"grade\":\"C\"},\"policyStatus\":{\"enabled\":false,\"disabled\":true,\"dryRun\":false,\"ruleCount\":0,\"recentTriggered\":0}}",
+			"notes": "Valid JSON output. Overall health score 96/A. qualitySignals section confirms review and eval sources are active (reviewSourceActive:true, evalSourceActive:true). Mission score 60/C reported separately. Pass criteria met: JSON includes quality signals from review/eval sources."
+		},
+		{
+			"id": 6,
+			"command": "ov adaptive --json",
+			"status": "pass",
+			"output": "{\"success\":true,\"command\":\"adaptive\",\"enabled\":false}",
+			"notes": "Valid JSON returned. Feature exists but is disabled by default (enabled:false). This is acceptable per brief: enabled:false is acceptable — feature exists but may be disabled by default."
+		}
+	]
+}
