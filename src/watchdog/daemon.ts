@@ -20,8 +20,11 @@
  * truth. See health.ts for the full ZFC documentation.
  */
 
-import { existsSync, statSync, unlinkSync } from "node:fs";
+import { existsSync, renameSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
+import { evaluateAdaptivePolicy } from "../adaptive/policy.ts";
+import { collectParallelismContext } from "../adaptive/signals.ts";
+import type { ScalingDecision } from "../adaptive/types.ts";
 import { nudgeAgent } from "../commands/nudge.ts";
 import { createEventStore } from "../events/store.ts";
 import {
@@ -41,6 +44,7 @@ import { collectSignals } from "../health/signals.ts";
 import { sanitize } from "../logging/sanitizer.ts";
 import { createMailClient } from "../mail/client.ts";
 import { createMailStore, type MailStore } from "../mail/store.ts";
+import { createMergeQueue, type MergeQueue } from "../merge/queue.ts";
 import { createMulchClient } from "../mulch/client.ts";
 import { normalizeSpans } from "../observability/normalize.ts";
 import { createExportPipeline, type ExportPipeline } from "../observability/pipeline.ts";
@@ -508,6 +512,8 @@ export interface DaemonOptions {
 	_headroomStore?: HeadroomStore | null;
 	/** DI for export pipeline. If not provided, built from config.observability when enabled. */
 	_exportPipeline?: ExportPipeline | null;
+	/** DI for merge queue. If not provided, created from merge-queue.db when adaptive is enabled. */
+	_mergeQueue?: MergeQueue | null;
 }
 
 /**
@@ -690,6 +696,20 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 			ownHeadroomStore = true;
 		} catch {
 			// Non-fatal: headroom features disabled for this tick
+		}
+	}
+
+	// Open MergeQueue for adaptive policy evaluation
+	let mergeQueue: MergeQueue | null = null;
+	let ownMergeQueue = false;
+	if (options._mergeQueue !== undefined) {
+		mergeQueue = options._mergeQueue;
+	} else if (options.config?.agents.adaptive?.enabled) {
+		try {
+			mergeQueue = createMergeQueue(join(overstoryDir, "merge-queue.db"));
+			ownMergeQueue = true;
+		} catch {
+			// Non-fatal: adaptive features disabled for this tick
 		}
 	}
 
@@ -1465,6 +1485,65 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 			}
 		}
 
+		// === Adaptive parallelism policy evaluation ===
+		if (options.config?.agents.adaptive?.enabled && headroomStore && mergeQueue) {
+			try {
+				const adaptiveConfig = options.config.agents.adaptive;
+				const signals = collectSignals({ overstoryDir });
+				const healthScore = computeScore(signals);
+				const context = collectParallelismContext({
+					sessionStore: store,
+					healthScore,
+					headroomStore,
+					mergeQueue,
+					evaluationIntervalMs: adaptiveConfig.evaluationIntervalMs,
+				});
+
+				// Read previous decision from adaptive-state.json
+				let previousDecision: ScalingDecision | null = null;
+				try {
+					const statePath = join(overstoryDir, "adaptive-state.json");
+					const stateFile = Bun.file(statePath);
+					if (await stateFile.exists()) {
+						const text = await stateFile.text();
+						previousDecision = JSON.parse(text) as ScalingDecision;
+					}
+				} catch {
+					previousDecision = null;
+				}
+
+				const decision = evaluateAdaptivePolicy({
+					context,
+					config: adaptiveConfig,
+					previousDecision,
+				});
+
+				// Atomic write: write to .tmp then rename
+				const statePath = join(overstoryDir, "adaptive-state.json");
+				const tmpPath = join(overstoryDir, "adaptive-state.tmp.json");
+				await Bun.write(tmpPath, JSON.stringify(decision, null, 2));
+				renameSync(tmpPath, statePath);
+
+				// Log non-hold decisions
+				if (decision.direction !== "hold") {
+					recordEvent(eventStore, {
+						runId,
+						agentName: "watchdog",
+						eventType: "custom",
+						level: "info",
+						data: {
+							type: "adaptive_scaling",
+							direction: decision.direction,
+							effectiveMaxConcurrent: decision.effectiveMaxConcurrent,
+							previousMaxConcurrent: decision.previousMaxConcurrent,
+						},
+					});
+				}
+			} catch {
+				// Error boundary: adaptive evaluation must never crash the daemon
+			}
+		}
+
 		if (exportPipeline && eventStore) {
 			try {
 				const recentEvents = runId
@@ -1500,6 +1579,14 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 		if (headroomStore && ownHeadroomStore) {
 			try {
 				headroomStore.close();
+			} catch {
+				// Non-fatal
+			}
+		}
+		// Close MergeQueue only if we created it (not injected)
+		if (mergeQueue && ownMergeQueue) {
+			try {
+				mergeQueue.close();
 			} catch {
 				// Non-fatal
 			}
