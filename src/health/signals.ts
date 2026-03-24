@@ -15,6 +15,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createHeadroomStore } from "../headroom/store.ts";
 import { createMetricsStore } from "../metrics/store.ts";
+import { createMissionStore } from "../missions/store.ts";
 import { createResilienceStore } from "../resilience/store.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import type { CollectSignalsParams, HealthSignals } from "./types.ts";
@@ -163,6 +164,21 @@ export function collectSignals(params: CollectSignalsParams): HealthSignals {
 		}
 	}
 
+	// --- Mission state (from MissionStore) ---
+	let activeMissionCount = 0;
+	if (existsSync(sessionsDb)) {
+		try {
+			const missionStore = createMissionStore(sessionsDb);
+			try {
+				activeMissionCount = missionStore.getActiveList().length;
+			} finally {
+				missionStore.close();
+			}
+		} catch {
+			// mission store unavailable
+		}
+	}
+
 	// --- Computed rates ---
 
 	// No sessions recorded → assume healthy (no evidence of failure)
@@ -198,6 +214,7 @@ export function collectSignals(params: CollectSignalsParams): HealthSignals {
 		recentRerouteCount,
 		lowestHeadroomPercent,
 		criticalHeadroomCount,
+		activeMissionCount,
 		collectedAt,
 	};
 }

@@ -72,6 +72,10 @@ export interface HealthSignals {
 	/** Number of runtimes with headroom below critical threshold. */
 	criticalHeadroomCount: number;
 
+	// --- Mission state ---
+	/** Number of currently active or frozen missions. */
+	activeMissionCount: number;
+
 	/** ISO 8601 timestamp when signals were collected. */
 	collectedAt: string;
 }

@@ -44,6 +44,7 @@ function makeHealthScore(overall = 85, grade: HealthScore["grade"] = "A"): Healt
 			recentRerouteCount: 0,
 			lowestHeadroomPercent: null,
 			criticalHeadroomCount: 0,
+			activeMissionCount: 0,
 			collectedAt: now,
 		},
 	};

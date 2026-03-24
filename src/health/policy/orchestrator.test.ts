@@ -55,6 +55,7 @@ function makeScore(overall = 80, grade: HealthScore["grade"] = "B"): HealthScore
 			recentRerouteCount: 0,
 			lowestHeadroomPercent: null,
 			criticalHeadroomCount: 0,
+			activeMissionCount: 0,
 			collectedAt: new Date().toISOString(),
 		},
 	};

@@ -38,9 +38,13 @@ export function renderMissionNarrative(mission: Mission, overstoryDir: string): 
 
 // === ov mission status ===
 
-export async function missionStatus(overstoryDir: string, json: boolean): Promise<void> {
-	const missionId = await resolveCurrentMissionId(overstoryDir);
-	if (!missionId) {
+export async function missionStatus(
+	overstoryDir: string,
+	json: boolean,
+	missionId?: string,
+): Promise<void> {
+	const resolvedId = missionId ?? (await resolveCurrentMissionId(overstoryDir));
+	if (!resolvedId) {
 		if (json) {
 			jsonOutput("mission status", { mission: null, message: "No active mission" });
 		} else {
@@ -52,12 +56,12 @@ export async function missionStatus(overstoryDir: string, json: boolean): Promis
 	const dbPath = join(overstoryDir, "sessions.db");
 	const missionStore = createMissionStore(dbPath);
 	try {
-		const mission = missionStore.getById(missionId);
+		const mission = missionStore.getById(resolvedId);
 		if (!mission) {
 			if (json) {
-				jsonOutput("mission status", { mission: null, message: `Mission ${missionId} not found` });
+				jsonOutput("mission status", { mission: null, message: `Mission ${resolvedId} not found` });
 			} else {
-				printError("Mission not found in store", missionId);
+				printError("Mission not found in store", resolvedId);
 			}
 			process.exitCode = 1;
 			return;
@@ -176,9 +180,13 @@ export async function missionStatus(overstoryDir: string, json: boolean): Promis
 
 // === ov mission output ===
 
-export async function missionOutput(overstoryDir: string, json: boolean): Promise<void> {
-	const missionId = await resolveCurrentMissionId(overstoryDir);
-	if (!missionId) {
+export async function missionOutput(
+	overstoryDir: string,
+	json: boolean,
+	missionId?: string,
+): Promise<void> {
+	const resolvedId = missionId ?? (await resolveCurrentMissionId(overstoryDir));
+	if (!resolvedId) {
 		if (json) {
 			jsonOutput("mission output", { mission: null, message: "No active mission" });
 		} else {
@@ -190,12 +198,12 @@ export async function missionOutput(overstoryDir: string, json: boolean): Promis
 	const dbPath = join(overstoryDir, "sessions.db");
 	const missionStore = createMissionStore(dbPath);
 	try {
-		const mission = missionStore.getById(missionId);
+		const mission = missionStore.getById(resolvedId);
 		if (!mission) {
 			if (json) {
 				jsonOutput("mission output", { mission: null });
 			} else {
-				printError("Mission not found in store", missionId);
+				printError("Mission not found in store", resolvedId);
 			}
 			process.exitCode = 1;
 			return;
@@ -245,9 +253,13 @@ export async function missionOutput(overstoryDir: string, json: boolean): Promis
 
 // === ov mission artifacts ===
 
-export async function missionArtifacts(overstoryDir: string, json: boolean): Promise<void> {
-	const missionId = await resolveCurrentMissionId(overstoryDir);
-	if (!missionId) {
+export async function missionArtifacts(
+	overstoryDir: string,
+	json: boolean,
+	missionId?: string,
+): Promise<void> {
+	const resolvedId = missionId ?? (await resolveCurrentMissionId(overstoryDir));
+	if (!resolvedId) {
 		if (json) {
 			jsonOutput("mission artifacts", { mission: null, message: "No active mission" });
 		} else {
@@ -259,7 +271,7 @@ export async function missionArtifacts(overstoryDir: string, json: boolean): Pro
 	const dbPath = join(overstoryDir, "sessions.db");
 	const missionStore = createMissionStore(dbPath);
 	try {
-		const mission = missionStore.getById(missionId);
+		const mission = missionStore.getById(resolvedId);
 		if (!mission || !mission.artifactRoot) {
 			if (json) {
 				jsonOutput("mission artifacts", { artifactRoot: null });
@@ -407,11 +419,12 @@ export async function missionGraph(
 	overstoryDir: string,
 	json: boolean,
 	format: "text" | "mermaid" | "json",
+	missionId?: string,
 ): Promise<void> {
-	const missionId = await resolveCurrentMissionId(overstoryDir);
+	const resolvedId = missionId ?? (await resolveCurrentMissionId(overstoryDir));
 	const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
 	try {
-		const mission = missionId ? missionStore.getById(missionId) : null;
+		const mission = resolvedId ? missionStore.getById(resolvedId) : null;
 		const graph = DEFAULT_MISSION_GRAPH;
 
 		if (json || format === "json") {

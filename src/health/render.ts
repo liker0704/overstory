@@ -77,6 +77,9 @@ export function renderHealthScore(score: HealthScore): void {
 	const overall = scoreColor(score.overall)(`${score.overall}/100`);
 	const grade = gradeColor(score.grade);
 	w(`  Overall: ${overall}  Grade: ${grade}\n`);
+	if (score.signals.activeMissionCount > 0) {
+		w(`  Active missions: ${score.signals.activeMissionCount}\n`);
+	}
 	w("\n");
 
 	if (score.factors.length === 0) {
