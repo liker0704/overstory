@@ -101,6 +101,7 @@ export interface MailMessage {
 	attempt: number; // Retry attempt count
 	nextRetryAt: string | null; // ISO timestamp for next retry
 	failReason: string | null; // Why the message was nack'd or dead-lettered
+	missionId: string | null; // Mission scope (null for legacy/non-mission messages)
 }
 
 // === Mail Protocol Payloads ===

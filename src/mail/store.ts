@@ -27,7 +27,8 @@ export interface MailStore {
 			| "attempt"
 			| "nextRetryAt"
 			| "failReason"
-		> & { payload?: string | null },
+			| "missionId"
+		> & { payload?: string | null; missionId?: string | null },
 	): MailMessage;
 
 	/** Insert multiple messages atomically (for broadcast fan-out). */
@@ -43,11 +44,12 @@ export interface MailStore {
 				| "attempt"
 				| "nextRetryAt"
 				| "failReason"
-			> & { payload?: string | null }
+				| "missionId"
+			> & { payload?: string | null; missionId?: string | null }
 		>,
 	): MailMessage[];
 
-	getUnread(agentName: string): MailMessage[];
+	getUnread(agentName: string, missionId?: string): MailMessage[];
 	getAll(filters?: {
 		from?: string;
 		to?: string;
@@ -63,7 +65,7 @@ export interface MailStore {
 	 * Expire stale claims, promote retryable failures, then claim available
 	 * messages for the given agent. Sets state='claimed' and claimed_at=now.
 	 */
-	claim(agentName: string, leaseTimeoutSec?: number): MailMessage[];
+	claim(agentName: string, leaseTimeoutSec?: number, missionId?: string): MailMessage[];
 
 	/** Acknowledge successful processing. Sets state='acked', read=1. */
 	ack(id: string, agentName?: string): void;
@@ -121,6 +123,7 @@ interface MessageRow {
 	attempt: number;
 	next_retry_at: string | null;
 	fail_reason: string | null;
+	mission_id: string | null;
 }
 
 /**
@@ -159,10 +162,11 @@ CREATE TABLE IF NOT EXISTS messages (
   claimed_at TEXT,
   attempt INTEGER NOT NULL DEFAULT 0,
   next_retry_at TEXT,
-  fail_reason TEXT
+  fail_reason TEXT,
+  mission_id TEXT
 )`;
 
-/** Migrations for the mail store. */
+/** Migrations for the mail store. Version 3: add mission_id column + composite index. */
 const MAIL_MIGRATIONS: Migration[] = [
 	{
 		version: 1,
@@ -288,12 +292,48 @@ const MAIL_MIGRATIONS: Migration[] = [
 			);
 		},
 	},
+	{
+		version: 3,
+		description: "add mission_id column + composite index",
+		up: (db) => {
+			// Check if the table exists first — fresh DBs have no table yet;
+			// CREATE_TABLE (run after migrations) already includes mission_id.
+			const tableRow = db
+				.prepare<{ name: string }, []>(
+					"SELECT name FROM sqlite_master WHERE type='table' AND name='messages'",
+				)
+				.get();
+			if (!tableRow) return;
+
+			// Idempotent: check if column already exists before altering
+			const colRow = db
+				.prepare<{ name: string }, { $table: string }>(
+					"SELECT name FROM pragma_table_info($table) WHERE name = 'mission_id'",
+				)
+				.get({ $table: "messages" });
+			if (!colRow) {
+				db.exec("ALTER TABLE messages ADD COLUMN mission_id TEXT");
+			}
+			db.exec(
+				"CREATE INDEX IF NOT EXISTS idx_messages_mission ON messages(to_agent, mission_id, state)",
+			);
+		},
+		detect: (db) => {
+			const row = db
+				.prepare<{ name: string }, { $table: string }>(
+					"SELECT name FROM pragma_table_info($table) WHERE name = 'mission_id'",
+				)
+				.get({ $table: "messages" });
+			return !!row;
+		},
+	},
 ];
 
 const CREATE_INDEXES = `
 CREATE INDEX IF NOT EXISTS idx_thread ON messages(thread_id);
 CREATE INDEX IF NOT EXISTS idx_state ON messages(to_agent, state, next_retry_at);
-CREATE INDEX IF NOT EXISTS idx_from_agent ON messages(from_agent)`;
+CREATE INDEX IF NOT EXISTS idx_from_agent ON messages(from_agent);
+CREATE INDEX IF NOT EXISTS idx_messages_mission ON messages(to_agent, mission_id, state)`;
 
 /** Generate a random 12-character alphanumeric ID (unbiased). */
 function randomId(): string {
@@ -333,6 +373,7 @@ function rowToMessage(row: MessageRow): MailMessage {
 		attempt: row.attempt,
 		nextRetryAt: row.next_retry_at,
 		failReason: row.fail_reason,
+		missionId: row.mission_id ?? null,
 	};
 }
 
@@ -386,12 +427,13 @@ export function createMailStore(dbPath: string): MailStore {
 			$read: number;
 			$created_at: string;
 			$state: string;
+			$mission_id: string | null;
 		}
 	>(`
 		INSERT INTO messages
-			(id, from_agent, to_agent, subject, body, type, priority, thread_id, payload, read, created_at, state)
+			(id, from_agent, to_agent, subject, body, type, priority, thread_id, payload, read, created_at, state, mission_id)
 		VALUES
-			($id, $from_agent, $to_agent, $subject, $body, $type, $priority, $thread_id, $payload, $read, $created_at, $state)
+			($id, $from_agent, $to_agent, $subject, $body, $type, $priority, $thread_id, $payload, $read, $created_at, $state, $mission_id)
 	`);
 
 	const getByIdStmt = db.prepare<MessageRow, { $id: string }>(`
@@ -406,6 +448,19 @@ export function createMailStore(dbPath: string): MailStore {
 		WHERE to_agent = $to_agent
 		  AND state = 'queued'
 		  AND (next_retry_at IS NULL OR next_retry_at <= datetime('now'))
+		ORDER BY created_at ASC
+		LIMIT ${MAX_POLL_BATCH}
+	`);
+
+	const getUnreadByMissionStmt = db.prepare<
+		MessageRow,
+		{ $to_agent: string; $mission_id: string }
+	>(`
+		SELECT * FROM messages
+		WHERE to_agent = $to_agent
+		  AND state = 'queued'
+		  AND (next_retry_at IS NULL OR next_retry_at <= datetime('now'))
+		  AND (mission_id = $mission_id OR mission_id IS NULL)
 		ORDER BY created_at ASC
 		LIMIT ${MAX_POLL_BATCH}
 	`);
@@ -447,6 +502,24 @@ export function createMailStore(dbPath: string): MailStore {
 			WHERE to_agent = $to_agent
 			  AND state = 'queued'
 			  AND (next_retry_at IS NULL OR next_retry_at <= datetime('now'))
+			ORDER BY created_at ASC
+			LIMIT ${MAX_POLL_BATCH}
+		)
+		RETURNING *
+	`);
+
+	const claimByMissionStmt = db.prepare<
+		MessageRow,
+		{ $to_agent: string; $mission_id: string }
+	>(`
+		UPDATE messages
+		SET state = 'claimed', claimed_at = datetime('now')
+		WHERE id IN (
+			SELECT id FROM messages
+			WHERE to_agent = $to_agent
+			  AND state = 'queued'
+			  AND (next_retry_at IS NULL OR next_retry_at <= datetime('now'))
+			  AND (mission_id = $mission_id OR mission_id IS NULL)
 			ORDER BY created_at ASC
 			LIMIT ${MAX_POLL_BATCH}
 		)
@@ -520,19 +593,24 @@ export function createMailStore(dbPath: string): MailStore {
 	});
 
 	// Wrap claim steps in a transaction for atomicity
-	const claimTransaction = db.transaction((agentName: string, timeoutSec: number): MessageRow[] => {
-		// Step 1: Expire stale claims for this agent's messages
-		expireClaimsStmt.run({
-			$timeout_sec: timeoutSec,
-			$to_agent: agentName,
-		});
+	const claimTransaction = db.transaction(
+		(agentName: string, timeoutSec: number, missionId?: string): MessageRow[] => {
+			// Step 1: Expire stale claims for this agent's messages
+			expireClaimsStmt.run({
+				$timeout_sec: timeoutSec,
+				$to_agent: agentName,
+			});
 
-		// Step 2: Promote retryable failed messages for this agent
-		promoteRetryableStmt.run({ $to_agent: agentName });
+			// Step 2: Promote retryable failed messages for this agent
+			promoteRetryableStmt.run({ $to_agent: agentName });
 
-		// Step 3: Atomically claim all available messages
-		return claimStmt.all({ $to_agent: agentName });
-	});
+			// Step 3: Atomically claim all available messages (optionally scoped to mission)
+			if (missionId !== undefined) {
+				return claimByMissionStmt.all({ $to_agent: agentName, $mission_id: missionId });
+			}
+			return claimStmt.all({ $to_agent: agentName });
+		},
+	);
 
 	// Wrap multiple inserts in a transaction for atomicity
 	const insertBatchTransaction = db.transaction(
@@ -547,6 +625,7 @@ export function createMailStore(dbPath: string): MailStore {
 				priority: string;
 				threadId: string | null;
 				payload: string | null;
+				missionId: string | null;
 				createdAt: string;
 			}>,
 		) => {
@@ -564,6 +643,7 @@ export function createMailStore(dbPath: string): MailStore {
 					$read: 0,
 					$created_at: msg.createdAt,
 					$state: "queued",
+					$mission_id: msg.missionId,
 				});
 			}
 		},
@@ -625,6 +705,7 @@ export function createMailStore(dbPath: string): MailStore {
 			const id = message.id || `msg-${randomId()}`;
 			const createdAt = new Date().toISOString();
 			const payload = message.payload ?? null;
+			const missionId = message.missionId ?? null;
 
 			try {
 				insertStmt.run({
@@ -640,6 +721,7 @@ export function createMailStore(dbPath: string): MailStore {
 					$read: 0,
 					$created_at: createdAt,
 					$state: "queued",
+					$mission_id: missionId,
 				});
 			} catch (err) {
 				throw new MailError(`Failed to insert message: ${id}`, {
@@ -652,6 +734,7 @@ export function createMailStore(dbPath: string): MailStore {
 				...message,
 				id,
 				payload,
+				missionId,
 				read: false,
 				createdAt,
 				state: "queued",
@@ -673,6 +756,7 @@ export function createMailStore(dbPath: string): MailStore {
 				priority: msg.priority,
 				threadId: msg.threadId,
 				payload: msg.payload ?? null,
+				missionId: msg.missionId ?? null,
 				createdAt: new Date().toISOString(),
 			}));
 
@@ -695,7 +779,14 @@ export function createMailStore(dbPath: string): MailStore {
 			}));
 		},
 
-		getUnread(agentName: string): MailMessage[] {
+		getUnread(agentName: string, missionId?: string): MailMessage[] {
+			if (missionId !== undefined) {
+				const rows = getUnreadByMissionStmt.all({
+					$to_agent: agentName,
+					$mission_id: missionId,
+				});
+				return rows.map(rowToMessage);
+			}
 			const rows = getUnreadStmt.all({ $to_agent: agentName });
 			return rows.map(rowToMessage);
 		},
@@ -718,9 +809,9 @@ export function createMailStore(dbPath: string): MailStore {
 			markReadStmt.run({ $id: id });
 		},
 
-		claim(agentName: string, leaseTimeoutSec?: number): MailMessage[] {
+		claim(agentName: string, leaseTimeoutSec?: number, missionId?: string): MailMessage[] {
 			const timeout = leaseTimeoutSec ?? DEFAULT_LEASE_TIMEOUT_SEC;
-			const rows = claimTransaction(agentName, timeout);
+			const rows = claimTransaction(agentName, timeout, missionId);
 			return rows.map(rowToMessage);
 		},
 

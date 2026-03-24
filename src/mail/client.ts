@@ -25,6 +25,7 @@ export interface MailClient {
 		priority?: MailMessage["priority"];
 		threadId?: string;
 		payload?: string;
+		missionId?: string;
 	}): string;
 
 	/** Send a typed protocol message with structured payload. Returns the message ID. */
@@ -37,6 +38,7 @@ export interface MailClient {
 		priority?: MailMessage["priority"];
 		threadId?: string;
 		payload: MailPayloadMap[T];
+		missionId?: string;
 	}): string;
 
 	/** Send to multiple recipients atomically. Returns message IDs. */
@@ -49,16 +51,17 @@ export interface MailClient {
 		priority?: MailMessage["priority"];
 		threadId?: string;
 		payload?: string;
+		missionId?: string;
 	}): string[];
 
 	/** Get unread messages for an agent. Uses claim+ack for crash-safe delivery. */
-	check(agentName: string): MailMessage[];
+	check(agentName: string, missionId?: string): MailMessage[];
 
 	/** Get unread messages formatted for hook injection (human-readable string). */
-	checkInject(agentName: string): string;
+	checkInject(agentName: string, missionId?: string): string;
 
 	/** Claim messages with lease. Returns claimed messages without acking. */
-	claim(agentName: string, leaseTimeoutSec?: number): MailMessage[];
+	claim(agentName: string, leaseTimeoutSec?: number, missionId?: string): MailMessage[];
 
 	/** Acknowledge a claimed message as successfully processed. */
 	ack(id: string): void;
@@ -198,10 +201,11 @@ function collectMessagesForMailbox(
 	store: MailStore,
 	agentName: string,
 	leaseTimeoutSec?: number,
+	missionId?: string,
 ): MailMessage[] {
 	const messages: MailMessage[] = [];
 	for (const mailboxName of expandMailAgentNames(agentName)) {
-		messages.push(...store.claim(mailboxName, leaseTimeoutSec));
+		messages.push(...store.claim(mailboxName, leaseTimeoutSec, missionId));
 	}
 	return sortMessagesAscending(messages);
 }
@@ -289,6 +293,7 @@ export function createMailClient(store: MailStore): MailClient {
 				priority: msg.priority ?? "normal",
 				threadId: msg.threadId ?? null,
 				payload: msg.payload ?? null,
+				missionId: msg.missionId ?? null,
 			});
 			return message.id;
 		},
@@ -304,6 +309,7 @@ export function createMailClient(store: MailStore): MailClient {
 				priority: msg.priority ?? "normal",
 				threadId: msg.threadId ?? null,
 				payload: JSON.stringify(msg.payload),
+				missionId: msg.missionId ?? null,
 			});
 			return message.id;
 		},
@@ -319,31 +325,32 @@ export function createMailClient(store: MailStore): MailClient {
 				priority: msg.priority ?? ("normal" as const),
 				threadId: msg.threadId ?? null,
 				payload: msg.payload ?? null,
+				missionId: msg.missionId ?? null,
 			}));
 
 			const inserted = store.insertBatch(messages);
 			return inserted.map((m) => m.id);
 		},
 
-		check(agentName): MailMessage[] {
+		check(agentName, missionId): MailMessage[] {
 			// v2: claim+ackBatch for at-most-once delivery.
 			// Messages are immediately acked after claim — if the caller crashes
 			// after this returns but before processing, messages are lost.
 			// For at-least-once semantics, use claim() + ack() per-message instead.
-			const messages = collectMessagesForMailbox(store, agentName);
+			const messages = collectMessagesForMailbox(store, agentName, undefined, missionId);
 			store.ackBatch(messages.map((m) => m.id));
 			return messages;
 		},
 
-		checkInject(agentName): string {
+		checkInject(agentName, missionId): string {
 			// v2: claim+ackBatch for at-most-once delivery (see check() comment)
-			const messages = collectMessagesForMailbox(store, agentName);
+			const messages = collectMessagesForMailbox(store, agentName, undefined, missionId);
 			store.ackBatch(messages.map((m) => m.id));
 			return formatForInjection(messages);
 		},
 
-		claim(agentName, leaseTimeoutSec): MailMessage[] {
-			return collectMessagesForMailbox(store, agentName, leaseTimeoutSec);
+		claim(agentName, leaseTimeoutSec, missionId): MailMessage[] {
+			return collectMessagesForMailbox(store, agentName, leaseTimeoutSec, missionId);
 		},
 
 		ack(id): void {
