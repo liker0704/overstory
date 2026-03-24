@@ -1,9 +1,9 @@
 {
 	"status-health-builder": 1774230145503,
-	"execution-director": 1774350361441,
+	"execution-director": 1774351579845,
 	"cli-surfaces-lead": 1774230229335,
 	"review-builder": 1774230104640,
-	"coordinator": 1774349387086,
+	"coordinator": 1774350671356,
 	"mission-analyst": 1774349317084,
 	"plan-review-lead": 1774348917588,
 	"plan-devil-advocate": 1774348870093,
@@ -216,8 +216,12 @@
 	"scout-init": 1774347834730,
 	"scout-doctor": 1774347849832,
 	"scout-runtime": 1774347916594,
-	"quickstart-foundation-lead": 1774350364765,
-	"quickstart-command-lead": 1774350325814,
+	"quickstart-foundation-lead": 1774350392783,
+	"quickstart-command-lead": 1774351570832,
 	"quickstart-foundation-builder": 1774350059831,
-	"review-quickstart-foundation": 1774350336179
+	"review-quickstart-foundation": 1774350336179,
+	"steps-builder": 1774350811517,
+	"engine-cli-builder": 1774350774899,
+	"review-quickstart-command": 1774351144231,
+	"revision-builder": 1774351512010
 }
