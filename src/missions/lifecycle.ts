@@ -39,6 +39,7 @@ import {
 	ensureMissionArtifacts,
 	materializeMissionRolePrompt,
 } from "./context.ts";
+import { shouldUseEngine } from "./engine-wiring.ts";
 import { recordMissionEvent } from "./events.ts";
 import { DEFAULT_MISSION_GRAPH, nodeId, validateTransition } from "./graph.ts";
 import {
@@ -741,6 +742,15 @@ export async function missionStart(
 				if (watchdogResult && !opts.json) {
 					printHint("Watchdog started");
 				}
+			}
+			// Guard: note graph execution engine availability (advisory only)
+			if (shouldUseEngine(mission, config)) {
+				recordMissionEvent({
+					overstoryDir,
+					mission,
+					agentName: "operator",
+					data: { kind: "engine_available", detail: "Graph execution engine is enabled" },
+				});
 			}
 		} catch {
 			if (!opts.json) printWarning("Watchdog failed to start");

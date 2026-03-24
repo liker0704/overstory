@@ -196,6 +196,8 @@ export interface OverstoryConfig {
 			/** Model override for critic agents. Default: uses manifest default. */
 			criticModel?: ModelRef;
 		};
+		/** Enable graph execution engine for sub-workflow cells. Default: false. */
+		graphExecution?: boolean;
 	};
 	mail?: {
 		reliability?: {
