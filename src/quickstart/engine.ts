@@ -1,4 +1,6 @@
 import { jsonOutput } from "../json.ts";
+import { printStep, printStepResult, printSummary, printWelcome } from "./prompts.ts";
+import { buildSteps } from "./steps.ts";
 import type { QuickstartOptions, QuickstartStep, StepResult, StepStatus } from "./types.ts";
 
 export interface EngineDeps {
@@ -9,31 +11,18 @@ export interface EngineDeps {
 	printSummary: (results: StepResult[]) => void;
 }
 
-async function loadDefaultDeps(): Promise<EngineDeps> {
-	// steps.ts is built by sibling builder and resolved after merge
-	const stepsPath = "./steps.ts";
-	const [stepsModule, { printWelcome, printStep, printStepResult, printSummary }] =
-		await Promise.all([
-			import(stepsPath) as Promise<{ buildSteps: (opts: QuickstartOptions) => QuickstartStep[] }>,
-			import("./prompts.ts"),
-		]);
-	return {
-		buildSteps: stepsModule.buildSteps,
-		printWelcome,
-		printStep,
-		printStepResult,
-		printSummary,
-	};
-}
-
 export async function runQuickstart(
 	options: QuickstartOptions,
 	deps?: Partial<EngineDeps>,
 ): Promise<void> {
-	const resolved: EngineDeps =
-		deps && Object.keys(deps).length === 5
-			? (deps as EngineDeps)
-			: { ...(await loadDefaultDeps()), ...deps };
+	const resolved: EngineDeps = {
+		buildSteps,
+		printWelcome,
+		printStep,
+		printStepResult,
+		printSummary,
+		...deps,
+	};
 
 	resolved.printWelcome();
 
@@ -43,7 +32,7 @@ export async function runQuickstart(
 
 	for (let i = 0; i < steps.length; i++) {
 		const step = steps[i];
-		if (!step) continue;
+		if (step === undefined) continue;
 
 		if (step.skip) {
 			results.push({ status: "skipped", message: step.title });
@@ -69,8 +58,9 @@ export async function runQuickstart(
 		}
 
 		if (result.status === "failed" && step.id === "prerequisites") {
-			process.stderr.write("Prerequisites failed — aborting quickstart.\n");
-			results.push(result);
+			process.stderr.write(
+				`Prerequisite check failed. Fix the issues above and re-run 'ov quickstart'.\n`,
+			);
 			return;
 		}
 

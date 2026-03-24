@@ -1,174 +1,203 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, mock } from "bun:test";
 import type { EngineDeps } from "./engine.ts";
 import { runQuickstart } from "./engine.ts";
-import type { QuickstartOptions, QuickstartStep, StepResult, StepStatus } from "./types.ts";
+import type { QuickstartOptions, QuickstartStep, StepResult } from "./types.ts";
 
-function makeStep(
-	id: string,
-	overrides?: Partial<QuickstartStep & { checkStatus?: StepStatus; runResult?: StepResult }>,
-): QuickstartStep {
-	const checkStatus: StepStatus = overrides?.checkStatus ?? "pending";
-	const runResult: StepResult = overrides?.runResult ?? { status: "complete", message: id };
+function makeStep(overrides: Partial<QuickstartStep> = {}): QuickstartStep {
 	return {
-		id,
-		title: `Step ${id}`,
-		description: `Description for ${id}`,
-		check: async () => checkStatus,
-		run: async () => runResult,
-		skip: overrides?.skip,
+		id: "test-step",
+		title: "Test Step",
+		description: "A test step",
+		check: async () => "pending",
+		run: async () => ({ status: "complete", message: "done" }),
+		...overrides,
 	};
 }
 
-function makeDeps(steps: QuickstartStep[]): {
-	deps: EngineDeps;
-	welcomed: boolean[];
-	printed: Array<{ index: number; total: number; title: string }>;
-	results: Array<{ status: StepStatus; message: string }>;
-	summaryResults: StepResult[][];
-} {
-	const welcomed: boolean[] = [];
-	const printed: Array<{ index: number; total: number; title: string }> = [];
-	const results: Array<{ status: StepStatus; message: string }> = [];
-	const summaryResults: StepResult[][] = [];
-
-	const deps: EngineDeps = {
-		buildSteps: (_opts: QuickstartOptions) => steps,
-		printWelcome: () => welcomed.push(true),
-		printStep: (index, total, title) => printed.push({ index, total, title }),
-		printStepResult: (status, message) => results.push({ status, message }),
-		printSummary: (r) => summaryResults.push(r),
+function makeDeps(overrides: Partial<EngineDeps> = {}): EngineDeps {
+	return {
+		buildSteps: () => [],
+		printWelcome: mock(() => {}),
+		printStep: mock(() => {}),
+		printStepResult: mock(() => {}),
+		printSummary: mock(() => {}),
+		...overrides,
 	};
-
-	return { deps, welcomed, printed, results, summaryResults };
 }
 
 describe("runQuickstart", () => {
-	it("runs all steps in order", async () => {
-		const steps = [makeStep("a"), makeStep("b"), makeStep("c")];
-		const { deps, welcomed, printed, summaryResults } = makeDeps(steps);
-
+	it("calls printWelcome at start", async () => {
+		const deps = makeDeps();
 		await runQuickstart({}, deps);
+		expect(deps.printWelcome).toHaveBeenCalledTimes(1);
+	});
 
-		expect(welcomed).toHaveLength(1);
-		expect(printed.map((p) => p.title)).toEqual(["Step a", "Step b", "Step c"]);
-		expect(summaryResults).toHaveLength(1);
+	it("calls printSummary at end", async () => {
+		const deps = makeDeps();
+		await runQuickstart({}, deps);
+		expect(deps.printSummary).toHaveBeenCalledTimes(1);
+	});
+
+	it("runs steps in order", async () => {
+		const order: string[] = [];
+		const steps: QuickstartStep[] = [
+			makeStep({
+				id: "a",
+				run: async () => {
+					order.push("a");
+					return { status: "complete" };
+				},
+			}),
+			makeStep({
+				id: "b",
+				run: async () => {
+					order.push("b");
+					return { status: "complete" };
+				},
+			}),
+			makeStep({
+				id: "c",
+				run: async () => {
+					order.push("c");
+					return { status: "complete" };
+				},
+			}),
+		];
+		const deps = makeDeps({ buildSteps: () => steps });
+		await runQuickstart({}, deps);
+		expect(order).toEqual(["a", "b", "c"]);
 	});
 
 	it("skips steps where check() returns complete", async () => {
-		const steps = [makeStep("a", { checkStatus: "complete" }), makeStep("b")];
-		const { deps, printed, results } = makeDeps(steps);
-
+		const runFn = mock(async (): Promise<StepResult> => ({ status: "complete" }));
+		const steps: QuickstartStep[] = [
+			makeStep({ id: "done", check: async () => "complete", run: runFn }),
+		];
+		const deps = makeDeps({ buildSteps: () => steps });
 		await runQuickstart({}, deps);
-
-		// Only step b should be printed (step a was already done)
-		expect(printed.map((p) => p.title)).toEqual(["Step b"]);
-		// Step a gets a printStepResult with 'complete'
-		expect(results[0]).toEqual({ status: "complete", message: "Step a (already done)" });
+		expect(runFn).not.toHaveBeenCalled();
+		expect(deps.printStepResult).toHaveBeenCalledWith("complete", "Test Step (already done)");
 	});
 
 	it("skips steps with skip=true", async () => {
-		const steps = [makeStep("a", { skip: true }), makeStep("b")];
-		const { deps, printed, summaryResults } = makeDeps(steps);
-
+		const runFn = mock(async (): Promise<StepResult> => ({ status: "complete" }));
+		const steps: QuickstartStep[] = [makeStep({ id: "skip-me", skip: true, run: runFn })];
+		const deps = makeDeps({ buildSteps: () => steps });
 		await runQuickstart({}, deps);
-
-		expect(printed.map((p) => p.title)).toEqual(["Step b"]);
-		const summary = summaryResults[0];
-		expect(summary).toBeDefined();
-		expect(summary?.[0]?.status).toBe("skipped");
+		expect(runFn).not.toHaveBeenCalled();
+		expect(deps.printStep).not.toHaveBeenCalled();
 	});
 
-	it("aborts on prerequisites failure", async () => {
-		const steps = [
-			makeStep("prerequisites", { runResult: { status: "failed", message: "missing tools" } }),
-			makeStep("b"),
+	it("aborts on prerequisites step failure", async () => {
+		const afterFn = mock(async (): Promise<StepResult> => ({ status: "complete" }));
+		const steps: QuickstartStep[] = [
+			makeStep({
+				id: "prerequisites",
+				run: async () => ({ status: "failed", message: "missing tools" }),
+			}),
+			makeStep({ id: "after", run: afterFn }),
 		];
-		const { deps, printed, summaryResults } = makeDeps(steps);
-
+		const deps = makeDeps({ buildSteps: () => steps });
 		await runQuickstart({}, deps);
-
-		// Only prerequisites step ran; b was not reached
-		expect(printed.map((p) => p.title)).toEqual(["Step prerequisites"]);
-		// printSummary was NOT called (aborted before it)
-		expect(summaryResults).toHaveLength(0);
+		expect(afterFn).not.toHaveBeenCalled();
 	});
 
-	it("continues on non-critical failure", async () => {
-		const steps = [
-			makeStep("a", { runResult: { status: "failed", message: "oops" } }),
-			makeStep("b"),
+	it("continues on non-prerequisites failure", async () => {
+		const afterFn = mock(async (): Promise<StepResult> => ({ status: "complete" }));
+		const steps: QuickstartStep[] = [
+			makeStep({ id: "optional-step", run: async () => ({ status: "failed", message: "failed" }) }),
+			makeStep({ id: "after", run: afterFn }),
 		];
-		const { deps, printed, summaryResults } = makeDeps(steps);
-
+		const deps = makeDeps({ buildSteps: () => steps });
 		await runQuickstart({}, deps);
-
-		expect(printed.map((p) => p.title)).toEqual(["Step a", "Step b"]);
-		expect(summaryResults).toHaveLength(1);
+		expect(afterFn).toHaveBeenCalled();
 	});
 
-	it("calls printWelcome once", async () => {
-		const { deps, welcomed } = makeDeps([]);
+	it("calls printStep with correct index and total", async () => {
+		const steps: QuickstartStep[] = [
+			makeStep({ id: "step1", title: "Step One" }),
+			makeStep({ id: "step2", title: "Step Two" }),
+		];
+		const deps = makeDeps({ buildSteps: () => steps });
 		await runQuickstart({}, deps);
-		expect(welcomed).toHaveLength(1);
+		expect(deps.printStep).toHaveBeenCalledWith(1, 2, "Step One");
+		expect(deps.printStep).toHaveBeenCalledWith(2, 2, "Step Two");
 	});
 
-	it("calls printSummary with all results", async () => {
-		const steps = [makeStep("a"), makeStep("b")];
-		const { deps, summaryResults } = makeDeps(steps);
-
-		await runQuickstart({}, deps);
-
-		expect(summaryResults).toHaveLength(1);
-		expect(summaryResults[0]).toHaveLength(2);
-	});
-
-	it("prints details when verbose and details present", async () => {
-		const lines: string[] = [];
-		const origWrite = process.stdout.write.bind(process.stdout);
-		process.stdout.write = (chunk: string | Uint8Array) => {
-			if (typeof chunk === "string") lines.push(chunk);
-			return true;
-		};
-
-		const steps = [
-			makeStep("a", {
-				runResult: { status: "complete", message: "done", details: ["detail1", "detail2"] },
+	it("calls printStepResult with result status and message", async () => {
+		const steps: QuickstartStep[] = [
+			makeStep({
+				id: "step1",
+				title: "My Step",
+				run: async () => ({ status: "complete", message: "all good" }),
 			}),
 		];
-		const { deps } = makeDeps(steps);
+		const deps = makeDeps({ buildSteps: () => steps });
+		await runQuickstart({}, deps);
+		expect(deps.printStepResult).toHaveBeenCalledWith("complete", "all good");
+	});
+
+	it("falls back to step title when result has no message", async () => {
+		const steps: QuickstartStep[] = [
+			makeStep({ id: "step1", title: "My Step", run: async () => ({ status: "complete" }) }),
+		];
+		const deps = makeDeps({ buildSteps: () => steps });
+		await runQuickstart({}, deps);
+		expect(deps.printStepResult).toHaveBeenCalledWith("complete", "My Step");
+	});
+
+	it("prints details when verbose is set", async () => {
+		const writeSpy = mock((_s: string) => {});
+		const original = process.stdout.write.bind(process.stdout);
+		process.stdout.write = writeSpy as unknown as typeof process.stdout.write;
+
+		const steps: QuickstartStep[] = [
+			makeStep({
+				id: "step1",
+				run: async () => ({ status: "complete", message: "done", details: ["line 1", "line 2"] }),
+			}),
+		];
+		const deps = makeDeps({ buildSteps: () => steps });
 
 		try {
 			await runQuickstart({ verbose: true }, deps);
 		} finally {
-			process.stdout.write = origWrite;
+			process.stdout.write = original;
 		}
 
-		const detailLines = lines.filter((l) => l.startsWith("  detail"));
-		expect(detailLines).toHaveLength(2);
+		const calls = writeSpy.mock.calls.map((c) => c[0] as string);
+		expect(calls.some((c) => c.includes("line 1"))).toBe(true);
+		expect(calls.some((c) => c.includes("line 2"))).toBe(true);
 	});
 
-	it("does not print details when not verbose", async () => {
-		const lines: string[] = [];
-		const origWrite = process.stdout.write.bind(process.stdout);
-		process.stdout.write = (chunk: string | Uint8Array) => {
-			if (typeof chunk === "string") lines.push(chunk);
-			return true;
-		};
+	it("does not print details when verbose is not set", async () => {
+		const writeSpy = mock((_s: string) => {});
+		const original = process.stdout.write.bind(process.stdout);
+		process.stdout.write = writeSpy as unknown as typeof process.stdout.write;
 
-		const steps = [
-			makeStep("a", {
-				runResult: { status: "complete", message: "done", details: ["detail1"] },
+		const steps: QuickstartStep[] = [
+			makeStep({
+				id: "step1",
+				run: async () => ({ status: "complete", message: "done", details: ["secret detail"] }),
 			}),
 		];
-		const { deps } = makeDeps(steps);
+		const deps = makeDeps({ buildSteps: () => steps });
 
 		try {
-			await runQuickstart({ verbose: false }, deps);
+			await runQuickstart({}, deps);
 		} finally {
-			process.stdout.write = origWrite;
+			process.stdout.write = original;
 		}
 
-		const detailLines = lines.filter((l) => l.startsWith("  detail"));
-		expect(detailLines).toHaveLength(0);
+		const calls = writeSpy.mock.calls.map((c) => c[0] as string);
+		expect(calls.every((c) => !c.includes("secret detail"))).toBe(true);
+	});
+
+	it("passes options to buildSteps", async () => {
+		const buildFn = mock((_opts: QuickstartOptions): QuickstartStep[] => []);
+		const opts: QuickstartOptions = { yes: true, verbose: false };
+		const deps = makeDeps({ buildSteps: buildFn });
+		await runQuickstart(opts, deps);
+		expect(buildFn).toHaveBeenCalledWith(opts);
 	});
 });
