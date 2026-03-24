@@ -916,7 +916,13 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 							// "rate limit" in conversation.
 							const readyState = runtime.detectReady(lastPaneContent);
 							if (readyState.phase !== "ready") {
-								rateLimitState = runtime.detectRateLimit(lastPaneContent);
+								// Only check the last 8 lines for rate limit indicators.
+								// The real rate limit dialog takes over the entire screen,
+								// so it's always visible at the bottom. Checking the full
+								// scrollback causes false positives when agent output or
+								// nudge text mentions "rate limit".
+								const bottomLines = lastPaneContent.split("\n").slice(-8).join("\n");
+								rateLimitState = runtime.detectRateLimit(bottomLines);
 							}
 						}
 					}
