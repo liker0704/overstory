@@ -25,6 +25,7 @@ import {
 const noopSpawner: Spawner = async () => ({ exitCode: 1, stdout: "", stderr: "not found" });
 
 const AGENT_DEF_FILES = [
+	"architecture-review-lead.md",
 	"builder.md",
 	"coordinator-mission.md",
 	"coordinator.md",
@@ -36,12 +37,15 @@ const AGENT_DEF_FILES = [
 	"monitor.md",
 	"orchestrator.md",
 	"ov-co-creation.md",
+	"plan-architecture-critic.md",
 	"plan-devil-advocate.md",
 	"plan-performance-critic.md",
 	"plan-review-lead.md",
 	"plan-second-opinion.md",
 	"plan-security-critic.md",
 	"plan-simulator.md",
+	"research-lead.md",
+	"researcher.md",
 	"reviewer.md",
 	"scout.md",
 ];
