@@ -246,6 +246,22 @@ export function buildAgentManifest(): AgentManifest {
 			canSpawn: false,
 			constraints: ["read-only", "no-worktree"],
 		},
+		"research-lead": {
+			file: "research-lead.md",
+			model: "opus",
+			tools: ["Read", "Write", "Glob", "Grep", "Bash", "Agent"],
+			capabilities: ["research-lead"],
+			canSpawn: true,
+			constraints: ["no-worktree"],
+		},
+		researcher: {
+			file: "researcher.md",
+			model: "opus",
+			tools: ["Read", "Glob", "Grep", "Bash", "mcp"],
+			capabilities: ["researcher"],
+			canSpawn: false,
+			constraints: ["read-only"],
+		},
 	};
 
 	// Build capability index: map each capability to agent names that declare it
