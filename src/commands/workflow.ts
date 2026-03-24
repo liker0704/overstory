@@ -15,7 +15,7 @@ import { loadConfig } from "../config.ts";
 import { jsonError, jsonOutput } from "../json.ts";
 import { createMissionStore } from "../missions/store.ts";
 import { loadWorkstreamsFile, persistWorkstreamsFile } from "../missions/workstreams.ts";
-import { detectDrift, readManifest } from "../workflow/manifest.ts";
+import { createManifest, detectDrift, readManifest, writeManifest } from "../workflow/manifest.ts";
 import { parseWorkflow } from "../workflow/parse.ts";
 import {
 	importWorkflow,
@@ -232,10 +232,7 @@ export interface WorkflowSyncOptions {
 	json?: boolean;
 }
 
-export async function executeWorkflowSync(
-	sourcePath: string,
-	opts: WorkflowSyncOptions,
-): Promise<void> {
+export async function executeWorkflowSync(opts: WorkflowSyncOptions): Promise<void> {
 	const json = opts.json ?? false;
 
 	let config: Awaited<ReturnType<typeof loadConfig>>;
@@ -299,6 +296,8 @@ export async function executeWorkflowSync(
 		return;
 	}
 
+	const sourcePath = manifest.sourcePath;
+
 	// Detect drift
 	let syncResult: SyncResult;
 	try {
@@ -354,7 +353,6 @@ export async function executeWorkflowSync(
 			}
 
 			// Re-create manifest
-			const { createManifest, writeManifest } = await import("../workflow/manifest.ts");
 			const briefContents: Record<string, string> = {};
 			for (const brief of mergeResult.updatedBriefs) {
 				briefContents[brief.workstreamId] = brief.content;
@@ -432,13 +430,12 @@ export function createWorkflowCommand(): Command {
 		.description(
 			"Detect drift between source artifacts and stored manifest; optionally apply updates",
 		)
-		.argument("<source-path>", "Path to the workflow source directory")
 		.option("--mission <slug>", "Target mission slug (defaults to active mission)")
 		.option("--update", "Apply incremental update from drift (preserves execution state)")
 		.option("--force", "Overwrite manually-edited briefs during update")
 		.option("--json", "Output as JSON")
-		.action(async (sourcePath: string, opts: WorkflowSyncOptions) => {
-			await executeWorkflowSync(sourcePath, opts);
+		.action(async (opts: WorkflowSyncOptions) => {
+			await executeWorkflowSync(opts);
 		});
 
 	return cmd;

@@ -294,8 +294,7 @@ describe("executeWorkflowSync", () => {
 
 	test("errors when no sessions.db found", async () => {
 		const err = captureStderr();
-		const sourceDir = await createWorkflowSource(projectDir);
-		await executeWorkflowSync(sourceDir, {});
+		await executeWorkflowSync({});
 		const out = err.stop();
 		expect(out).toContain("No sessions.db");
 		expect(process.exitCode).toBe(1);
@@ -306,8 +305,7 @@ describe("executeWorkflowSync", () => {
 		store.close();
 
 		const err = captureStderr();
-		const sourceDir = await createWorkflowSource(projectDir);
-		await executeWorkflowSync(sourceDir, {});
+		await executeWorkflowSync({});
 		const out = err.stop();
 		expect(out).toContain("No active mission");
 		expect(process.exitCode).toBe(1);
@@ -327,9 +325,8 @@ describe("executeWorkflowSync", () => {
 		});
 		store.close();
 
-		const sourceDir = await createWorkflowSource(projectDir);
 		const err = captureStderr();
-		await executeWorkflowSync(sourceDir, { mission: "sync-mission-1" });
+		await executeWorkflowSync({ mission: "sync-mission-1" });
 		const out = err.stop();
 		expect(out).toContain("No import manifest");
 		expect(process.exitCode).toBe(1);
@@ -359,7 +356,7 @@ describe("executeWorkflowSync", () => {
 
 		// Sync should detect no drift
 		const cap2 = captureStdout();
-		await executeWorkflowSync(sourceDir, { mission: "sync-mission-2" });
+		await executeWorkflowSync({ mission: "sync-mission-2" });
 		const out = cap2.stop();
 
 		expect(out).toContain("No drift detected");
@@ -396,7 +393,7 @@ describe("executeWorkflowSync", () => {
 			return true;
 		};
 
-		await executeWorkflowSync(sourceDir, { json: true, mission: "sync-mission-3" });
+		await executeWorkflowSync({ json: true, mission: "sync-mission-3" });
 		process.stdout.write = original;
 
 		const output = JSON.parse(chunks.join(""));

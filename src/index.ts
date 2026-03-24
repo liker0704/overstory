@@ -402,6 +402,8 @@ program.addCommand(createDiscoverCommand());
 
 program.addCommand(createInspectCommand());
 
+program.addCommand(createWorkflowCommand());
+
 program
 	.command("clean")
 	.description("Wipe runtime state (nuclear cleanup)")
