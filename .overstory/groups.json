@@ -1461,5 +1461,15 @@
 		"status": "active",
 		"createdAt": "2026-03-24T16:00:47.139Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-8742f786",
+		"name": "parallel-missions-batch-1",
+		"memberIssueIds": [
+			"overstory-1d58"
+		],
+		"status": "active",
+		"createdAt": "2026-03-24T19:37:04.673Z",
+		"completedAt": null
 	}
 ]
