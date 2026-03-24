@@ -1,0 +1,68 @@
+{
+	"workstream": "verify-features-modules",
+	"items": [
+		{
+			"id": 7,
+			"check": "ov compat --help",
+			"status": "pass",
+			"evidence": "Usage: ov compat [options] [command]\n\nCompatibility analysis tools\n\nCommands:\n  check [options] <branch>  Check branch compatibility against canonical",
+			"notes": "Help text displays without error. Subcommand: check <branch>."
+		},
+		{
+			"id": 8,
+			"check": "ov export --help",
+			"status": "pass",
+			"evidence": "Usage: ov export [options] [command]\n\nObservability export pipeline management\n\nCommands:\n  status, flush, test",
+			"notes": "Help text displays without error. Three subcommands: status, flush, test."
+		},
+		{
+			"id": 9,
+			"check": "ov workflow --help",
+			"status": "pass",
+			"evidence": "Usage: ov workflow [options] [command]\n\nImport and sync workflows from a claude-code-workflow task directory\n\nCommands:\n  import [options] <source-path>, sync [options]",
+			"notes": "Help text displays without error. Two subcommands: import, sync."
+		},
+		{
+			"id": 10,
+			"check": "ov quickstart --help",
+			"status": "pass",
+			"evidence": "Usage: ov quickstart [options]\n\nGuided first-run wizard for new users\n\nOptions:\n  --yes, --verbose, --json, -h --help",
+			"notes": "Help text displays without error. Options: --yes, --verbose, --json."
+		},
+		{
+			"id": 11,
+			"check": "createReminderSource function exists",
+			"status": "pass",
+			"evidence": "src/reminders/source.ts:23: export function createReminderSource(\nsrc/reminders/index.ts:1: export { createReminderSource } from \"./source.ts\";",
+			"notes": "Function defined in source.ts and re-exported from index.ts."
+		},
+		{
+			"id": 12,
+			"check": "Classify functions exist in artifact-status",
+			"status": "pass",
+			"evidence": "src/artifact-status/classify.ts exports: classifyMissionArtifact, classifyReviewRecord, classifySpecMeta\nsrc/artifact-status/types.ts exports: MissionClassifyInput, ReviewClassifyInput, SpecMetaClassifyInput",
+			"notes": "Three classify functions and three classify input types exported."
+		},
+		{
+			"id": 13,
+			"check": "Temporal smoke eval directory exists",
+			"status": "pass",
+			"evidence": "evals/temporal-smoke/ contains: assertions.yaml, hooks/, scenario.yaml",
+			"notes": "Directory exists with eval scenario files (scenario.yaml, assertions.yaml, hooks/)."
+		},
+		{
+			"id": 14,
+			"check": "Mission graph extensions",
+			"status": "pass",
+			"evidence": "src/missions/graph.ts:309: export function getSubgraphNodes(graph: MissionGraph): MissionGraphNode[]\nsrc/missions/types.ts: export interface HandlerContext, export interface HandlerResult, export type HandlerRegistry",
+			"notes": "Subgraph function (getSubgraphNodes) and handler extension types (HandlerContext, HandlerResult, HandlerRegistry) exist."
+		},
+		{
+			"id": 15,
+			"check": "Circuit breaker types in resilience",
+			"status": "pass",
+			"evidence": "src/resilience/types.ts: export interface CircuitBreakerConfig (line 10), export interface CircuitBreakerState (line 30), export interface RetryConfig (line 2)",
+			"notes": "All three types (CircuitBreakerConfig, CircuitBreakerState, RetryConfig) exported from src/resilience/types.ts."
+		}
+	]
+}
