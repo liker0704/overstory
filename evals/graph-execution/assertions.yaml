@@ -1,0 +1,19 @@
+assertions:
+  - kind: min_workers_spawned
+    label: "At least 1 worker spawned for graph execution"
+    expected: 1
+  - kind: no_zombies
+    label: "No zombie agents after graph execution"
+    expected: true
+  - kind: max_stall_rate
+    label: "No stalled agents during graph execution"
+    expected: 0.0
+  - kind: event_count
+    label: "At least 2 graph transitions recorded"
+    expected: 2
+    selector:
+      eventType: mission
+      dataMatch: "transition"
+  - kind: max_duration_ms
+    label: "Graph execution completes within timeout"
+    expected: 600000

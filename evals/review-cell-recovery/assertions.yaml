@@ -1,0 +1,19 @@
+assertions:
+  - kind: min_workers_spawned
+    label: "At least 1 worker spawned for review cell"
+    expected: 1
+  - kind: no_zombies
+    label: "No zombie agents after recovery"
+    expected: true
+  - kind: max_stall_rate
+    label: "Stall rate within acceptable bounds"
+    expected: 0.5
+  - kind: event_count
+    label: "At least 1 checkpoint save event"
+    expected: 1
+    selector:
+      eventType: mission
+      dataMatch: "checkpoint"
+  - kind: max_duration_ms
+    label: "Recovery completes within timeout"
+    expected: 900000

@@ -1,0 +1,15 @@
+description: "Review cell recovery: checkpoint save during review round, resume from checkpoint after simulated crash, stuck detection triggers escalation, max-round limit enforcement"
+timeout_ms: 900000
+
+config_overrides:
+  mission:
+    graphExecution: true
+  watchdog:
+    stallTimeoutMs: 30000
+    tickIntervalMs: 10000
+  agents:
+    maxConcurrent: 4
+
+startup_actions:
+  - command: sd create --title "Review cell recovery test" --type task --priority 2
+    description: "Create a task to trigger review cell execution"

@@ -1,0 +1,12 @@
+description: "Graph execution: legal transitions advance through phases, illegal transitions are rejected, gate nodes block"
+timeout_ms: 600000
+
+config_overrides:
+  mission:
+    graphExecution: true
+  agents:
+    maxConcurrent: 4
+
+startup_actions:
+  - command: sd create --title "Graph execution test mission" --type task --priority 2
+    description: "Create a task to trigger mission start"
