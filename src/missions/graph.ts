@@ -264,7 +264,42 @@ export function validateGraph(graph: MissionGraph): { valid: boolean; errors: st
 		}
 	}
 
+	// Subgraph nodes must not be terminal
+	for (const node of graph.nodes) {
+		if (node.subgraph && node.terminal) {
+			errors.push(`Node '${node.id}' cannot be both a subgraph node and terminal`);
+		}
+		// Handler strings must be non-empty when present
+		if (node.handler !== undefined && node.handler.trim() === "") {
+			errors.push(`Node '${node.id}' has an empty handler key`);
+		}
+		// Recursively validate subgraphs
+		if (node.subgraph) {
+			const sub = validateGraph(node.subgraph);
+			for (const err of sub.errors) {
+				errors.push(`Subgraph of '${node.id}': ${err}`);
+			}
+		}
+	}
+
 	return { valid: errors.length === 0, errors };
+}
+
+/** Return all nodes in graph that have an embedded subgraph. */
+export function getSubgraphNodes(graph: MissionGraph): MissionGraphNode[] {
+	return graph.nodes.filter((n) => n.subgraph !== undefined);
+}
+
+/** Recursively collect all nodes from a graph and its subgraphs. */
+export function flattenGraph(graph: MissionGraph): MissionGraphNode[] {
+	const result: MissionGraphNode[] = [];
+	for (const node of graph.nodes) {
+		result.push(node);
+		if (node.subgraph) {
+			result.push(...flattenGraph(node.subgraph));
+		}
+	}
+	return result;
 }
 
 // === Rendering ===

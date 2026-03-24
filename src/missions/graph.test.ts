@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import type { MissionGraph, MissionGraphNode } from "../types.ts";
 import {
 	DEFAULT_MISSION_GRAPH,
 	findCurrentNode,
+	flattenGraph,
 	getAvailableTransitions,
+	getSubgraphNodes,
 	nodeId,
 	parseNodeId,
 	renderGraphPosition,
@@ -285,5 +288,157 @@ describe("toMermaid", () => {
 		const output = toMermaid(DEFAULT_MISSION_GRAPH);
 		expect(output).toContain("-->|freeze|");
 		expect(output).toContain("-->|phase_advance|");
+	});
+});
+
+// Minimal valid two-node subgraph for reuse in tests
+const minimalSubgraph: MissionGraph = {
+	version: 1,
+	nodes: [
+		{ id: "understand:active", phase: "understand", state: "active" },
+		{ id: "done:completed", phase: "done", state: "completed", terminal: true },
+	],
+	edges: [{ from: "understand:active", to: "done:completed", trigger: "complete" }],
+};
+
+/** Replace the node with the given ID in the nodes array. */
+function replaceNode(
+	nodes: MissionGraphNode[],
+	id: string,
+	patch: Partial<MissionGraphNode>,
+): MissionGraphNode[] {
+	return nodes.map((n) => (n.id === id ? { ...n, ...patch } : n));
+}
+
+describe("validateGraph subgraph validation", () => {
+	test("valid subgraph node passes", () => {
+		const graph: MissionGraph = {
+			...DEFAULT_MISSION_GRAPH,
+			nodes: replaceNode(DEFAULT_MISSION_GRAPH.nodes, "understand:active", {
+				subgraph: minimalSubgraph,
+				handler: "review-cell",
+			}),
+		};
+		const result = validateGraph(graph);
+		const subgraphErrors = result.errors.filter(
+			(e) => e.includes("cannot be both") || e.includes("empty handler"),
+		);
+		expect(subgraphErrors).toEqual([]);
+	});
+
+	test("rejects terminal + subgraph combination", () => {
+		const graph: MissionGraph = {
+			...DEFAULT_MISSION_GRAPH,
+			nodes: replaceNode(DEFAULT_MISSION_GRAPH.nodes, "understand:active", {
+				subgraph: minimalSubgraph,
+				terminal: true,
+			}),
+		};
+		const result = validateGraph(graph);
+		expect(result.valid).toBe(false);
+		expect(result.errors.some((e) => e.includes("cannot be both"))).toBe(true);
+	});
+
+	test("rejects empty handler string", () => {
+		const graph: MissionGraph = {
+			...DEFAULT_MISSION_GRAPH,
+			nodes: replaceNode(DEFAULT_MISSION_GRAPH.nodes, "understand:active", {
+				handler: "   ",
+			}),
+		};
+		const result = validateGraph(graph);
+		expect(result.valid).toBe(false);
+		expect(result.errors.some((e) => e.includes("empty handler key"))).toBe(true);
+	});
+
+	test("propagates subgraph errors with prefix", () => {
+		const badSubgraph: MissionGraph = {
+			version: 1,
+			nodes: [{ id: "understand:active", phase: "understand", state: "active" }],
+			edges: [{ from: "understand:active", to: "nonexistent", trigger: "x" }],
+		};
+		const graph: MissionGraph = {
+			...DEFAULT_MISSION_GRAPH,
+			nodes: replaceNode(DEFAULT_MISSION_GRAPH.nodes, "understand:active", {
+				subgraph: badSubgraph,
+			}),
+		};
+		const result = validateGraph(graph);
+		expect(result.valid).toBe(false);
+		expect(result.errors.some((e) => e.startsWith("Subgraph of"))).toBe(true);
+	});
+
+	test("valid non-empty handler string passes", () => {
+		const graph: MissionGraph = {
+			...DEFAULT_MISSION_GRAPH,
+			nodes: replaceNode(DEFAULT_MISSION_GRAPH.nodes, "understand:active", {
+				handler: "my-handler",
+			}),
+		};
+		const result = validateGraph(graph);
+		const handlerErrors = result.errors.filter((e) => e.includes("empty handler key"));
+		expect(handlerErrors).toEqual([]);
+	});
+});
+
+describe("getSubgraphNodes", () => {
+	test("returns empty array for default graph (no subgraph nodes)", () => {
+		expect(getSubgraphNodes(DEFAULT_MISSION_GRAPH)).toEqual([]);
+	});
+
+	test("finds nodes with subgraphs", () => {
+		const nodeWithSub = {
+			id: "understand:active",
+			phase: "understand" as const,
+			state: "active" as const,
+			subgraph: minimalSubgraph,
+		};
+		const graph: MissionGraph = {
+			version: 1,
+			nodes: [
+				nodeWithSub,
+				{ id: "done:completed", phase: "done", state: "completed", terminal: true },
+			],
+			edges: [{ from: "understand:active", to: "done:completed", trigger: "complete" }],
+		};
+		const result = getSubgraphNodes(graph);
+		expect(result).toHaveLength(1);
+		expect(result[0]?.id).toBe("understand:active");
+	});
+});
+
+describe("flattenGraph", () => {
+	test("returns all nodes for a flat graph", () => {
+		const flat = flattenGraph(DEFAULT_MISSION_GRAPH);
+		expect(flat).toEqual(DEFAULT_MISSION_GRAPH.nodes);
+	});
+
+	test("includes nested subgraph nodes recursively", () => {
+		const innerGraph: MissionGraph = {
+			version: 1,
+			nodes: [
+				{ id: "understand:active", phase: "understand", state: "active" },
+				{ id: "done:completed", phase: "done", state: "completed", terminal: true },
+			],
+			edges: [{ from: "understand:active", to: "done:completed", trigger: "complete" }],
+		};
+		const outerGraph: MissionGraph = {
+			version: 1,
+			nodes: [
+				{
+					id: "understand:active",
+					phase: "understand" as const,
+					state: "active" as const,
+					subgraph: innerGraph,
+				},
+				{ id: "done:completed", phase: "done", state: "completed", terminal: true },
+			],
+			edges: [{ from: "understand:active", to: "done:completed", trigger: "complete" }],
+		};
+		const all = flattenGraph(outerGraph);
+		// 2 outer nodes + 2 inner nodes
+		expect(all).toHaveLength(4);
+		expect(all.some((n) => n.id === "understand:active")).toBe(true);
+		expect(all.some((n) => n.id === "done:completed")).toBe(true);
 	});
 });

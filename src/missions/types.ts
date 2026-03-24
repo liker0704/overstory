@@ -14,6 +14,12 @@ export interface MissionGraphNode {
 	gate?: "human" | "auto";
 	/** Whether this is a terminal (sink) node. */
 	terminal?: boolean;
+	/** Optional subgraph for composite nodes (review cells). */
+	subgraph?: MissionGraph;
+	/** Handler key that the execution engine resolves to a function. */
+	handler?: string;
+	/** Static configuration passed to handler. */
+	handlerConfig?: Record<string, unknown>;
 }
 
 /** An edge in the mission workflow graph. */
@@ -49,6 +55,33 @@ export interface GraphTransitionResult {
 	/** Human-readable explanation. */
 	reason: string;
 }
+
+/** Context passed to a node handler during graph execution. */
+export interface HandlerContext {
+	/** Mission being executed. */
+	missionId: string;
+	/** Current node ID. */
+	nodeId: string;
+	/** Current checkpoint data from prior execution, or null if none. */
+	checkpoint: unknown | null;
+	/** Persist checkpoint data for resumability. */
+	saveCheckpoint: (data: unknown) => Promise<void>;
+	/** Send a mail message from within the handler. */
+	sendMail: (to: string, subject: string, body: string, type: string) => Promise<void>;
+	/** Read current mission state. */
+	getMission: () => Mission | null;
+}
+
+/** Result returned by a node handler after execution. */
+export interface HandlerResult {
+	/** Which trigger to fire after handler completes. */
+	trigger: string;
+	/** Optional transition data. */
+	data?: Record<string, unknown>;
+}
+
+/** Registry mapping handler keys to handler functions. */
+export type HandlerRegistry = Record<string, (ctx: HandlerContext) => Promise<HandlerResult>>;
 
 // === Mission (Long-Running Objective Tracking) ===
 
