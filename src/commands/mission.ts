@@ -9,6 +9,14 @@
 import { join } from "node:path";
 import { Command } from "commander";
 import { loadConfig } from "../config.ts";
+import {
+	clearMissionRuntimePointers,
+	readCurrentMissionPointer,
+	readCurrentRunPointer,
+	resolveMissionByIdOrSlug,
+	writeMissionRuntimePointers,
+} from "../missions/runtime-context.ts";
+import { createMissionStore } from "../missions/store.ts";
 import { missionRefreshBriefsCommand } from "../missions/brief-refresh.ts";
 import { missionBundle } from "../missions/bundle.ts";
 import {
@@ -49,6 +57,19 @@ export { missionHandoff, missionResume } from "../missions/workstream-control.ts
 
 interface MissionDefaultOpts {
 	json?: boolean;
+}
+
+function resolveExplicitMission(
+	overstoryDir: string,
+	missionFlag: string | undefined,
+): string | undefined {
+	if (!missionFlag) return undefined;
+	const store = createMissionStore(join(overstoryDir, "sessions.db"));
+	try {
+		return resolveMissionByIdOrSlug(missionFlag, store);
+	} finally {
+		store.close();
+	}
 }
 
 export function createMissionCommand(): Command {
@@ -97,13 +118,34 @@ export function createMissionCommand(): Command {
 		.description("Update the active mission's slug or objective")
 		.option("--slug <slug>", "New short identifier")
 		.option("--objective <objective>", "New mission objective")
+		.option("--mission <id-or-slug>", "Target a specific mission")
 		.option("--json", "Output as JSON")
-		.action(async (opts: { slug?: string; objective?: string; json?: boolean }) => {
-			const cwd = process.cwd();
-			const config = await loadConfig(cwd);
-			const overstoryDir = join(config.project.root, ".overstory");
-			await missionUpdate(overstoryDir, opts);
-		});
+		.action(
+			async (opts: { slug?: string; objective?: string; mission?: string; json?: boolean }) => {
+				const cwd = process.cwd();
+				const config = await loadConfig(cwd);
+				const overstoryDir = join(config.project.root, ".overstory");
+				if (opts.mission) {
+					const resolvedId = resolveExplicitMission(overstoryDir, opts.mission);
+					if (resolvedId) {
+						const oldPointer = await readCurrentMissionPointer(overstoryDir);
+						const oldRunPointer = await readCurrentRunPointer(overstoryDir);
+						await writeMissionRuntimePointers(overstoryDir, resolvedId, null);
+						try {
+							await missionUpdate(overstoryDir, opts);
+						} finally {
+							if (oldPointer) {
+								await writeMissionRuntimePointers(overstoryDir, oldPointer, oldRunPointer);
+							} else {
+								await clearMissionRuntimePointers(overstoryDir);
+							}
+						}
+					}
+				} else {
+					await missionUpdate(overstoryDir, opts);
+				}
+			},
+		);
 
 	cmd
 		.command("output")
@@ -121,13 +163,17 @@ export function createMissionCommand(): Command {
 		.description("Respond to the pending mission question packet")
 		.option("--body <text>", "Your answer or response text")
 		.option("--file <path>", "Path to a file containing your answer")
+		.option("--mission <id-or-slug>", "Target a specific mission")
 		.option("--json", "Output as JSON")
-		.action(async (opts: { body?: string; file?: string; json?: boolean }) => {
-			const cwd = process.cwd();
-			const config = await loadConfig(cwd);
-			const overstoryDir = join(config.project.root, ".overstory");
-			await missionAnswer(overstoryDir, opts);
-		});
+		.action(
+			async (opts: { body?: string; file?: string; mission?: string; json?: boolean }) => {
+				const cwd = process.cwd();
+				const config = await loadConfig(cwd);
+				const overstoryDir = join(config.project.root, ".overstory");
+				const missionId = resolveExplicitMission(overstoryDir, opts.mission);
+				await missionAnswer(overstoryDir, { ...opts, missionId });
+			},
+		);
 
 	cmd
 		.command("artifacts")
@@ -143,12 +189,14 @@ export function createMissionCommand(): Command {
 	cmd
 		.command("handoff")
 		.description("Start execution director and hand off dispatchable workstreams")
+		.option("--mission <id-or-slug>", "Target a specific mission")
 		.option("--json", "Output as JSON")
-		.action(async (opts: MissionDefaultOpts) => {
+		.action(async (opts: MissionDefaultOpts & { mission?: string }) => {
 			const cwd = process.cwd();
 			const config = await loadConfig(cwd);
 			const overstoryDir = join(config.project.root, ".overstory");
-			await missionHandoff(overstoryDir, config.project.root, opts.json ?? false);
+			const missionId = resolveExplicitMission(overstoryDir, opts.mission);
+			await missionHandoff(overstoryDir, config.project.root, opts.json ?? false, {}, missionId);
 		});
 
 	cmd
@@ -156,63 +204,96 @@ export function createMissionCommand(): Command {
 		.description("Pause a mission workstream without changing runtime agent state")
 		.argument("<workstream-id>", "Mission workstream ID")
 		.option("--reason <text>", "Operator-visible pause reason")
+		.option("--mission <id-or-slug>", "Target a specific mission")
 		.option("--json", "Output as JSON")
-		.action(async (workstreamId: string, opts: { reason?: string; json?: boolean }) => {
-			const cwd = process.cwd();
-			const config = await loadConfig(cwd);
-			const overstoryDir = join(config.project.root, ".overstory");
-			await missionPause(overstoryDir, workstreamId, opts);
-		});
+		.action(
+			async (workstreamId: string, opts: { reason?: string; mission?: string; json?: boolean }) => {
+				const cwd = process.cwd();
+				const config = await loadConfig(cwd);
+				const overstoryDir = join(config.project.root, ".overstory");
+				const missionId = resolveExplicitMission(overstoryDir, opts.mission);
+				await missionPause(overstoryDir, workstreamId, { ...opts, missionId });
+			},
+		);
 
 	cmd
 		.command("resume")
 		.description("Resume a suspended mission or a paused workstream")
 		.argument("[workstream-id]", "Workstream ID (omit to resume entire suspended mission)")
+		.option("--mission <id-or-slug>", "Target a specific mission")
 		.option("--json", "Output as JSON")
-		.action(async (workstreamId: string | undefined, opts: MissionDefaultOpts) => {
-			const cwd = process.cwd();
-			const config = await loadConfig(cwd);
-			const overstoryDir = join(config.project.root, ".overstory");
-			if (workstreamId) {
-				await missionResume(overstoryDir, config.project.root, workstreamId, opts.json ?? false);
-			} else {
-				await missionResumeAll(overstoryDir, config.project.root, opts.json ?? false);
-			}
-		});
+		.action(
+			async (workstreamId: string | undefined, opts: MissionDefaultOpts & { mission?: string }) => {
+				const cwd = process.cwd();
+				const config = await loadConfig(cwd);
+				const overstoryDir = join(config.project.root, ".overstory");
+				const missionId = resolveExplicitMission(overstoryDir, opts.mission);
+				if (workstreamId) {
+					await missionResume(
+						overstoryDir,
+						config.project.root,
+						workstreamId,
+						opts.json ?? false,
+						{},
+						missionId,
+					);
+				} else {
+					await missionResumeAll(
+						overstoryDir,
+						config.project.root,
+						opts.json ?? false,
+						missionId,
+					);
+				}
+			},
+		);
 
 	cmd
 		.command("refresh-briefs")
 		.description("Refresh brief revisions, mark stale specs, and pause affected workstreams")
 		.option("--workstream <id>", "Refresh a single workstream instead of the full mission plan")
+		.option("--mission <id-or-slug>", "Target a specific mission")
 		.option("--json", "Output as JSON")
-		.action(async (opts: { workstream?: string; json?: boolean }) => {
+		.action(async (opts: { workstream?: string; mission?: string; json?: boolean }) => {
 			const cwd = process.cwd();
 			const config = await loadConfig(cwd);
 			const overstoryDir = join(config.project.root, ".overstory");
-			await missionRefreshBriefsCommand(overstoryDir, config.project.root, opts);
+			const missionId = resolveExplicitMission(overstoryDir, opts.mission);
+			await missionRefreshBriefsCommand(overstoryDir, config.project.root, opts, {}, missionId);
 		});
 
 	cmd
 		.command("complete")
 		.description("Complete the active mission, export bundle, and clear pointers")
+		.option("--mission <id-or-slug>", "Target a specific mission")
 		.option("--json", "Output as JSON")
-		.action(async (opts: MissionDefaultOpts) => {
+		.action(async (opts: MissionDefaultOpts & { mission?: string }) => {
 			const cwd = process.cwd();
 			const config = await loadConfig(cwd);
 			const overstoryDir = join(config.project.root, ".overstory");
-			await missionComplete(overstoryDir, config.project.root, opts.json ?? false);
+			const missionId = resolveExplicitMission(overstoryDir, opts.mission);
+			await missionComplete(overstoryDir, config.project.root, opts.json ?? false, {}, missionId);
 		});
 
 	cmd
 		.command("stop")
 		.description("Suspend the active mission (preserves state for resume)")
 		.option("--kill", "Full teardown — no resume possible")
+		.option("--mission <id-or-slug>", "Target a specific mission")
 		.option("--json", "Output as JSON")
-		.action(async (opts: MissionDefaultOpts & { kill?: boolean }) => {
+		.action(async (opts: MissionDefaultOpts & { kill?: boolean; mission?: string }) => {
 			const cwd = process.cwd();
 			const config = await loadConfig(cwd);
 			const overstoryDir = join(config.project.root, ".overstory");
-			await missionStop(overstoryDir, config.project.root, opts.json ?? false, opts.kill ?? false);
+			const missionId = resolveExplicitMission(overstoryDir, opts.mission);
+			await missionStop(
+				overstoryDir,
+				config.project.root,
+				opts.json ?? false,
+				opts.kill ?? false,
+				{},
+				missionId,
+			);
 		});
 
 	cmd

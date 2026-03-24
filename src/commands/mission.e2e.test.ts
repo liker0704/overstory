@@ -13,6 +13,13 @@ import {
 } from "../missions/graph.ts";
 import { readSpecMeta } from "../missions/spec-meta.ts";
 import { createMissionStore } from "../missions/store.ts";
+import {
+	clearMissionRuntimePointers,
+	readCurrentMissionPointer,
+	resolveActiveMissionContext,
+	resolveMissionByIdOrSlug,
+	writeMissionRuntimePointers,
+} from "../missions/runtime-context.ts";
 import { loadWorkstreamsFile } from "../missions/workstreams.ts";
 import { createRunStore, createSessionStore } from "../sessions/store.ts";
 import { cleanupTempDir, createTempGitRepo } from "../test-helpers.ts";
@@ -964,5 +971,178 @@ describe("mission command e2e", () => {
 		expect(output).toContain("graph LR");
 		expect(output).toContain("-->|freeze|");
 		expect(output).toContain("style plan_frozen");
+	});
+});
+
+describe("--mission flag", () => {
+	test("resolveMissionByIdOrSlug resolves by ID", () => {
+		const store = createMissionStore(join(overstoryDir, "sessions.db"));
+		try {
+			const mission = store.create({ id: "test-id-1", slug: "test-slug-1", objective: "test" });
+			const resolved = resolveMissionByIdOrSlug("test-id-1", store);
+			expect(resolved).toBe(mission.id);
+		} finally {
+			store.close();
+		}
+	});
+
+	test("resolveMissionByIdOrSlug resolves by slug", () => {
+		const store = createMissionStore(join(overstoryDir, "sessions.db"));
+		try {
+			const mission = store.create({ id: "test-id-2", slug: "test-slug-2", objective: "test" });
+			const resolved = resolveMissionByIdOrSlug("test-slug-2", store);
+			expect(resolved).toBe(mission.id);
+		} finally {
+			store.close();
+		}
+	});
+
+	test("resolveMissionByIdOrSlug throws for unknown", () => {
+		const store = createMissionStore(join(overstoryDir, "sessions.db"));
+		try {
+			expect(() => resolveMissionByIdOrSlug("does-not-exist", store)).toThrow(
+				"Mission not found: does-not-exist",
+			);
+		} finally {
+			store.close();
+		}
+	});
+
+	test("resolveActiveMissionContext errors on ambiguity", async () => {
+		const store = createMissionStore(join(overstoryDir, "sessions.db"));
+		let m1: ReturnType<typeof store.create>;
+		let m2: ReturnType<typeof store.create>;
+		try {
+			m1 = store.create({ id: "ambig-1", slug: "ambig-slug-1", objective: "mission 1" });
+			m2 = store.create({ id: "ambig-2", slug: "ambig-slug-2", objective: "mission 2" });
+			store.start("ambig-1");
+			store.start("ambig-2");
+		} finally {
+			store.close();
+		}
+
+		// Clear pointer so resolveActiveMissionContext falls back to getActiveList
+		await clearMissionRuntimePointers(overstoryDir);
+
+		await expect(resolveActiveMissionContext(overstoryDir)).rejects.toThrow(
+			"Multiple active missions found",
+		);
+		await expect(resolveActiveMissionContext(overstoryDir)).rejects.toThrow(m1.id);
+		await expect(resolveActiveMissionContext(overstoryDir)).rejects.toThrow(m2.id);
+	});
+
+	test("resolveActiveMissionContext works with single active mission", async () => {
+		const store = createMissionStore(join(overstoryDir, "sessions.db"));
+		let mission: ReturnType<typeof store.create>;
+		try {
+			mission = store.create({ id: "single-1", slug: "single-slug-1", objective: "solo mission" });
+			store.start("single-1");
+		} finally {
+			store.close();
+		}
+
+		await clearMissionRuntimePointers(overstoryDir);
+
+		const ctx = await resolveActiveMissionContext(overstoryDir);
+		expect(ctx).not.toBeNull();
+		expect(ctx?.missionId).toBe(mission.id);
+	});
+
+	test("--mission flag targets correct mission for answer", async () => {
+		const deps = makeRoleDeps(tempDir, overstoryDir);
+
+		// Start mission 1 (becomes active, pointer set to m1)
+		await missionStart(
+			overstoryDir,
+			tempDir,
+			{ slug: "m1-flag-test", objective: "Mission 1", json: true },
+			deps,
+		);
+
+		const store = createMissionStore(join(overstoryDir, "sessions.db"));
+		let m1: ReturnType<typeof store.getActive>;
+		let m2: ReturnType<typeof store.create>;
+		try {
+			m1 = store.getActive();
+			if (!m1) throw new Error("expected m1");
+			m2 = store.create({ id: "m2-flag-test", slug: "m2-flag-test", objective: "Mission 2" });
+			store.start("m2-flag-test");
+		} finally {
+			store.close();
+		}
+
+		// Create a question mail for m2, then freeze m2 with that thread
+		const mailStore = createMailStore(join(overstoryDir, "mail.db"));
+		const mailClient = createMailClient(mailStore);
+		const questionId = mailClient.send({
+			from: "mission-analyst",
+			to: "operator",
+			subject: "Question for m2",
+			body: "Which approach to take?",
+			type: "question",
+			missionId: m2.id,
+		});
+		mailStore.close();
+
+		const storeFreeze = createMissionStore(join(overstoryDir, "sessions.db"));
+		try {
+			storeFreeze.freeze("m2-flag-test", "question", questionId);
+		} finally {
+			storeFreeze.close();
+		}
+
+		// Pointer still at m1
+		await writeMissionRuntimePointers(overstoryDir, m1.id, m1.runId);
+
+		// Call missionAnswer targeting m2 explicitly
+		await missionAnswer(overstoryDir, { body: "Use approach B", missionId: m2.id }, deps);
+
+		// Verify m2's pending input was cleared (answer targeted m2, not m1)
+		const storeCheck = createMissionStore(join(overstoryDir, "sessions.db"));
+		try {
+			const updatedM2 = storeCheck.getById(m2.id);
+			expect(updatedM2?.pendingUserInput).toBe(false);
+			const updatedM1 = storeCheck.getById(m1.id);
+			expect(updatedM1?.pendingUserInput).toBe(false);
+		} finally {
+			storeCheck.close();
+		}
+	});
+
+	test("--mission does not update pointer on missionComplete failure", async () => {
+		const deps = makeRoleDeps(tempDir, overstoryDir);
+
+		// Start mission 1 — pointer = m1.id
+		await missionStart(
+			overstoryDir,
+			tempDir,
+			{ slug: "ptr-m1", objective: "Pointer mission 1", json: true },
+			deps,
+		);
+
+		const store = createMissionStore(join(overstoryDir, "sessions.db"));
+		let m1: ReturnType<typeof store.getActive>;
+		let m2: ReturnType<typeof store.create>;
+		try {
+			m1 = store.getActive();
+			if (!m1) throw new Error("expected m1");
+			// Create mission 2 with pendingUserInput so missionComplete exits early
+			m2 = store.create({ id: "ptr-m2", slug: "ptr-m2", objective: "Pointer mission 2" });
+			store.start("ptr-m2");
+			store.freeze("ptr-m2", "question", null);
+		} finally {
+			store.close();
+		}
+
+		// Ensure pointer is m1
+		await writeMissionRuntimePointers(overstoryDir, m1.id, m1.runId);
+
+		// Call missionComplete targeting m2 — it will fail (pendingUserInput) before clearPointers
+		await missionComplete(overstoryDir, tempDir, true, deps, m2.id);
+		expect(process.exitCode).toBe(1);
+
+		// Pointer must still point to m1
+		const pointer = await readCurrentMissionPointer(overstoryDir);
+		expect(pointer).toBe(m1.id);
 	});
 });

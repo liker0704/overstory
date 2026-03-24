@@ -295,9 +295,10 @@ export async function missionResume(
 	workstreamId: string,
 	json: boolean,
 	deps: MissionCommandDeps = {},
+	missionId?: string,
 ): Promise<void> {
-	const missionId = await resolveCurrentMissionId(overstoryDir);
-	if (!missionId) {
+	const resolvedMissionId = missionId ?? (await resolveCurrentMissionId(overstoryDir));
+	if (!resolvedMissionId) {
 		if (json) {
 			jsonError("mission resume", "No active mission");
 		} else {
@@ -309,12 +310,12 @@ export async function missionResume(
 
 	const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
 	try {
-		const mission = missionStore.getById(missionId);
+		const mission = missionStore.getById(resolvedMissionId);
 		if (!mission) {
 			if (json) {
-				jsonError("mission resume", `Mission ${missionId} not found`);
+				jsonError("mission resume", `Mission ${resolvedMissionId} not found`);
 			} else {
-				printError("Mission not found in store", missionId);
+				printError("Mission not found in store", resolvedMissionId);
 			}
 			process.exitCode = 1;
 			return;
@@ -444,9 +445,10 @@ export async function missionHandoff(
 	projectRoot: string,
 	json: boolean,
 	deps: MissionCommandDeps = {},
+	missionId?: string,
 ): Promise<void> {
-	const missionId = await resolveCurrentMissionId(overstoryDir);
-	if (!missionId) {
+	const resolvedMissionId = missionId ?? (await resolveCurrentMissionId(overstoryDir));
+	if (!resolvedMissionId) {
 		if (json) {
 			jsonError("mission handoff", "No active mission");
 		} else {
@@ -462,7 +464,7 @@ export async function missionHandoff(
 	const ensureCanonicalTasks =
 		deps.ensureCanonicalWorkstreamTasks ?? ensureCanonicalWorkstreamTasks;
 	try {
-		const mission = missionStore.getById(missionId);
+		const mission = missionStore.getById(resolvedMissionId);
 		if (!mission || !mission.artifactRoot || !mission.runId) {
 			if (json) {
 				jsonError("mission handoff", "Mission is missing required runtime metadata");

@@ -1,6 +1,6 @@
 import { unlink } from "node:fs/promises";
 import { join } from "node:path";
-import type { AgentSession, Mission } from "../types.ts";
+import type { AgentSession, Mission, MissionStore } from "../types.ts";
 import { createMissionStore } from "./store.ts";
 
 export interface ActiveMissionContext {
@@ -99,15 +99,19 @@ export async function resolveActiveMissionContext(
 			}
 		}
 
-		const active = missionStore.getActive();
-		if (!active) {
+		const activeList = missionStore.getActiveList();
+		if (activeList.length === 0) {
 			return null;
 		}
+		if (activeList.length > 1) {
+			const listing = activeList.map((m) => `  - ${m.id} (${m.slug})`).join("\n");
+			throw new Error(
+				`Multiple active missions found. Specify --mission to disambiguate:\n${listing}`,
+			);
+		}
+		const active = activeList[0]!;
 		await writeMissionRuntimePointers(overstoryDir, active.id, active.runId);
-		return {
-			missionId: active.id,
-			runId: active.runId,
-		};
+		return { missionId: active.id, runId: active.runId };
 	} finally {
 		missionStore.close();
 	}
@@ -132,6 +136,14 @@ function roleRuntimeStateFromSession(session: Pick<AgentSession, "state"> | null
 		return "stopped";
 	}
 	return "running";
+}
+
+export function resolveMissionByIdOrSlug(idOrSlug: string, missionStore: MissionStore): string {
+	const byId = missionStore.getById(idOrSlug);
+	if (byId) return byId.id;
+	const bySlug = missionStore.getBySlug(idOrSlug);
+	if (bySlug) return bySlug.id;
+	throw new Error(`Mission not found: ${idOrSlug}`);
 }
 
 export function resolveMissionRoleStates(

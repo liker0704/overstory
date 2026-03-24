@@ -174,9 +174,10 @@ export async function missionRefreshBriefsCommand(
 	projectRoot: string,
 	opts: RefreshBriefOpts,
 	deps: MissionCommandDeps = {},
+	missionId?: string,
 ): Promise<void> {
-	const missionId = await resolveCurrentMissionId(overstoryDir);
-	if (!missionId) {
+	const resolvedMissionId = missionId ?? (await resolveCurrentMissionId(overstoryDir));
+	if (!resolvedMissionId) {
 		if (opts.json) {
 			jsonError("mission refresh-briefs", "No active mission");
 		} else {
@@ -188,12 +189,12 @@ export async function missionRefreshBriefsCommand(
 
 	const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
 	try {
-		const mission = missionStore.getById(missionId);
+		const mission = missionStore.getById(resolvedMissionId);
 		if (!mission) {
 			if (opts.json) {
-				jsonError("mission refresh-briefs", `Mission ${missionId} not found`);
+				jsonError("mission refresh-briefs", `Mission ${resolvedMissionId} not found`);
 			} else {
-				printError("Mission not found in store", missionId);
+				printError("Mission not found in store", resolvedMissionId);
 			}
 			process.exitCode = 1;
 			return;
