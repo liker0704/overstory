@@ -1418,5 +1418,16 @@
 		"status": "active",
 		"createdAt": "2026-03-24T08:50:06.950Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-748bf1da",
+		"name": "quickstart-onboarding-batch",
+		"memberIssueIds": [
+			"overstory-2ff7",
+			"overstory-8723"
+		],
+		"status": "active",
+		"createdAt": "2026-03-24T10:51:14.504Z",
+		"completedAt": null
 	}
 ]
