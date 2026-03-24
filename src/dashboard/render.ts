@@ -638,6 +638,61 @@ export function renderMissionStrip(
 }
 
 /**
+ * Render a multi-mission strip showing the primary mission in full and additional
+ * missions in compact single-row format.
+ */
+export function renderMissionsStrip(
+	missions: Mission[],
+	missionRolesMap: Record<string, MissionRoleStates | null> | null | undefined,
+	width: number,
+	startRow: number,
+): { content: string; height: number } {
+	if (missions.length === 0) {
+		return { content: "", height: 0 };
+	}
+
+	let content = "";
+	let currentRow = startRow;
+
+	// First mission: full 2-row format via existing renderMissionStrip
+	const first = missions[0]!;
+	const firstRoles = missionRolesMap?.[first.id] ?? null;
+	content += renderMissionStrip(first, firstRoles, width, currentRow);
+	currentRow += 2;
+
+	// Additional missions: compact 1-row each (up to 4 more)
+	const additional = missions.slice(1, 5);
+	for (const m of additional) {
+		const stateColorFn = missionStateColor(m.state);
+		const stateStr = stateColorFn(`${m.state}/${m.phase}`);
+		const contentLine = `${dimBox.vertical}   ${accent(m.slug)} [${stateStr}]`;
+		const contentPadding = " ".repeat(
+			Math.max(0, width - visibleLength(contentLine) - visibleLength(dimBox.vertical)),
+		);
+		content += `${CURSOR.cursorTo(currentRow, 1)}${contentLine}${contentPadding}${dimBox.vertical}\n`;
+		currentRow++;
+	}
+
+	// Overflow indicator
+	if (missions.length > 5) {
+		const overflowLine = `${dimBox.vertical}   ${color.dim(`+${missions.length - 5} more`)}`;
+		const overflowPadding = " ".repeat(
+			Math.max(0, width - visibleLength(overflowLine) - visibleLength(dimBox.vertical)),
+		);
+		content += `${CURSOR.cursorTo(currentRow, 1)}${overflowLine}${overflowPadding}${dimBox.vertical}\n`;
+		currentRow++;
+	}
+
+	// Separator after mission strip
+	const sep = dimHorizontalLine(width, dimBox.tee, dimBox.teeRight);
+	content += `${CURSOR.cursorTo(currentRow, 1)}${sep}\n`;
+	currentRow++;
+
+	const height = currentRow - startRow;
+	return { content, height };
+}
+
+/**
  * Render the full dashboard frame to stdout.
  */
 export function renderDashboard(data: DashboardData, interval: number): void {
@@ -649,11 +704,18 @@ export function renderDashboard(data: DashboardData, interval: number): void {
 	// Header (rows 1-2)
 	output += renderHeader(width, interval, data.currentRunId);
 
-	// Mission strip (rows 3-4 if active mission exists)
+	// Mission strip (rows 3+ if active missions exist)
 	let agentPanelStart = 3;
-	if (data.mission) {
-		output += renderMissionStrip(data.mission, data.status.missionRoles, width, 3);
-		agentPanelStart = 5;
+	if (data.missions && data.missions.length > 0) {
+		const rolesMap = data.status.missionRolesMap ?? {};
+		const { content: stripContent, height: stripHeight } = renderMissionsStrip(
+			data.missions,
+			rolesMap,
+			width,
+			3,
+		);
+		output += stripContent;
+		agentPanelStart = 3 + stripHeight;
 	}
 
 	// Headroom strip (2-3 rows if headroom data exists)

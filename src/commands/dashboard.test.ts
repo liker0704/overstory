@@ -358,6 +358,7 @@ function makeDashboardData(
 		tasks: overrides.tasks ?? [],
 		recentEvents: (overrides.recentEvents as never[]) ?? [],
 		feedColorMap: new Map(),
+		missions: [],
 	};
 }
 

@@ -223,6 +223,7 @@ export interface DashboardData {
 	feedColorMap: Map<string, (s: string) => string>;
 	/** Runtime config for resolving per-capability runtime names in the agent panel. */
 	runtimeConfig?: OverstoryConfig["runtime"];
+	missions: Mission[];
 	mission?: Mission | null;
 	resilience?: {
 		openBreakers: Array<{ capability: string; failureCount: number }>;
@@ -468,36 +469,50 @@ export async function loadDashboardData(
 		}
 	}
 
-	// Load active mission inline (fast, open/close per tick)
+	// Load active missions inline (fast, open/close per tick)
+	let missions: Mission[] = [];
 	let mission: Mission | null = null;
 	let missionRoles: MissionRoleStates | null = null;
+	const missionRolesMap: Record<string, MissionRoleStates> = {};
 	let graphExecution: DashboardData["graphExecution"];
 	try {
 		const sessionsDbPath = join(root, ".overstory", "sessions.db");
 		if (existsSync(sessionsDbPath)) {
 			const missionStore = createMissionStore(sessionsDbPath);
 			try {
-				mission = missionStore.getActive();
-				if (mission) {
-					missionRoles = resolveMissionRoleStates(mission, allSessions);
-					if (mission.currentNode) {
-						try {
-							const engineStatus = getCellEngineStatus(mission, {
-								checkpointStore: missionStore.checkpoints,
-								missionStore,
-							});
-							if (engineStatus) {
-								const lastT = engineStatus.transitions[engineStatus.transitions.length - 1];
-								graphExecution = {
-									cellType: engineStatus.cellType,
-									currentNodeId: engineStatus.currentNodeId,
-									transitionCount: engineStatus.transitions.length,
-									lastTransition: lastT,
-								};
-							}
-						} catch {
-							// engine status unavailable
+				missions = missionStore.getActiveList();
+				mission = missions[0] ?? null;
+
+				// Only resolve roles for missions that will actually be rendered
+				const DISPLAY_CAP = 5;
+				const displayMissions = missions.slice(0, DISPLAY_CAP);
+				for (const m of displayMissions) {
+					const roles = resolveMissionRoleStates(m, allSessions);
+					if (roles) {
+						missionRolesMap[m.id] = roles;
+					}
+				}
+				// backward compat: first mission's roles
+				missionRoles = mission ? (missionRolesMap[mission.id] ?? null) : null;
+
+				// Graph execution: only for first mission (primary)
+				if (mission?.currentNode) {
+					try {
+						const engineStatus = getCellEngineStatus(mission, {
+							checkpointStore: missionStore.checkpoints,
+							missionStore,
+						});
+						if (engineStatus) {
+							const lastT = engineStatus.transitions[engineStatus.transitions.length - 1];
+							graphExecution = {
+								cellType: engineStatus.cellType,
+								currentNodeId: engineStatus.currentNodeId,
+								transitionCount: engineStatus.transitions.length,
+								lastTransition: lastT,
+							};
 						}
+					} catch {
+						// engine status unavailable
 					}
 				}
 			} finally {
@@ -510,6 +525,8 @@ export async function loadDashboardData(
 
 	status.mission = mission;
 	status.missionRoles = missionRoles;
+	status.missions = missions.slice(0, 5);
+	status.missionRolesMap = missionRolesMap;
 
 	let resilience: DashboardData["resilience"];
 	try {
@@ -550,6 +567,7 @@ export async function loadDashboardData(
 		recentEvents,
 		feedColorMap,
 		runtimeConfig,
+		missions: missions.slice(0, 5),
 		mission,
 		resilience,
 		headroom,
