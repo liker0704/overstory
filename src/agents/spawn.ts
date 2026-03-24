@@ -82,6 +82,8 @@ export interface SpawnOptions {
 	skipTaskCheck: boolean;
 	/** JSON output mode. */
 	json: boolean;
+	/** Mission slug for worktree isolation. */
+	missionSlug?: string;
 }
 
 /** Result of a successful spawn. */
@@ -196,6 +198,7 @@ export function createSpawnService(deps: SpawnDeps): SpawnService {
 				agentName: opts.name,
 				baseBranch,
 				taskId: opts.taskId,
+				missionSlug: opts.missionSlug,
 			});
 
 			try {

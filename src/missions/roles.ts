@@ -36,6 +36,8 @@ export interface StartMissionRoleOpts {
 	appendSystemPrompt?: string;
 	/** Optional startup beacon. */
 	beacon?: string;
+	/** Mission slug for scoped tmux session naming. */
+	missionSlug?: string;
 }
 
 /** Options for stopping a mission role. */
@@ -81,12 +83,14 @@ export async function startMissionAnalyst(
 	const startAgent = _deps?.startAgent ?? startPersistentAgent;
 	const storeFactory = _deps?.createStore ?? createMissionStore;
 
+	const tmuxSession = opts.missionSlug ? `ov-analyst-${opts.missionSlug}` : "ov-mission-analyst";
+
 	const result = await startAgent({
 		agentName: "mission-analyst",
 		capability: "mission-analyst",
 		projectRoot: opts.projectRoot,
 		overstoryDir: opts.overstoryDir,
-		tmuxSession: "ov-mission-analyst",
+		tmuxSession,
 		createRun: false,
 		existingRunId: opts.existingRunId,
 		appendSystemPromptFile: opts.appendSystemPromptFile,
@@ -126,12 +130,16 @@ export async function startMissionCoordinator(
 	const startAgent = _deps?.startAgent ?? startPersistentAgent;
 	const storeFactory = _deps?.createStore ?? createMissionStore;
 
+	const tmuxSession = opts.missionSlug
+		? `ov-coordinator-${opts.missionSlug}`
+		: "ov-mission-coordinator";
+
 	const result = await startAgent({
 		agentName: "coordinator",
 		capability: "coordinator-mission",
 		projectRoot: opts.projectRoot,
 		overstoryDir: opts.overstoryDir,
-		tmuxSession: "ov-mission-coordinator",
+		tmuxSession,
 		createRun: false,
 		existingRunId: opts.existingRunId,
 		appendSystemPromptFile: opts.appendSystemPromptFile,
@@ -167,12 +175,14 @@ export async function startExecutionDirector(
 	const startAgent = _deps?.startAgent ?? startPersistentAgent;
 	const storeFactory = _deps?.createStore ?? createMissionStore;
 
+	const tmuxSession = opts.missionSlug ? `ov-ed-${opts.missionSlug}` : "ov-execution-director";
+
 	const result = await startAgent({
 		agentName: "execution-director",
 		capability: "execution-director",
 		projectRoot: opts.projectRoot,
 		overstoryDir: opts.overstoryDir,
-		tmuxSession: "ov-execution-director",
+		tmuxSession,
 		createRun: false,
 		existingRunId: opts.existingRunId,
 		appendSystemPromptFile: opts.appendSystemPromptFile,
@@ -212,12 +222,16 @@ export async function startPlanReviewLead(
 ): Promise<StartPersistentAgentResult> {
 	const startAgent = _deps?.startAgent ?? startPersistentAgent;
 
+	const tmuxSession = opts.missionSlug
+		? `ov-plan-review-${opts.missionSlug}`
+		: "ov-plan-review-lead";
+
 	return startAgent({
 		agentName: "plan-review-lead",
 		capability: "plan-review-lead",
 		projectRoot: opts.projectRoot,
 		overstoryDir: opts.overstoryDir,
-		tmuxSession: "ov-plan-review-lead",
+		tmuxSession,
 		createRun: false,
 		existingRunId: opts.existingRunId,
 		appendSystemPromptFile: opts.appendSystemPromptFile,

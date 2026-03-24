@@ -1,4 +1,4 @@
-import { unlink } from "node:fs/promises";
+import { mkdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { WorktreeError } from "../errors.ts";
 
@@ -38,8 +38,9 @@ async function runGit(
 /**
  * Create a new git worktree for an agent.
  *
- * Creates a worktree at `{baseDir}/{agentName}` with a new branch
- * named `overstory/{agentName}/{taskId}` based on `baseBranch`.
+ * Creates a worktree at `{baseDir}/{agentName}` (or `{baseDir}/{missionSlug}/{agentName}`
+ * when missionSlug is provided) with a new branch named `overstory/{agentName}/{taskId}`
+ * (or `overstory/{missionSlug}/{agentName}/{taskId}`) based on `baseBranch`.
  *
  * @returns The absolute worktree path and branch name.
  */
@@ -49,11 +50,20 @@ export async function createWorktree(options: {
 	agentName: string;
 	baseBranch: string;
 	taskId: string;
+	missionSlug?: string;
 }): Promise<{ path: string; branch: string }> {
-	const { repoRoot, baseDir, agentName, baseBranch, taskId } = options;
+	const { repoRoot, baseDir, agentName, baseBranch, taskId, missionSlug } = options;
 
-	const worktreePath = join(baseDir, agentName);
-	const branchName = `overstory/${agentName}/${taskId}`;
+	const worktreePath = missionSlug
+		? join(baseDir, missionSlug, agentName)
+		: join(baseDir, agentName);
+	const branchName = missionSlug
+		? `overstory/${missionSlug}/${agentName}/${taskId}`
+		: `overstory/${agentName}/${taskId}`;
+
+	if (missionSlug) {
+		await mkdir(join(baseDir, missionSlug), { recursive: true });
+	}
 
 	await runGit(repoRoot, ["worktree", "add", "-b", branchName, worktreePath, baseBranch], {
 		worktreePath,
