@@ -137,7 +137,8 @@ export function generateBrief(
 	sections.push(`# Workstream: ${task.id}`);
 	sections.push("");
 	sections.push("## Objective");
-	sections.push(task.title);
+	const firstSentence = firstSentenceOf(task.description);
+	sections.push(firstSentence ? `${task.title} — ${firstSentence}` : task.title);
 	sections.push("");
 
 	// Context from plan summary
@@ -323,8 +324,10 @@ export async function mergeWorkstreamUpdate(
 
 	for (let i = 0; i < opts.incoming.length; i++) {
 		const ws = opts.incoming[i];
-		const task = parsed.tasks[i];
-		if (ws === undefined || task === undefined) continue;
+		if (ws === undefined) continue;
+		const taskId = opts.manifest.taskMapping[ws.id] ?? ws.id;
+		const task = parsed.tasks.find((t) => t.id === taskId);
+		if (task === undefined) continue;
 
 		const content = generateBrief(task, parsed, ws.fileScope, transformOptions);
 		const briefPath = join(missionArtifactRoot, ws.briefPath ?? `workstreams/${ws.id}/brief.md`);
