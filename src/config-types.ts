@@ -202,6 +202,8 @@ export interface OverstoryConfig {
 		};
 		/** Enable graph execution engine for sub-workflow cells. Default: false. */
 		graphExecution?: boolean;
+		/** Maximum number of concurrently active missions. Default: 1 (backward-compatible). */
+		maxConcurrent?: number;
 	};
 	mail?: {
 		reliability?: {

@@ -270,6 +270,7 @@ export interface MissionStore {
 	getById(id: string): Mission | null;
 	getBySlug(slug: string): Mission | null;
 	getActive(): Mission | null;
+	getActiveList(): Mission[];
 	list(opts?: { state?: MissionState; limit?: number }): Mission[];
 	delete(id: string): void;
 	updateState(id: string, state: MissionState): void;

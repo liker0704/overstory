@@ -148,6 +148,50 @@ describe("getActive", () => {
 	});
 });
 
+// === getActiveList ===
+
+describe("getActiveList", () => {
+	test("returns empty array when no active missions", () => {
+		expect(store.getActiveList()).toEqual([]);
+	});
+
+	test("returns multiple active missions", () => {
+		store.create(makeMission({ id: "mission-001", slug: "slug-one" }));
+		store.create(makeMission({ id: "mission-002", slug: "slug-two" }));
+		const result = store.getActiveList();
+		expect(result).toHaveLength(2);
+		const ids = result.map((m) => m.id);
+		expect(ids).toContain("mission-001");
+		expect(ids).toContain("mission-002");
+	});
+
+	test("includes both active and frozen missions", () => {
+		store.create(makeMission({ id: "mission-001", slug: "slug-one" }));
+		store.create(makeMission({ id: "mission-002", slug: "slug-two" }));
+		store.freeze("mission-002", "question", null);
+		const result = store.getActiveList();
+		expect(result).toHaveLength(2);
+		const states = result.map((m) => m.state);
+		expect(states).toContain("active");
+		expect(states).toContain("frozen");
+	});
+
+	test("excludes completed, stopped, failed, and suspended missions", () => {
+		store.create(makeMission({ id: "mission-active", slug: "slug-active" }));
+		store.create(makeMission({ id: "mission-completed", slug: "slug-completed" }));
+		store.create(makeMission({ id: "mission-stopped", slug: "slug-stopped" }));
+		store.create(makeMission({ id: "mission-failed", slug: "slug-failed" }));
+		store.create(makeMission({ id: "mission-suspended", slug: "slug-suspended" }));
+		store.updateState("mission-completed", "completed");
+		store.updateState("mission-stopped", "stopped");
+		store.updateState("mission-failed", "failed");
+		store.updateState("mission-suspended", "suspended");
+		const result = store.getActiveList();
+		expect(result).toHaveLength(1);
+		expect(result[0]?.id).toBe("mission-active");
+	});
+});
+
 // === list ===
 
 describe("list", () => {

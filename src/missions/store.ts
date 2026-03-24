@@ -404,6 +404,11 @@ export function createMissionStore(dbPath: string): MissionStore {
 		LIMIT 1
 	`);
 
+	const getActiveListStmt = db.prepare<MissionRow, Record<string, never>>(`
+		SELECT * FROM missions WHERE state = 'active' OR state = 'frozen'
+		ORDER BY created_at DESC
+	`);
+
 	const updateStateStmt = db.prepare<void, { $id: string; $state: string; $updated_at: string }>(`
 		UPDATE missions SET state = $state, updated_at = $updated_at WHERE id = $id
 	`);
@@ -584,6 +589,11 @@ export function createMissionStore(dbPath: string): MissionStore {
 		getActive(): Mission | null {
 			const row = getActiveStmt.get({});
 			return row ? rowToMission(row) : null;
+		},
+
+		getActiveList(): Mission[] {
+			const rows = getActiveListStmt.all({});
+			return rows.map(rowToMission);
 		},
 
 		list(opts?: { state?: MissionState; limit?: number }): Mission[] {
