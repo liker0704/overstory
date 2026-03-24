@@ -13,6 +13,7 @@ export {
 	PLAN_REVIEW_TIER_CRITICS,
 } from "./mail/types.ts";
 export { MISSION_PHASES, MISSION_STATES, PENDING_INPUT_KINDS } from "./missions/types.ts";
+export { SPAN_KINDS, SPAN_STATUSES } from "./observability/types.ts";
 export { WORKFLOW_COMPONENT_ACTIONS, WORKFLOW_TDD_MODES } from "./workflow/types.ts";
 
 // === Type re-exports ===
@@ -202,6 +203,18 @@ export type {
 	SemanticSearchOptions,
 	SemanticSearchResult,
 } from "./mulch/types.ts";
+// Observability types
+export type {
+	Exporter,
+	ExporterConfig,
+	ExportResult,
+	ExportSpan,
+	ObservabilityConfig,
+	SpanEvent,
+	SpanKind,
+	SpanResource,
+	SpanStatus,
+} from "./observability/types.ts";
 // Reminder types
 export type { ReminderConfig, ReminderPolicy, TemporalSignals } from "./reminders/types.ts";
 // Resilience types
