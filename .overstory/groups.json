@@ -1378,5 +1378,16 @@
 		"status": "active",
 		"createdAt": "2026-03-24T03:46:18.439Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-f38511e2",
+		"name": "phase2-final",
+		"memberIssueIds": [
+			"overstory-6e09",
+			"overstory-8bb8"
+		],
+		"status": "active",
+		"createdAt": "2026-03-24T05:35:44.165Z",
+		"completedAt": null
 	}
 ]
