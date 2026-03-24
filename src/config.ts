@@ -260,6 +260,56 @@ function validateConfig(config: OverstoryConfig): void {
 		);
 	}
 
+	// agents.adaptive: validate if present
+	if (config.agents.adaptive !== undefined) {
+		const adp = config.agents.adaptive;
+		if (!Number.isInteger(adp.minWorkers) || adp.minWorkers < 1) {
+			throw new ValidationError("agents.adaptive.minWorkers must be a positive integer", {
+				field: "agents.adaptive.minWorkers",
+				value: adp.minWorkers,
+			});
+		}
+		if (!Number.isInteger(adp.maxWorkers) || adp.maxWorkers < adp.minWorkers) {
+			throw new ValidationError(
+				"agents.adaptive.maxWorkers must be a positive integer >= minWorkers",
+				{
+					field: "agents.adaptive.maxWorkers",
+					value: adp.maxWorkers,
+				},
+			);
+		}
+		if (adp.maxWorkers > config.agents.maxConcurrent) {
+			throw new ValidationError(
+				"agents.adaptive.maxWorkers must be <= agents.maxConcurrent",
+				{
+					field: "agents.adaptive.maxWorkers",
+					value: adp.maxWorkers,
+				},
+			);
+		}
+		if (adp.evaluationIntervalMs <= 0) {
+			throw new ValidationError("agents.adaptive.evaluationIntervalMs must be positive", {
+				field: "agents.adaptive.evaluationIntervalMs",
+				value: adp.evaluationIntervalMs,
+			});
+		}
+		if (adp.cooldownMs < 0) {
+			throw new ValidationError("agents.adaptive.cooldownMs must be non-negative", {
+				field: "agents.adaptive.cooldownMs",
+				value: adp.cooldownMs,
+			});
+		}
+		if (adp.hysteresisPercent < 0 || adp.hysteresisPercent > 50) {
+			throw new ValidationError(
+				"agents.adaptive.hysteresisPercent must be between 0 and 50",
+				{
+					field: "agents.adaptive.hysteresisPercent",
+					value: adp.hysteresisPercent,
+				},
+			);
+		}
+	}
+
 	// watchdog intervals must be positive if enabled
 	if (config.watchdog.tier0Enabled && config.watchdog.tier0IntervalMs <= 0) {
 		throw new ValidationError("watchdog.tier0IntervalMs must be positive when tier0 is enabled", {

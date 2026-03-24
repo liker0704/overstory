@@ -54,6 +54,9 @@ export function validateUnknownFields(raw: Record<string, unknown>): void {
 
 	if (isObj(raw.agents)) {
 		assertKnownKeys(raw.agents, KNOWN_FIELDS.agents, "agents");
+		if (isObj(raw.agents.adaptive)) {
+			assertKnownKeys(raw.agents.adaptive, KNOWN_FIELDS.agentsAdaptive, "agents.adaptive");
+		}
 	}
 
 	if (isObj(raw.worktrees)) {

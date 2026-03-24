@@ -63,6 +63,14 @@ export {
 	SURFACE_CHANGE_KINDS,
 	SYMBOL_KINDS,
 } from "./compat/types.ts";
+// Adaptive types
+export type {
+	AdaptiveConfig,
+	ParallelismContext,
+	ScalingDecision,
+	ScalingDirection,
+	ScalingFactor,
+} from "./adaptive/types.ts";
 // Config types
 export type {
 	CoordinatorExitTriggers,
