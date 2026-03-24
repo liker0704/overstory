@@ -7,6 +7,14 @@
 
 import { Command } from "commander";
 import { jsonError, jsonOutput } from "../json.ts";
+import { formatReportSummary as _formatReportSummary } from "../research/output.ts";
+import {
+	getResearchOutput,
+	getResearchStatus,
+	listResearch,
+	startResearch,
+	stopResearch,
+} from "../research/runner.ts";
 import type { ResearchSession } from "../research/types.ts";
 
 // --- DI Interface ---
@@ -42,34 +50,16 @@ export interface ResearchDeps {
 	formatReportSummary?: (session: ResearchSession) => string;
 }
 
-// --- Real imports (used when no deps are injected) ---
-// These modules are provided by parallel builder agents and will exist at runtime.
-// The Function-based dynamic import bypasses TypeScript's static module resolution.
-const _dynamicImport = new Function("p", "return import(p)") as (p: string) => Promise<unknown>;
+// --- Default deps (real implementations) ---
 
-async function loadRealDeps(): Promise<ResearchDeps> {
-	const [runnerMod, outputMod] = (await Promise.all([
-		_dynamicImport("../research/runner.ts"),
-		_dynamicImport("../research/output.ts"),
-	])) as [
-		{
-			startResearch: ResearchDeps["startResearch"];
-			stopResearch: ResearchDeps["stopResearch"];
-			getResearchStatus: ResearchDeps["getResearchStatus"];
-			listResearch: ResearchDeps["listResearch"];
-			getResearchOutput: ResearchDeps["getResearchOutput"];
-		},
-		{ formatReportSummary?: ResearchDeps["formatReportSummary"] },
-	];
-	return {
-		startResearch: runnerMod.startResearch,
-		stopResearch: runnerMod.stopResearch,
-		getResearchStatus: runnerMod.getResearchStatus,
-		listResearch: runnerMod.listResearch,
-		getResearchOutput: runnerMod.getResearchOutput,
-		formatReportSummary: outputMod.formatReportSummary,
-	};
-}
+const defaultDeps: ResearchDeps = {
+	startResearch,
+	stopResearch,
+	getResearchStatus,
+	listResearch,
+	getResearchOutput,
+	formatReportSummary: _formatReportSummary as unknown as (session: ResearchSession) => string,
+};
 
 // --- Format helpers ---
 
@@ -116,7 +106,7 @@ export function createResearchCommand(deps?: ResearchDeps): Command {
 			) => {
 				const json = opts.json ?? false;
 				const maxResearchers = parseInt(opts.maxResearchers ?? "5", 10);
-				const resolvedDeps = deps ?? (await loadRealDeps());
+				const resolvedDeps = deps ?? defaultDeps;
 				const startResearch = resolvedDeps.startResearch;
 				try {
 					const result = await startResearch({
@@ -156,7 +146,7 @@ export function createResearchCommand(deps?: ResearchDeps): Command {
 		.option("--json", "Output result as JSON")
 		.action(async (name: string | undefined, opts: { json?: boolean }) => {
 			const json = opts.json ?? false;
-			const resolvedDeps = deps ?? (await loadRealDeps());
+			const resolvedDeps = deps ?? defaultDeps;
 			const stopResearch = resolvedDeps.stopResearch;
 			try {
 				await stopResearch(name);
@@ -184,7 +174,7 @@ export function createResearchCommand(deps?: ResearchDeps): Command {
 		.option("--json", "Output result as JSON")
 		.action(async (name: string | undefined, opts: { json?: boolean }) => {
 			const json = opts.json ?? false;
-			const resolvedDeps = deps ?? (await loadRealDeps());
+			const resolvedDeps = deps ?? defaultDeps;
 			const getResearchStatus = resolvedDeps.getResearchStatus;
 			try {
 				const session = await getResearchStatus(name);
@@ -224,7 +214,7 @@ export function createResearchCommand(deps?: ResearchDeps): Command {
 		.option("--json", "Output result as JSON")
 		.action(async (opts: { json?: boolean }) => {
 			const json = opts.json ?? false;
-			const resolvedDeps = deps ?? (await loadRealDeps());
+			const resolvedDeps = deps ?? defaultDeps;
 			const listResearch = resolvedDeps.listResearch;
 			try {
 				const sessions = await listResearch();
@@ -260,7 +250,7 @@ export function createResearchCommand(deps?: ResearchDeps): Command {
 		.action(async (name: string | undefined, opts: { path?: boolean; json?: boolean }) => {
 			const json = opts.json ?? false;
 			const pathOnly = opts.path ?? false;
-			const resolvedDeps = deps ?? (await loadRealDeps());
+			const resolvedDeps = deps ?? defaultDeps;
 			const getResearchOutput = resolvedDeps.getResearchOutput;
 			try {
 				const result = await getResearchOutput(name, { path: pathOnly });
