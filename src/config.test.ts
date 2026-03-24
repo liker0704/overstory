@@ -1328,3 +1328,95 @@ describe("DEFAULT_CONFIG", () => {
 		expect(DEFAULT_QUALITY_GATES[2]?.name).toBe("Typecheck");
 	});
 });
+
+describe("agents.adaptive config", () => {
+	let tempDir: string;
+
+	beforeEach(async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "overstory-test-"));
+		const overstoryDir = join(tempDir, ".overstory");
+		await mkdir(overstoryDir, { recursive: true });
+	});
+
+	afterEach(async () => {
+		await cleanupTempDir(tempDir);
+	});
+
+	async function writeConfig(yaml: string): Promise<void> {
+		await Bun.write(join(tempDir, ".overstory", "config.yaml"), yaml);
+	}
+
+	test("config with agents.adaptive.enabled: true loads without error", async () => {
+		await writeConfig(`
+agents:
+  adaptive:
+    enabled: true
+    minWorkers: 2
+    maxWorkers: 10
+    evaluationIntervalMs: 30000
+    cooldownMs: 60000
+    hysteresisPercent: 10
+`);
+		const config = await loadConfig(tempDir);
+		expect(config.agents.adaptive?.enabled).toBe(true);
+		expect(config.agents.adaptive?.minWorkers).toBe(2);
+		expect(config.agents.adaptive?.maxWorkers).toBe(10);
+	});
+
+	test("rejects agents.adaptive.minWorkers: -1", async () => {
+		await writeConfig(`
+agents:
+  adaptive:
+    enabled: false
+    minWorkers: -1
+    maxWorkers: 10
+    evaluationIntervalMs: 30000
+    cooldownMs: 60000
+    hysteresisPercent: 10
+`);
+		await expect(loadConfig(tempDir)).rejects.toThrow(ValidationError);
+	});
+
+	test("rejects agents.adaptive.hysteresisPercent: 99", async () => {
+		await writeConfig(`
+agents:
+  adaptive:
+    enabled: false
+    minWorkers: 2
+    maxWorkers: 10
+    evaluationIntervalMs: 30000
+    cooldownMs: 60000
+    hysteresisPercent: 99
+`);
+		await expect(loadConfig(tempDir)).rejects.toThrow(ValidationError);
+	});
+
+	test("rejects agents.adaptive.maxWorkers < minWorkers", async () => {
+		await writeConfig(`
+agents:
+  adaptive:
+    enabled: false
+    minWorkers: 10
+    maxWorkers: 5
+    evaluationIntervalMs: 30000
+    cooldownMs: 60000
+    hysteresisPercent: 10
+`);
+		await expect(loadConfig(tempDir)).rejects.toThrow(ValidationError);
+	});
+
+	test("rejects unknown field agents.adaptive.foo", async () => {
+		await writeConfig(`
+agents:
+  adaptive:
+    enabled: false
+    minWorkers: 2
+    maxWorkers: 10
+    evaluationIntervalMs: 30000
+    cooldownMs: 60000
+    hysteresisPercent: 10
+    foo: bar
+`);
+		await expect(loadConfig(tempDir)).rejects.toThrow(ValidationError);
+	});
+});

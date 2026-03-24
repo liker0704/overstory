@@ -1,3 +1,4 @@
+import type { AdaptiveConfig } from "./adaptive/types.ts";
 import type { ContextConfig } from "./context/types.ts";
 import type { HeadroomConfig } from "./headroom/types.ts";
 import type { PlanReviewTier } from "./mail/types.ts";
@@ -109,6 +110,7 @@ export interface OverstoryConfig {
 		maxDepth: number; // Hierarchy depth limit (default 2)
 		maxSessionsPerRun: number; // Max total sessions per run (0 = unlimited)
 		maxAgentsPerLead: number; // Max children a single lead can spawn (0 = unlimited)
+		adaptive?: AdaptiveConfig;
 	};
 	worktrees: {
 		baseDir: string; // Where worktrees live
