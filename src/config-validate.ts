@@ -1,7 +1,5 @@
 import { KNOWN_FIELDS } from "./config-schema.ts";
 import { ValidationError } from "./errors.ts";
-import type { PolicyAction, PolicyConditionOperator } from "./health/policy/types.ts";
-import { KNOWN_FACTORS } from "./health/policy/types.ts";
 
 /** Returns true when val is a plain object (not null, not array). */
 function isObj(val: unknown): val is Record<string, unknown> {
@@ -71,6 +69,9 @@ export function validateUnknownFields(raw: Record<string, unknown>): void {
 
 	if (isObj(raw.mulch)) {
 		assertKnownKeys(raw.mulch, KNOWN_FIELDS.mulch, "mulch");
+		if (isObj(raw.mulch.semantic)) {
+			assertKnownKeys(raw.mulch.semantic, KNOWN_FIELDS.mulchSemantic, "mulch.semantic");
+		}
 	}
 
 	if (isObj(raw.merge)) {

@@ -187,6 +187,8 @@ export type {
 } from "./missions/types.ts";
 // Mulch types
 export type {
+	EmbeddingProvider,
+	EmbedStatus,
 	MulchCompactResult,
 	MulchDiffResult,
 	MulchDoctorResult,
@@ -194,6 +196,8 @@ export type {
 	MulchPruneResult,
 	MulchReadyResult,
 	MulchStatus,
+	SemanticSearchOptions,
+	SemanticSearchResult,
 } from "./mulch/types.ts";
 // Reminder types
 export type { ReminderConfig, ReminderPolicy, TemporalSignals } from "./reminders/types.ts";
@@ -226,9 +230,9 @@ export type {
 	ImportManifest,
 	ImportOptions,
 	ImportResult,
-	ParsedWorkflow,
 	MergeWorkstreamUpdateOptions,
 	MergeWorkstreamUpdateResult,
+	ParsedWorkflow,
 	SyncResult,
 	TransformOptions,
 	WorkflowAcceptanceCriterion,
