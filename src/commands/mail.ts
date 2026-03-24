@@ -520,7 +520,8 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 		if (type === "dispatch") {
 			try {
 				const { nudgeAgent } = await import("./nudge.ts");
-				const nudgeMessage = `[DISPATCH] ${subject}: ${body.slice(0, 500)}`;
+				const preview = body.length > 200 ? `${body.slice(0, 200)}...` : body;
+				const nudgeMessage = `[DISPATCH] New mail: "${subject}" (preview: ${preview}). Run ov mail check --agent ${canonicalTo} for the full message.`;
 				// Small delay to let the agent's TUI stabilize after sling
 				await Bun.sleep(3_000);
 				await nudgeAgent(cwd, canonicalTo, nudgeMessage, true); // force=true to skip debounce
@@ -734,7 +735,8 @@ async function handleReply(id: string, opts: ReplyOpts, cwd: string): Promise<vo
 	if (isDispatchNudge(reply.type)) {
 		try {
 			const { nudgeAgent } = await import("./nudge.ts");
-			const nudgeMessage = `[DISPATCH] ${reply.subject}: ${body.slice(0, 500)}`;
+			const replyPreview = body.length > 200 ? `${body.slice(0, 200)}...` : body;
+			const nudgeMessage = `[DISPATCH] New mail: "${reply.subject}" (preview: ${replyPreview}). Run ov mail check --agent ${reply.to} for the full message.`;
 			await Bun.sleep(3_000);
 			await nudgeAgent(cwd, reply.to, nudgeMessage, true);
 		} catch {
