@@ -380,6 +380,7 @@ program
 	.option("--agent <name>", "Prime for a specific agent")
 	.option("--compact", "Output reduced context (for PreCompact hook)")
 	.option("--json", "Output as JSON")
+	.option("--files <files...>", "Files to use as context signal for semantic reranking")
 	.action(async (opts) => {
 		await primeCommand(opts);
 	});
