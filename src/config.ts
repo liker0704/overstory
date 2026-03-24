@@ -183,6 +183,7 @@ export const DEFAULT_CONFIG: OverstoryConfig = {
 		enabled: true,
 		cachePath: ".overstory/project-context.json",
 	},
+	observability: { enabled: false, exporters: [] },
 };
 
 const CONFIG_FILENAME = "config.yaml";

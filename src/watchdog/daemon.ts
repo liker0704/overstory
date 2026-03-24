@@ -42,6 +42,9 @@ import { sanitize } from "../logging/sanitizer.ts";
 import { createMailClient } from "../mail/client.ts";
 import { createMailStore, type MailStore } from "../mail/store.ts";
 import { createMulchClient } from "../mulch/client.ts";
+import { normalizeSpans } from "../observability/normalize.ts";
+import { createExportPipeline, type ExportPipeline } from "../observability/pipeline.ts";
+import { buildExporters } from "../observability/registry.ts";
 import { handleTaskFailure } from "../resilience/engine.ts";
 import { createResilienceStore, type ResilienceStore } from "../resilience/store.ts";
 import type { RerouteDecision, ResilienceConfig } from "../resilience/types.ts";
@@ -503,6 +506,8 @@ export interface DaemonOptions {
 	_resilienceStore?: ResilienceStore | null;
 	/** DI for headroom store. If not provided, created from headroom.db when config.headroom exists. */
 	_headroomStore?: HeadroomStore | null;
+	/** DI for export pipeline. If not provided, built from config.observability when enabled. */
+	_exportPipeline?: ExportPipeline | null;
 }
 
 /**
@@ -685,6 +690,18 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 			ownHeadroomStore = true;
 		} catch {
 			// Non-fatal: headroom features disabled for this tick
+		}
+	}
+
+	// Build observability export pipeline if enabled
+	let exportPipeline: ExportPipeline | null = null;
+	if (options._exportPipeline !== undefined) {
+		exportPipeline = options._exportPipeline;
+	} else if (options.config?.observability?.enabled) {
+		const exporterConfigs = options.config.observability.exporters;
+		const exporters = buildExporters(exporterConfigs);
+		if (exporters.length > 0) {
+			exportPipeline = createExportPipeline(exporters);
 		}
 	}
 
@@ -1445,6 +1462,20 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 				}
 			} catch {
 				// Error boundary: policy evaluation must never crash the daemon
+			}
+		}
+
+		if (exportPipeline && eventStore) {
+			try {
+				const recentEvents = runId
+					? eventStore.getByRun(runId, { limit: 100 })
+					: eventStore.getErrors({ limit: 100 });
+				if (recentEvents.length > 0) {
+					const spans = normalizeSpans(recentEvents, {});
+					exportPipeline.enqueue(spans);
+				}
+			} catch {
+				// Non-fatal: export pipeline errors must not crash the daemon
 			}
 		}
 	} finally {

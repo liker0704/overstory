@@ -203,6 +203,7 @@ export type {
 	SemanticSearchOptions,
 	SemanticSearchResult,
 } from "./mulch/types.ts";
+export type { ExportPipeline, PipelineStats } from "./observability/pipeline.ts";
 // Observability types
 export type {
 	Exporter,

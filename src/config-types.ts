@@ -2,6 +2,7 @@ import type { ContextConfig } from "./context/types.ts";
 import type { HeadroomConfig } from "./headroom/types.ts";
 import type { PlanReviewTier } from "./mail/types.ts";
 import type { EmbeddingProvider } from "./mulch/types.ts";
+import type { ObservabilityConfig } from "./observability/types.ts";
 import type { ReminderConfig } from "./reminders/types.ts";
 import type { ResilienceConfig } from "./resilience/types.ts";
 
@@ -226,6 +227,7 @@ export interface OverstoryConfig {
 	headroom?: HeadroomConfig;
 	context?: ContextConfig;
 	reminders?: ReminderConfig;
+	observability?: ObservabilityConfig;
 	healthPolicy?: {
 		enabled: boolean;
 		dryRun: boolean;
