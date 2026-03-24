@@ -9,6 +9,7 @@
  * remain as Bun.spawn CLI wrappers.
  */
 
+import { join } from "node:path";
 import { AgentError } from "../errors.ts";
 import type {
 	MulchCompactResult,
@@ -19,6 +20,15 @@ import type {
 	MulchReadyResult,
 	MulchStatus,
 } from "../types.ts";
+import type { EmbeddingProvider, SemanticSearchOptions, SemanticSearchResult } from "./semantic.ts";
+import { semanticSearch as semanticSearchFn } from "./semantic.ts";
+
+/** Semantic config subset — matches OverstoryConfig.mulch.semantic when present. */
+interface SemanticConfig {
+	enabled: boolean;
+	provider: EmbeddingProvider;
+	model: string;
+}
 
 export interface MulchClient {
 	/** Generate a priming prompt, optionally scoped to specific domains. */
@@ -95,6 +105,9 @@ export interface MulchClient {
 
 	/** Show recently added or updated expertise records. */
 	ready(options?: { limit?: number; domain?: string; since?: string }): Promise<MulchReadyResult>;
+
+	/** Semantic search across expertise records. Falls back to keyword search when unavailable. */
+	semanticSearch?(query: string, options?: SemanticSearchOptions): Promise<SemanticSearchResult[]>;
 
 	/** Compact and optimize domain storage. */
 	compact(
@@ -416,9 +429,10 @@ function formatRecordText(record: MulchExpertiseRecord): string {
  * Create a MulchClient bound to the given working directory.
  *
  * @param cwd - Working directory where mulch commands should run
+ * @param semanticConfig - Optional semantic search configuration
  * @returns A MulchClient instance wrapping the mulch CLI
  */
-export function createMulchClient(cwd: string): MulchClient {
+export function createMulchClient(cwd: string, semanticConfig?: SemanticConfig): MulchClient {
 	async function runMulch(
 		args: string[],
 		context: string,
@@ -655,6 +669,44 @@ export function createMulchClient(cwd: string): MulchClient {
 					`mulch appendOutcome ${domain}/${id} failed: ${error instanceof Error ? error.message : String(error)}`,
 				);
 			}
+		},
+
+		async semanticSearch(query, options) {
+			const cfg = semanticConfig;
+			if (!cfg?.enabled) {
+				// Semantic disabled — no results (caller falls back to keyword search)
+				return [];
+			}
+
+			const embeddingsDir = join(cwd, ".overstory", "embeddings");
+
+			// Fetch records via programmatic API
+			let records: Array<{ id?: string; domain: string; [key: string]: unknown }> = [];
+			try {
+				const api = await loadMulchApi();
+				const searchResults = await api.searchExpertise(query, {
+					domain: options?.domain,
+					sortByScore: true,
+					cwd,
+				});
+				records = searchResults.flatMap((r) =>
+					r.records.map((rec) => ({ ...(rec as Record<string, unknown>), domain: r.domain })),
+				);
+			} catch {
+				return [];
+			}
+
+			if (records.length === 0) return [];
+
+			const results = await semanticSearchFn(
+				query,
+				records,
+				embeddingsDir,
+				cfg.provider,
+				cfg.model,
+				options,
+			);
+			return results;
 		},
 	};
 }

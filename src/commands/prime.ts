@@ -17,10 +17,18 @@ import { jsonOutput } from "../json.ts";
 import { printWarning } from "../logging/color.ts";
 import { createMetricsStore } from "../metrics/store.ts";
 import { createMulchClient } from "../mulch/client.ts";
+import type { EmbeddingProvider } from "../mulch/semantic.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import type { AgentIdentity, AgentManifest, SessionCheckpoint, SessionMetrics } from "../types.ts";
 import { getCurrentSessionName } from "../worktree/tmux.ts";
 import { OVERSTORY_GITIGNORE } from "./init.ts";
+
+/** Subset of mulch config that may carry semantic settings. */
+interface MulchSemanticConfig {
+	enabled: boolean;
+	provider: EmbeddingProvider;
+	model: string;
+}
 
 /**
  * Load a cached ProjectContext from disk. Returns null if missing, unreadable, or invalid.
@@ -100,6 +108,8 @@ export interface PrimeOptions {
 	json?: boolean;
 	/** Override the instruction path referenced in agent activation context. Defaults to ".claude/CLAUDE.md". */
 	instructionPath?: string;
+	/** Files to use as context signal for semantic reranking. Requires mulch.semantic.enabled: true in config. */
+	files?: string[];
 }
 
 /**
@@ -202,6 +212,7 @@ export async function primeCommand(opts: PrimeOptions): Promise<void> {
 	const compact = opts.compact ?? false;
 	const useJson = opts.json ?? false;
 	const instructionPath = opts.instructionPath ?? ".claude/CLAUDE.md";
+	const contextFiles = opts.files ?? [];
 
 	// 1. Load config
 	const config = await loadConfig(process.cwd());
@@ -210,13 +221,40 @@ export async function primeCommand(opts: PrimeOptions): Promise<void> {
 	const overstoryDir = join(config.project.root, ".overstory");
 	await healGitignore(overstoryDir);
 
+	// Resolve optional semantic config (field may not be present in config type)
+	const mulchWithSemantic = config.mulch as {
+		enabled: boolean;
+		domains: string[];
+		primeFormat: string;
+		semantic?: MulchSemanticConfig;
+	};
+	const semanticCfg = mulchWithSemantic.semantic;
+	const semanticEnabled = semanticCfg?.enabled === true;
+
 	// 3. Load mulch expertise (optional — skip on failure)
 	let expertiseOutput: string | null = null;
 	if (!compact && config.mulch.enabled) {
 		try {
-			const mulch = createMulchClient(config.project.root);
+			const mulch = createMulchClient(config.project.root, semanticCfg);
 			const domains = config.mulch.domains.length > 0 ? config.mulch.domains : undefined;
-			expertiseOutput = await mulch.prime(domains, config.mulch.primeFormat);
+
+			if (semanticEnabled) {
+				if (contextFiles.length === 0) {
+					// Semantic enabled but no context signal — warn and fall back to standard prime
+					printWarning(
+						"mulch.semantic.enabled is true but no --files context signal provided; using standard prime",
+					);
+					expertiseOutput = await mulch.prime(domains, config.mulch.primeFormat);
+				} else {
+					// Use files as context signal for semantic-aware prime
+					expertiseOutput = await mulch.prime(domains, config.mulch.primeFormat, {
+						files: contextFiles,
+						sortByScore: true,
+					});
+				}
+			} else {
+				expertiseOutput = await mulch.prime(domains, config.mulch.primeFormat);
+			}
 		} catch {
 			// Mulch is optional — silently skip if it fails
 		}
