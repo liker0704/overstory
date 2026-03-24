@@ -550,30 +550,22 @@ export async function missionStart(
 	const stopRole = deps.stopMissionRole ?? stopMissionRole;
 
 	try {
-		const existing = missionStore.getActive();
-		if (existing) {
-			if (opts.json) {
-				jsonError("mission start", `Active mission already exists: ${existing.id}`);
-			} else {
-				printError("An active mission already exists", existing.slug);
-				printHint("Stop it first with: ov mission stop");
-			}
-			process.exitCode = 1;
-			return;
-		}
-
-		// Check for suspended missions that should be resumed instead
-		const suspended = missionStore.list({ state: "suspended", limit: 1 });
-		if (suspended[0]) {
+		const config = await loadConfig(projectRoot);
+		const maxConcurrent = config.mission?.maxConcurrent ?? 1;
+		const activeMissions = missionStore.getActiveList();
+		if (activeMissions.length >= maxConcurrent) {
+			const listing = activeMissions.map((m) => m.slug).join(", ");
 			if (opts.json) {
 				jsonError(
 					"mission start",
-					`Suspended mission exists: ${suspended[0].slug}. Use 'ov mission resume' instead.`,
+					`Maximum concurrent missions reached (${activeMissions.length} active, limit ${maxConcurrent})`,
 				);
 			} else {
-				printError("A suspended mission exists", suspended[0].slug);
-				printHint("Resume it with: ov mission resume");
-				printHint("Or kill it first with: ov mission stop --kill");
+				printError(
+					`Maximum concurrent missions reached (${activeMissions.length} active, limit ${maxConcurrent})`,
+				);
+				printHint(`Active missions: ${listing}`);
+				printHint("Stop one first with: ov mission stop");
 			}
 			process.exitCode = 1;
 			return;
@@ -592,8 +584,6 @@ export async function missionStart(
 			runStore.close();
 		}
 
-		await mkdir(artifactRoot, { recursive: true });
-
 		const insertMission: InsertMission = {
 			id: missionId,
 			slug,
@@ -607,6 +597,8 @@ export async function missionStart(
 		missionStore.start(missionId);
 		missionStore.updateCurrentNode(missionId, nodeId("understand", "active"));
 		const mission = missionStore.getById(missionId) ?? createdMission;
+
+		await mkdir(artifactRoot, { recursive: true });
 
 		await ensureMissionArtifacts(mission);
 		await writeMissionRuntimePointers(overstoryDir, mission.id, runId);
@@ -879,6 +871,7 @@ interface AnswerOpts {
 	body?: string;
 	file?: string;
 	json?: boolean;
+	missionId?: string;
 }
 
 export async function missionAnswer(
@@ -886,7 +879,7 @@ export async function missionAnswer(
 	opts: AnswerOpts,
 	deps: MissionCommandDeps = {},
 ): Promise<void> {
-	const missionId = await resolveCurrentMissionId(overstoryDir);
+	const missionId = opts.missionId ?? (await resolveCurrentMissionId(overstoryDir));
 	if (!missionId) {
 		if (opts.json) {
 			jsonError("mission answer", "No active mission");
@@ -1002,6 +995,7 @@ export async function missionAnswer(
 interface PauseOpts {
 	reason?: string;
 	json?: boolean;
+	missionId?: string;
 }
 
 export async function missionPause(
@@ -1010,7 +1004,7 @@ export async function missionPause(
 	opts: PauseOpts,
 	deps: MissionCommandDeps = {},
 ): Promise<void> {
-	const missionId = await resolveCurrentMissionId(overstoryDir);
+	const missionId = opts.missionId ?? (await resolveCurrentMissionId(overstoryDir));
 	if (!missionId) {
 		if (opts.json) {
 			jsonError("mission pause", "No active mission");
@@ -1133,25 +1127,26 @@ export async function missionStop(
 	json: boolean,
 	kill: boolean,
 	deps: MissionCommandDeps = {},
+	missionId?: string,
 ): Promise<void> {
-	let missionId = await resolveCurrentMissionId(overstoryDir);
+	let resolvedMissionId = missionId ?? (await resolveCurrentMissionId(overstoryDir));
 
 	// When --kill is used and no active/frozen mission is found, also check for
 	// suspended missions. Without this, users get stuck: `start` says "suspended
 	// mission exists", but `stop` says "no active mission" — a deadlock.
-	if (!missionId && kill) {
+	if (!resolvedMissionId && kill) {
 		const store = createMissionStore(join(overstoryDir, "sessions.db"));
 		try {
 			const suspended = store.list({ state: "suspended", limit: 1 });
 			if (suspended[0]) {
-				missionId = suspended[0].id;
+				resolvedMissionId = suspended[0].id;
 			}
 		} finally {
 			store.close();
 		}
 	}
 
-	if (!missionId) {
+	if (!resolvedMissionId) {
 		// Check if there's a suspended mission the user might be trying to kill
 		if (!kill) {
 			const store = createMissionStore(join(overstoryDir, "sessions.db"));
@@ -1183,12 +1178,12 @@ export async function missionStop(
 
 	const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
 	try {
-		const mission = missionStore.getById(missionId);
+		const mission = missionStore.getById(resolvedMissionId);
 		if (!mission) {
 			if (json) {
-				jsonError("mission stop", `Mission ${missionId} not found`);
+				jsonError("mission stop", `Mission ${resolvedMissionId} not found`);
 			} else {
-				printError("Mission not found in store", missionId);
+				printError("Mission not found in store", resolvedMissionId);
 			}
 			process.exitCode = 1;
 			return;
@@ -1205,7 +1200,7 @@ export async function missionStop(
 			});
 			if (json) {
 				jsonOutput("mission stop", {
-					missionId,
+					missionId: resolvedMissionId,
 					slug: mission.slug,
 					state: "stopped",
 					bundlePath: result.bundlePath,
@@ -1218,7 +1213,7 @@ export async function missionStop(
 			await suspendMission({ overstoryDir, projectRoot, mission, json });
 			if (json) {
 				jsonOutput("mission stop", {
-					missionId,
+					missionId: resolvedMissionId,
 					slug: mission.slug,
 					state: "suspended",
 				});
@@ -1233,14 +1228,15 @@ export async function missionResumeAll(
 	overstoryDir: string,
 	projectRoot: string,
 	json: boolean,
+	missionId?: string,
 ): Promise<void> {
 	// Find suspended mission
-	const missionId = await resolveCurrentMissionId(overstoryDir);
+	const resolvedMissionId = missionId ?? (await resolveCurrentMissionId(overstoryDir));
 	const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
 	try {
 		let mission: Mission | undefined;
-		if (missionId) {
-			mission = missionStore.getById(missionId) ?? undefined;
+		if (resolvedMissionId) {
+			mission = missionStore.getById(resolvedMissionId) ?? undefined;
 		}
 		if (!mission || mission.state !== "suspended") {
 			// Try finding most recent suspended mission
@@ -1481,9 +1477,10 @@ export async function missionComplete(
 	projectRoot: string,
 	json: boolean,
 	deps: MissionCommandDeps = {},
+	missionId?: string,
 ): Promise<void> {
-	const missionId = await resolveCurrentMissionId(overstoryDir);
-	if (!missionId) {
+	const resolvedMissionId = missionId ?? (await resolveCurrentMissionId(overstoryDir));
+	if (!resolvedMissionId) {
 		if (json) {
 			jsonError("mission complete", "No active mission to complete");
 		} else {
@@ -1495,12 +1492,12 @@ export async function missionComplete(
 
 	const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
 	try {
-		const mission = missionStore.getById(missionId);
+		const mission = missionStore.getById(resolvedMissionId);
 		if (!mission) {
 			if (json) {
-				jsonError("mission complete", `Mission ${missionId} not found`);
+				jsonError("mission complete", `Mission ${resolvedMissionId} not found`);
 			} else {
-				printError("Mission not found in store", missionId);
+				printError("Mission not found in store", resolvedMissionId);
 			}
 			process.exitCode = 1;
 			return;
@@ -1525,7 +1522,7 @@ export async function missionComplete(
 		});
 		if (json) {
 			jsonOutput("mission complete", {
-				missionId,
+				missionId: resolvedMissionId,
 				slug: mission.slug,
 				state: "completed",
 				bundlePath: result.bundlePath,

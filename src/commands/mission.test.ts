@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { MissionCommandDeps } from "../missions/lifecycle.ts";
+import { missionStart, missionStop } from "../missions/lifecycle.ts";
 import { createMissionStore } from "../missions/store.ts";
 import { cleanupTempDir } from "../test-helpers.ts";
 import { createMissionCommand, resolveCurrentMissionId } from "./mission.ts";
@@ -143,5 +145,135 @@ describe("createMissionCommand", () => {
 		expect((await Bun.file(join(overstoryDir, "current-run.txt")).text()).trim()).toBe(
 			"run-active",
 		);
+	});
+});
+
+describe("missionStart concurrency guard", () => {
+	let guardDir: string;
+	let guardOverstoryDir: string;
+	let originalStdout: typeof process.stdout.write;
+	let originalStderr: typeof process.stderr.write;
+
+	beforeEach(async () => {
+		guardDir = await mkdtemp(join(tmpdir(), "mission-guard-test-"));
+		guardOverstoryDir = join(guardDir, ".overstory");
+		await mkdir(guardOverstoryDir, { recursive: true });
+		process.exitCode = 0;
+		originalStdout = process.stdout.write;
+		originalStderr = process.stderr.write;
+		process.stdout.write = (() => true) as typeof process.stdout.write;
+		process.stderr.write = (() => true) as typeof process.stderr.write;
+	});
+
+	afterEach(async () => {
+		process.exitCode = 0;
+		process.stdout.write = originalStdout;
+		process.stderr.write = originalStderr;
+		await cleanupTempDir(guardDir);
+	});
+
+	test("blocks start when active mission exists (default maxConcurrent=1)", async () => {
+		const store = createMissionStore(join(guardOverstoryDir, "sessions.db"));
+		try {
+			store.create({ id: "m-active", slug: "active", objective: "obj", runId: "run-1" });
+			store.start("m-active");
+		} finally {
+			store.close();
+		}
+
+		await missionStart(guardOverstoryDir, guardDir, {});
+		expect(process.exitCode).toBe(1);
+	});
+
+	test("counts frozen missions toward the concurrency limit", async () => {
+		const store = createMissionStore(join(guardOverstoryDir, "sessions.db"));
+		try {
+			store.create({ id: "m-frozen", slug: "frozen", objective: "obj", runId: "run-1" });
+			store.start("m-frozen");
+			store.updateState("m-frozen", "frozen");
+		} finally {
+			store.close();
+		}
+
+		await missionStart(guardOverstoryDir, guardDir, {});
+		expect(process.exitCode).toBe(1);
+	});
+
+	test("does not count suspended missions toward the limit", async () => {
+		const store = createMissionStore(join(guardOverstoryDir, "sessions.db"));
+		try {
+			store.create({ id: "m-suspended", slug: "suspended", objective: "obj", runId: "run-1" });
+			store.start("m-suspended");
+			store.updateState("m-suspended", "suspended");
+		} finally {
+			store.close();
+		}
+
+		// A suspended mission should not block missionStart (guard should pass)
+		// Mock the role-starting deps so the function doesn't actually spawn agents
+		const mockDeps: MissionCommandDeps = {
+			startMissionCoordinator: async () =>
+				({ session: { id: "sess-coord" }, runId: null, pid: 0 }) as never,
+			startMissionAnalyst: async () =>
+				({ session: { id: "sess-analyst" }, runId: null, pid: 0 }) as never,
+		};
+
+		await missionStart(guardOverstoryDir, guardDir, {}, mockDeps);
+		// Guard did not block — active list has only the new mission
+		const store2 = createMissionStore(join(guardOverstoryDir, "sessions.db"));
+		try {
+			const active = store2.getActiveList();
+			expect(active.some((m) => m.id !== "m-suspended")).toBe(true);
+		} finally {
+			store2.close();
+		}
+	});
+});
+
+describe("missionId parameter threading", () => {
+	let threadDir: string;
+	let threadOverstoryDir: string;
+	let originalStdout: typeof process.stdout.write;
+	let originalStderr: typeof process.stderr.write;
+
+	beforeEach(async () => {
+		threadDir = await mkdtemp(join(tmpdir(), "mission-thread-test-"));
+		threadOverstoryDir = join(threadDir, ".overstory");
+		await mkdir(threadOverstoryDir, { recursive: true });
+		process.exitCode = 0;
+		originalStdout = process.stdout.write;
+		originalStderr = process.stderr.write;
+		process.stdout.write = (() => true) as typeof process.stdout.write;
+		process.stderr.write = (() => true) as typeof process.stderr.write;
+	});
+
+	afterEach(async () => {
+		process.exitCode = 0;
+		process.stdout.write = originalStdout;
+		process.stderr.write = originalStderr;
+		await cleanupTempDir(threadDir);
+	});
+
+	test("missionStop uses explicit missionId to suspend a specific mission", async () => {
+		const store = createMissionStore(join(threadOverstoryDir, "sessions.db"));
+		try {
+			store.create({ id: "target-mission", slug: "target", objective: "obj", runId: "run-1" });
+			store.start("target-mission");
+		} finally {
+			store.close();
+		}
+
+		// Set pointer to a nonexistent mission so resolveCurrentMissionId would return null/other
+		await Bun.write(join(threadOverstoryDir, "current-mission.txt"), "nonexistent-pointer\n");
+
+		// Call missionStop with explicit missionId — should suspend target-mission
+		await missionStop(threadOverstoryDir, threadDir, false, false, {}, "target-mission");
+
+		const store2 = createMissionStore(join(threadOverstoryDir, "sessions.db"));
+		try {
+			expect(store2.getById("target-mission")?.state).toBe("suspended");
+		} finally {
+			store2.close();
+		}
 	});
 });
