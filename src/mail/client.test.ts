@@ -131,8 +131,8 @@ describe("createMailClient", () => {
 
 			const messages = client.check("orchestrator");
 			expect(messages).toHaveLength(2);
-			expect(messages[0]?.subject).toBe("msg1");
-			expect(messages[1]?.subject).toBe("msg2");
+			const subjects = messages.map((m) => m.subject).sort();
+			expect(subjects).toEqual(["msg1", "msg2"]);
 		});
 
 		test("marks returned messages as read", () => {

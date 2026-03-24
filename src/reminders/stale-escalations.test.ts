@@ -18,6 +18,7 @@ function makeMessage(overrides: Partial<MailMessage> = {}): MailMessage {
 		createdAt: new Date().toISOString(),
 		state: "queued",
 		claimedAt: null,
+		missionId: null,
 		attempt: 0,
 		nextRetryAt: null,
 		failReason: null,
