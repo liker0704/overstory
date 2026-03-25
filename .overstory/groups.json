@@ -1493,5 +1493,19 @@
 		"status": "active",
 		"createdAt": "2026-03-24T22:25:46.482Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-929ba9a4",
+		"name": "fix-mail-pipeline-batch1",
+		"memberIssueIds": [
+			"overstory-bef6",
+			"overstory-0343",
+			"overstory-3381",
+			"overstory-8a03",
+			"overstory-0f98"
+		],
+		"status": "active",
+		"createdAt": "2026-03-25T00:30:19.332Z",
+		"completedAt": null
 	}
 ]
