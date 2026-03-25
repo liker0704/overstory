@@ -1517,5 +1517,16 @@
 		"status": "active",
 		"createdAt": "2026-03-25T12:02:00.083Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-8f54ac10",
+		"name": "http-server-batch-2",
+		"memberIssueIds": [
+			"overstory-612c",
+			"overstory-e919"
+		],
+		"status": "active",
+		"createdAt": "2026-03-25T12:12:52.222Z",
+		"completedAt": null
 	}
 ]
