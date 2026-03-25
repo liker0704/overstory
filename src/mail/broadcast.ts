@@ -7,6 +7,7 @@
  */
 
 import type { AgentSession } from "../types.ts";
+import { canonicalizeMailAgentName } from "./identity.ts";
 
 /**
  * Check if a recipient address is a group address.
@@ -54,10 +55,13 @@ export function resolveGroupAddress(
 	senderName: string,
 ): string[] {
 	const normalized = groupAddress.toLowerCase();
+	const canonicalSender = canonicalizeMailAgentName(senderName);
 
 	// Handle @all — all active agents except sender
 	if (normalized === "@all") {
-		const recipients = activeSessions.map((s) => s.agentName).filter((name) => name !== senderName);
+		const recipients = activeSessions
+			.map((s) => s.agentName)
+			.filter((name) => name !== canonicalSender);
 
 		if (recipients.length === 0) {
 			throw new Error(
@@ -80,7 +84,7 @@ export function resolveGroupAddress(
 		const recipients = activeSessions
 			.filter((s) => criticCapabilities.has(s.capability))
 			.map((s) => s.agentName)
-			.filter((name) => name !== senderName);
+			.filter((name) => name !== canonicalSender);
 
 		if (recipients.length === 0) {
 			throw new Error(
@@ -97,7 +101,7 @@ export function resolveGroupAddress(
 		const recipients = activeSessions
 			.filter((s) => s.capability === capability)
 			.map((s) => s.agentName)
-			.filter((name) => name !== senderName);
+			.filter((name) => name !== canonicalSender);
 
 		if (recipients.length === 0) {
 			throw new Error(

@@ -142,22 +142,35 @@ export async function refreshMissionBriefs(
 	}
 
 	const results: MissionBriefRefreshEntry[] = [];
+	const errors: Array<{ workstreamId: string; error: string }> = [];
 	for (const entry of refreshable) {
 		if (!entry.absoluteBriefPath) {
 			continue;
 		}
-		const result = await refreshBriefChain(
-			projectRoot,
-			entry.workstream.taskId,
-			entry.workstream.id,
-			entry.absoluteBriefPath,
+		try {
+			const result = await refreshBriefChain(
+				projectRoot,
+				entry.workstream.taskId,
+				entry.workstream.id,
+				entry.absoluteBriefPath,
+			);
+			results.push({
+				...result,
+				workstream: entry.workstream,
+				absoluteBriefPath: entry.absoluteBriefPath,
+				projectRelativeBriefPath: normalizeTrackedPath(projectRoot, entry.absoluteBriefPath),
+			});
+		} catch (err) {
+			errors.push({
+				workstreamId: entry.workstream.id,
+				error: err instanceof Error ? err.message : String(err),
+			});
+		}
+	}
+	if (errors.length > 0 && results.length === 0) {
+		throw new Error(
+			`All workstream brief refreshes failed:\n${errors.map((e) => `  ${e.workstreamId}: ${e.error}`).join("\n")}`,
 		);
-		results.push({
-			...result,
-			workstream: entry.workstream,
-			absoluteBriefPath: entry.absoluteBriefPath,
-			projectRelativeBriefPath: normalizeTrackedPath(projectRoot, entry.absoluteBriefPath),
-		});
 	}
 	return results;
 }
@@ -470,6 +483,37 @@ export async function missionHandoff(
 				jsonError("mission handoff", "Mission is missing required runtime metadata");
 			} else {
 				printError("Mission is missing required runtime metadata");
+			}
+			process.exitCode = 1;
+			return;
+		}
+		if (mission.phase !== "plan") {
+			if (json) {
+				console.log(
+					JSON.stringify({
+						error: `Cannot handoff from "${mission.phase}" phase, expected "plan"`,
+					}),
+				);
+			} else {
+				console.error(`Cannot handoff: mission is in "${mission.phase}" phase, expected "plan"`);
+			}
+			process.exitCode = 1;
+			return;
+		}
+		if (
+			mission.state === "suspended" ||
+			mission.state === "stopped" ||
+			mission.state === "failed" ||
+			mission.state === "completed"
+		) {
+			if (json) {
+				console.log(
+					JSON.stringify({
+						error: `Cannot handoff: mission state is "${mission.state}"`,
+					}),
+				);
+			} else {
+				console.error(`Cannot handoff: mission state is "${mission.state}"`);
 			}
 			process.exitCode = 1;
 			return;

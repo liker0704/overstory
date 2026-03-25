@@ -172,6 +172,44 @@ export function validateWorkstreamsFile(raw: unknown): ValidationResult {
 		}
 	}
 
+	// Circular dependency detection
+	const visited = new Set<string>();
+	const inStack = new Set<string>();
+	const allWorkstreams = new Map(parsed.map((ws) => [ws.id, ws]));
+
+	function detectCycle(wsId: string, path: string[]): string[] | null {
+		if (inStack.has(wsId)) {
+			const cycleStart = path.indexOf(wsId);
+			return path.slice(cycleStart).concat(wsId);
+		}
+		if (visited.has(wsId)) return null;
+		visited.add(wsId);
+		inStack.add(wsId);
+		path.push(wsId);
+		const ws = allWorkstreams.get(wsId);
+		if (ws) {
+			for (const depId of ws.dependsOn) {
+				const cycle = detectCycle(depId, [...path]);
+				if (cycle) return cycle;
+			}
+		}
+		inStack.delete(wsId);
+		return null;
+	}
+
+	for (const ws of parsed) {
+		if (!visited.has(ws.id)) {
+			const cycle = detectCycle(ws.id, []);
+			if (cycle) {
+				errors.push({
+					path: "workstreams.dependsOn",
+					message: `Circular dependency detected: ${cycle.join(" → ")}`,
+				});
+				break; // One cycle error is enough
+			}
+		}
+	}
+
 	// Non-overlapping fileScope check
 	const fileToWorkstream = new Map<string, string>();
 	for (const ws of parsed) {

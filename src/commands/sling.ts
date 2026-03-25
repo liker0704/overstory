@@ -420,7 +420,15 @@ export function allowedChildCapabilities(parentCapability: string | null): strin
 			"plan-performance-critic",
 			"plan-second-opinion",
 			"plan-simulator",
+			"plan-architecture-critic",
 		];
+	}
+
+	if (parentCapability === "research-lead") {
+		return ["researcher"];
+	}
+	if (parentCapability === "architecture-review-lead") {
+		return ["plan-architecture-critic"];
 	}
 
 	return [];

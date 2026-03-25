@@ -17,6 +17,16 @@ import type {
 } from "../types.ts";
 import { createCheckpointStore } from "./checkpoint.ts";
 
+/** Safely parse a JSON string from a database column, returning a fallback on failure. */
+function safeJsonParse<T>(value: string | null | undefined, fallback: T): T {
+	if (value == null) return fallback;
+	try {
+		return JSON.parse(value) as T;
+	} catch {
+		return fallback;
+	}
+}
+
 /** Row shape as stored in SQLite (snake_case columns). */
 interface MissionRow {
 	id: string;
@@ -368,11 +378,11 @@ function rowToMission(row: MissionRow): Mission {
 		pendingInputThreadId: row.pending_input_thread_id,
 		reopenCount: row.reopen_count,
 		artifactRoot: row.artifact_root,
-		pausedWorkstreamIds: JSON.parse(row.paused_workstream_ids) as string[],
+		pausedWorkstreamIds: safeJsonParse(row.paused_workstream_ids, []),
 		analystSessionId: row.analyst_session_id,
 		executionDirectorSessionId: row.execution_director_session_id,
 		coordinatorSessionId: row.coordinator_session_id,
-		pausedLeadNames: JSON.parse(row.paused_lead_names) as string[],
+		pausedLeadNames: safeJsonParse(row.paused_lead_names, []),
 		pauseReason: row.pause_reason,
 		currentNode: row.current_node ?? null,
 		startedAt: row.started_at,
@@ -485,7 +495,7 @@ export function createMissionStore(dbPath: string): MissionStore {
 		    reopen_count = reopen_count + 1,
 		    current_node = phase || ':active',
 		    updated_at = $updated_at
-		WHERE id = $id
+		WHERE id = $id AND state = 'frozen'
 	`);
 
 	const updatePausedWorkstreamsStmt = db.prepare<
@@ -686,6 +696,8 @@ export function createMissionStore(dbPath: string): MissionStore {
 		},
 
 		unfreeze(id: string): void {
+			// Guard: AND state = 'frozen' ensures concurrent unfreezes are idempotent.
+			// If the mission is not frozen, 0 rows are updated (no-op).
 			unfreezeStmt.run({ $id: id, $updated_at: new Date().toISOString() });
 		},
 
@@ -819,30 +831,33 @@ export function appendMissionThreadId(dbPath: string, missionId: string, threadI
 	db.exec("PRAGMA journal_mode = WAL");
 	db.exec("PRAGMA busy_timeout = 5000");
 	try {
-		const row = db
-			.prepare<{ pending_input_thread_id: string | null }, { $id: string }>(
-				"SELECT pending_input_thread_id FROM missions WHERE id = $id",
-			)
-			.get({ $id: missionId });
-		let ids: string[];
-		const current = row?.pending_input_thread_id;
-		if (!current) {
-			ids = [];
-		} else if (current.startsWith("[")) {
-			ids = JSON.parse(current) as string[];
-		} else {
-			ids = [current];
-		}
-		if (!ids.includes(threadId)) {
-			ids.push(threadId);
-		}
-		db.prepare(
-			"UPDATE missions SET pending_input_thread_id = $thread_ids, updated_at = $updated_at WHERE id = $id",
-		).run({
-			$id: missionId,
-			$thread_ids: JSON.stringify(ids),
-			$updated_at: new Date().toISOString(),
+		const appendTx = db.transaction(() => {
+			const row = db
+				.prepare<{ pending_input_thread_id: string | null }, { $id: string }>(
+					"SELECT pending_input_thread_id FROM missions WHERE id = $id",
+				)
+				.get({ $id: missionId });
+			let ids: string[];
+			const current = row?.pending_input_thread_id;
+			if (!current) {
+				ids = [];
+			} else if (current.startsWith("[")) {
+				ids = JSON.parse(current) as string[];
+			} else {
+				ids = [current];
+			}
+			if (!ids.includes(threadId)) {
+				ids.push(threadId);
+			}
+			db.prepare(
+				"UPDATE missions SET pending_input_thread_id = $thread_ids, updated_at = $updated_at WHERE id = $id",
+			).run({
+				$id: missionId,
+				$thread_ids: JSON.stringify(ids),
+				$updated_at: new Date().toISOString(),
+			});
 		});
+		appendTx();
 	} finally {
 		db.close();
 	}

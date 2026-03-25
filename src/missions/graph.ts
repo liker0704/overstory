@@ -98,7 +98,7 @@ function buildDefaultGraph(): MissionGraph {
 			trigger: "resume",
 		});
 
-		// Stop edges (active/frozen → done:stopped)
+		// Stop edges (active/frozen/suspended → done:stopped)
 		edges.push({
 			from: nodeId(phase, "active"),
 			to: nodeId("done", "stopped"),
@@ -109,22 +109,43 @@ function buildDefaultGraph(): MissionGraph {
 			to: nodeId("done", "stopped"),
 			trigger: "stop",
 		});
+		edges.push({
+			from: nodeId(phase, "suspended"),
+			to: nodeId("done", "stopped"),
+			trigger: "stop",
+		});
 
-		// Fail edges (active → done:failed)
+		// Fail edges (active/frozen/suspended → done:failed)
 		edges.push({
 			from: nodeId(phase, "active"),
 			to: nodeId("done", "failed"),
 			trigger: "fail",
 		});
+		edges.push({
+			from: nodeId(phase, "frozen"),
+			to: nodeId("done", "failed"),
+			trigger: "fail",
+		});
+		edges.push({
+			from: nodeId(phase, "suspended"),
+			to: nodeId("done", "failed"),
+			trigger: "fail",
+		});
 	}
 
-	// Phase advance edges (active → next phase active)
+	// Phase advance edges (active/frozen → next phase active)
 	for (let i = 0; i < workingPhases.length - 1; i++) {
 		const from = workingPhases[i]!;
 		const to = workingPhases[i + 1]!;
 		const trigger = from === "plan" && to === "execute" ? "handoff" : "phase_advance";
 		edges.push({
 			from: nodeId(from, "active"),
+			to: nodeId(to, "active"),
+			trigger,
+			weight: 10,
+		});
+		edges.push({
+			from: nodeId(from, "frozen"),
 			to: nodeId(to, "active"),
 			trigger,
 			weight: 10,

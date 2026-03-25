@@ -135,7 +135,9 @@ export async function listSpecMeta(projectRoot: string): Promise<SpecMeta[]> {
 		const file = Bun.file(join(dir, filename));
 		try {
 			const raw = await file.json();
-			results.push(raw as SpecMeta);
+			if (isValidSpecMeta(raw)) {
+				results.push(raw);
+			}
 		} catch {
 			// Skip unparseable files
 		}

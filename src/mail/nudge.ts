@@ -22,6 +22,7 @@ export const AUTO_NUDGE_TYPES: ReadonlySet<MailMessageType> = new Set([
 	"error",
 	"escalation",
 	"merge_failed",
+	"question",
 ]);
 
 /**
