@@ -1540,5 +1540,26 @@
 		"status": "active",
 		"createdAt": "2026-03-25T13:30:00.468Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-2bf7459c",
+		"name": "mission-mgmt-batch-1",
+		"memberIssueIds": [
+			"overstory-6c3e"
+		],
+		"status": "active",
+		"createdAt": "2026-03-25T15:12:33.453Z",
+		"completedAt": null
+	},
+	{
+		"id": "group-57faf175",
+		"name": "sse-realtime-batch-1",
+		"memberIssueIds": [
+			"overstory-c58f",
+			"overstory-f0fe"
+		],
+		"status": "active",
+		"createdAt": "2026-03-25T15:17:18.955Z",
+		"completedAt": null
 	}
 ]
