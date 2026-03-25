@@ -24,3 +24,9 @@ export interface Route {
 	pattern: URLPattern;
 	handler: (req: Request, params: Record<string, string>) => Promise<Response>;
 }
+
+export interface ActionResult {
+	success: boolean;
+	output: string;
+	error?: string;
+}
