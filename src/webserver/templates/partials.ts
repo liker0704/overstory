@@ -4,8 +4,19 @@
  */
 
 import type { AgentSession } from "../../agents/types.ts";
+import type { DashboardData } from "../../dashboard/data.ts";
 import type { MailMessage } from "../../mail/types.ts";
-import { Raw, esc, html } from "./layout.ts";
+import { renderAgentsPanel } from "../pages/agents.ts";
+import { renderEventsPanel } from "../pages/events.ts";
+import { renderMailPanel } from "../pages/mail.ts";
+import { renderMergePanel } from "../pages/merge.ts";
+import { renderMissionPanel } from "../pages/missions.ts";
+import {
+	renderHeadroomPanel,
+	renderMetricsPanel,
+	renderResiliencePanel,
+} from "../pages/project.ts";
+import { html, Raw } from "./layout.ts";
 
 /** Renders a colored state badge. */
 export function statusBadge(state: string): Raw {
@@ -72,3 +83,16 @@ export function mailRow(mail: MailMessage): Raw {
 	<td>${timeAgo(mail.createdAt)}</td>
 </tr>`;
 }
+
+export type PanelRenderer = (data: DashboardData) => string;
+
+export const PANEL_RENDERERS: Record<string, PanelRenderer> = {
+	agents: renderAgentsPanel,
+	mail: renderMailPanel,
+	merge: renderMergePanel,
+	metrics: renderMetricsPanel,
+	events: renderEventsPanel,
+	mission: renderMissionPanel,
+	headroom: renderHeadroomPanel,
+	resilience: renderResiliencePanel,
+};
