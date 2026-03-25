@@ -235,6 +235,12 @@ export interface DashboardData {
 		currentNodeId: string;
 		transitionCount: number;
 		lastTransition?: { fromNode: string; toNode: string; trigger: string; createdAt: string };
+		recentTransitions: Array<{
+			fromNode: string;
+			toNode: string;
+			trigger: string;
+			createdAt: string;
+		}>;
 	} | null;
 }
 
@@ -509,6 +515,7 @@ export async function loadDashboardData(
 								currentNodeId: engineStatus.currentNodeId,
 								transitionCount: engineStatus.transitions.length,
 								lastTransition: lastT,
+								recentTransitions: engineStatus.transitions.slice(-10),
 							};
 						}
 					} catch {
