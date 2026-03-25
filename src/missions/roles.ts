@@ -38,6 +38,8 @@ export interface StartMissionRoleOpts {
 	beacon?: string;
 	/** Mission slug for scoped tmux session naming. */
 	missionSlug?: string;
+	/** Override agent name for parallel mission support. */
+	agentName?: string;
 }
 
 /** Options for stopping a mission role. */
@@ -83,10 +85,11 @@ export async function startMissionAnalyst(
 	const startAgent = _deps?.startAgent ?? startPersistentAgent;
 	const storeFactory = _deps?.createStore ?? createMissionStore;
 
+	const analystName = opts.agentName ?? "mission-analyst";
 	const tmuxSession = opts.missionSlug ? `ov-analyst-${opts.missionSlug}` : "ov-mission-analyst";
 
 	const result = await startAgent({
-		agentName: "mission-analyst",
+		agentName: analystName,
 		capability: "mission-analyst",
 		projectRoot: opts.projectRoot,
 		overstoryDir: opts.overstoryDir,
@@ -130,12 +133,13 @@ export async function startMissionCoordinator(
 	const startAgent = _deps?.startAgent ?? startPersistentAgent;
 	const storeFactory = _deps?.createStore ?? createMissionStore;
 
+	const coordName = opts.agentName ?? "coordinator";
 	const tmuxSession = opts.missionSlug
 		? `ov-coordinator-${opts.missionSlug}`
 		: "ov-mission-coordinator";
 
 	const result = await startAgent({
-		agentName: "coordinator",
+		agentName: coordName,
 		capability: "coordinator-mission",
 		projectRoot: opts.projectRoot,
 		overstoryDir: opts.overstoryDir,
@@ -175,10 +179,11 @@ export async function startExecutionDirector(
 	const startAgent = _deps?.startAgent ?? startPersistentAgent;
 	const storeFactory = _deps?.createStore ?? createMissionStore;
 
+	const edName = opts.agentName ?? "execution-director";
 	const tmuxSession = opts.missionSlug ? `ov-ed-${opts.missionSlug}` : "ov-execution-director";
 
 	const result = await startAgent({
-		agentName: "execution-director",
+		agentName: edName,
 		capability: "execution-director",
 		projectRoot: opts.projectRoot,
 		overstoryDir: opts.overstoryDir,

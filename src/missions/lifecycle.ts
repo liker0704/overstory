@@ -301,7 +301,23 @@ async function terminalizeMission(opts: {
 
 	try {
 		const roleStopFailures: string[] = [];
-		for (const roleName of ["coordinator", "mission-analyst", "execution-director"]) {
+		// Try slug-scoped names first (parallel missions), then legacy names
+		const slug = mission.slug;
+		const roleNames = slug
+			? [
+					`coordinator-${slug}`,
+					"coordinator",
+					`mission-analyst-${slug}`,
+					"mission-analyst",
+					`execution-director-${slug}`,
+					"execution-director",
+				]
+			: ["coordinator", "mission-analyst", "execution-director"];
+		const stoppedRoles = new Set<string>();
+		for (const roleName of roleNames) {
+			// Skip if we already stopped the base role via its scoped variant
+			const baseRole = roleName.replace(`-${slug}`, "");
+			if (stoppedRoles.has(baseRole)) continue;
 			try {
 				await stopRole(roleName, {
 					projectRoot,
@@ -309,6 +325,7 @@ async function terminalizeMission(opts: {
 					completeRun: false,
 					runStatus: targetState === "completed" ? "completed" : "stopped",
 				});
+				stoppedRoles.add(baseRole);
 				recordMissionEvent({
 					overstoryDir,
 					mission,
@@ -316,25 +333,37 @@ async function terminalizeMission(opts: {
 					data: { kind: "role_stopped", detail: `${roleName} stopped` },
 				});
 			} catch {
-				roleStopFailures.push(roleName);
+				if (!slug || !roleName.includes(slug)) {
+					roleStopFailures.push(roleName);
+				}
 			}
 		}
 
 		// Fallback: directly kill tmux sessions for roles that failed graceful stop
-		const roleTmuxNames: Record<string, string> = {
-			coordinator: "ov-mission-coordinator",
-			"mission-analyst": "ov-mission-analyst",
-			"execution-director": "ov-execution-director",
+		// Try slug-scoped names first, then legacy singleton names
+		const roleTmuxNames: Record<string, string[]> = {
+			coordinator: slug
+				? [`ov-coordinator-${slug}`, "ov-mission-coordinator"]
+				: ["ov-mission-coordinator"],
+			"mission-analyst": slug
+				? [`ov-analyst-${slug}`, "ov-mission-analyst"]
+				: ["ov-mission-analyst"],
+			"execution-director": slug
+				? [`ov-ed-${slug}`, "ov-execution-director"]
+				: ["ov-execution-director"],
 		};
 		for (const roleName of roleStopFailures) {
-			const tmuxName = roleTmuxNames[roleName];
-			if (tmuxName) {
-				try {
-					if (await isSessionAlive(tmuxName)) {
-						await killSession(tmuxName);
+			const tmuxNames = roleTmuxNames[roleName];
+			if (tmuxNames) {
+				for (const tmuxName of tmuxNames) {
+					try {
+						if (await isSessionAlive(tmuxName)) {
+							await killSession(tmuxName);
+							break;
+						}
+					} catch {
+						// Best effort — session may already be gone
 					}
-				} catch {
-					// Best effort — session may already be gone
 				}
 			}
 			recordMissionEvent({
@@ -604,23 +633,27 @@ export async function missionStart(
 		await writeMissionRuntimePointers(overstoryDir, mission.id, runId);
 
 		// --- Start mission coordinator (user-facing role) ---
+		// Scope agent names by slug for parallel mission support
+		const coordAgentName = slug ? `coordinator-${slug}` : "coordinator";
 		const coordPrompt = await materializeMissionRolePrompt({
 			overstoryDir,
-			agentName: "coordinator",
+			agentName: coordAgentName,
 			capability: "coordinator-mission",
 			roleLabel: "Mission Coordinator",
 			mission,
 		});
-		drainAgentInbox(overstoryDir, "coordinator");
+		drainAgentInbox(overstoryDir, coordAgentName);
 
 		const coordResult = await startCoord({
 			missionId: mission.id,
+			missionSlug: mission.slug,
+			agentName: coordAgentName,
 			projectRoot,
 			overstoryDir,
 			existingRunId: runId,
 			appendSystemPromptFile: coordPrompt.promptPath,
 			beacon: buildMissionRoleBeacon({
-				agentName: "coordinator",
+				agentName: coordAgentName,
 				missionId: mission.id,
 				contextPath: coordPrompt.contextPath,
 			}),
@@ -631,23 +664,26 @@ export async function missionStart(
 		missionStore.bindCoordinatorSession(mission.id, coordResult.session.id);
 
 		// --- Start mission analyst (internal research role) ---
+		const analystAgentName = slug ? `mission-analyst-${slug}` : "mission-analyst";
 		const analystPrompt = await materializeMissionRolePrompt({
 			overstoryDir,
-			agentName: "mission-analyst",
+			agentName: analystAgentName,
 			capability: "mission-analyst",
 			roleLabel: "Mission Analyst",
 			mission,
 		});
-		drainAgentInbox(overstoryDir, "mission-analyst");
+		drainAgentInbox(overstoryDir, analystAgentName);
 
 		const analystResult = await startAnalyst({
 			missionId: mission.id,
+			missionSlug: mission.slug,
+			agentName: analystAgentName,
 			projectRoot,
 			overstoryDir,
 			existingRunId: runId,
 			appendSystemPromptFile: analystPrompt.promptPath,
 			beacon: buildMissionRoleBeacon({
-				agentName: "mission-analyst",
+				agentName: analystAgentName,
 				missionId: mission.id,
 				contextPath: analystPrompt.contextPath,
 			}),
@@ -1381,6 +1417,7 @@ async function restartMissionRoles(
 
 	const coordResult = await startMissionCoordinator({
 		missionId: mission.id,
+		missionSlug: mission.slug,
 		projectRoot,
 		overstoryDir,
 		existingRunId: runId,
@@ -1410,6 +1447,7 @@ async function restartMissionRoles(
 
 	const analystResult = await startMissionAnalyst({
 		missionId: mission.id,
+		missionSlug: mission.slug,
 		projectRoot,
 		overstoryDir,
 		existingRunId: runId,

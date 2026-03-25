@@ -549,7 +549,7 @@ export async function missionHandoff(
 		const skippedPausedCount = allHandoffs.length - handoffs.length;
 		const dispatchCommands = handoffs.map((handoff) => {
 			const args = slingArgsFromHandoff(handoff, {
-				parentAgent: "execution-director",
+				parentAgent: edAgentName,
 				depth: 1,
 				specBasePath: artifactRoot,
 			});
@@ -601,23 +601,26 @@ export async function missionHandoff(
 			}
 		}
 
+		const edAgentName = mission.slug ? `execution-director-${mission.slug}` : "execution-director";
 		const prompt = await materializeMissionRolePrompt({
 			overstoryDir,
-			agentName: "execution-director",
+			agentName: edAgentName,
 			capability: "execution-director",
 			roleLabel: "Execution Director",
 			mission,
 		});
-		drainAgentInbox(overstoryDir, "execution-director");
+		drainAgentInbox(overstoryDir, edAgentName);
 
 		const executionDirectorResult = await startDirector({
 			missionId: mission.id,
+			missionSlug: mission.slug,
+			agentName: edAgentName,
 			projectRoot,
 			overstoryDir,
 			existingRunId: mission.runId,
 			appendSystemPromptFile: prompt.promptPath,
 			beacon: buildMissionRoleBeacon({
-				agentName: "execution-director",
+				agentName: edAgentName,
 				missionId: mission.id,
 				contextPath: prompt.contextPath,
 			}),
