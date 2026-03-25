@@ -542,6 +542,7 @@ export async function missionHandoff(
 		}
 
 		const pausedWorkstreamIds = new Set(mission.pausedWorkstreamIds);
+		const edAgentName = mission.slug ? `execution-director-${mission.slug}` : "execution-director";
 		const allHandoffs = packageHandoffs(dispatchableWorkstreams);
 		const handoffs = allHandoffs.filter(
 			(handoff) => !pausedWorkstreamIds.has(handoff.workstreamId),
@@ -601,7 +602,6 @@ export async function missionHandoff(
 			}
 		}
 
-		const edAgentName = mission.slug ? `execution-director-${mission.slug}` : "execution-director";
 		const prompt = await materializeMissionRolePrompt({
 			overstoryDir,
 			agentName: edAgentName,
