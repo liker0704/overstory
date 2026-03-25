@@ -35,7 +35,7 @@ export function dataTable(headers: string[], rows: string[][]): Raw {
 
 /** Renders a metric card with label and value. */
 export function metricCard(label: string, value: string | number): Raw {
-	return html`<div class="metric-card">
+	return html`<div class="metric">
 	<div class="metric-value">${String(value)}</div>
 	<div class="metric-label">${label}</div>
 </div>`;
@@ -50,7 +50,7 @@ export function emptyState(message: string): Raw {
 export function agentRow(agent: AgentSession): Raw {
 	const truncatedTask = agent.taskId.length > 60 ? `${agent.taskId.slice(0, 57)}...` : agent.taskId;
 	return html`<tr>
-	<td><span class="status-dot status-dot-${agent.state}"></span></td>
+	<td><span class="status-dot status-${agent.state}"></span></td>
 	<td>${agent.agentName}</td>
 	<td>${agent.capability}</td>
 	<td>${statusBadge(agent.state)}</td>

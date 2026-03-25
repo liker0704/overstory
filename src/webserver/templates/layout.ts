@@ -70,7 +70,7 @@ export function layout(title: string, body: Raw, options: LayoutOptions = {}): s
 	const navHtml = navLinks
 		.map((link) => {
 			const isActive = activeNav === link.label;
-			const cls = isActive ? ' class="nav-active"' : "";
+			const cls = isActive ? ' class="nav-item nav-active"' : ' class="nav-item"';
 			return html`<a href="${link.href}"${new Raw(cls)}>${link.label}</a>`.value;
 		})
 		.join("\n\t\t\t");
