@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { OverstoryError } from "../errors.ts";
 import { missionAction, missionAnswer, missionStart } from "./actions.ts";
 import { closeAllPools } from "./connections.ts";
@@ -8,11 +10,14 @@ import { handleMailPage } from "./pages/mail.ts";
 import { handleMergePage } from "./pages/merge.ts";
 import { handleMissionsPage } from "./pages/missions.ts";
 import { handleProjectPage } from "./pages/project.ts";
+import { loadRegistry } from "./registry.ts";
 import { createRouter } from "./router.ts";
+import { SSEManager, type PanelRenderers } from "./sse.ts";
 import { CSS } from "./static/css.ts";
 import { HTMX_JS } from "./static/htmx.ts";
 import { CLIENT_JS } from "./static/js.ts";
-import type { ProjectEntry, ProjectRegistry, Route, WebConfig } from "./types.ts";
+import { PANEL_RENDERERS } from "./templates/partials.ts";
+import type { ProjectEntry, Route, WebConfig } from "./types.ts";
 
 async function resolveProject(
 	registryPath: string,
@@ -29,32 +34,17 @@ function htmlPartial(html: string, status = 200): Response {
 	});
 }
 
-async function loadRegistry(registryPath: string): Promise<ProjectRegistry> {
-	try {
-		const file = Bun.file(registryPath);
-		const exists = await file.exists();
-		if (!exists) return { projects: [], discoveryPaths: [] };
-		const text = await file.text();
-		const parsed = JSON.parse(text) as unknown;
-		if (
-			parsed !== null &&
-			typeof parsed === "object" &&
-			"projects" in parsed &&
-			"discoveryPaths" in parsed
-		) {
-			return parsed as ProjectRegistry;
-		}
-	} catch {
-		// file missing or invalid JSON
-	}
-	return { projects: [], discoveryPaths: [] };
-}
-
 export function createServer(
 	config: WebConfig,
 	registryPath: string,
 ): ReturnType<typeof Bun.serve> {
+	const sseManager = new SSEManager(
+		{ pollIntervalMs: config.pollIntervalMs, connectionTtlMs: config.connectionTtlMs },
+		PANEL_RENDERERS as unknown as PanelRenderers,
+	);
+
 	const cleanup = () => {
+		sseManager.shutdown();
 		closeAllPools();
 	};
 	process.on("SIGTERM", cleanup);
@@ -100,29 +90,13 @@ export function createServer(
 			pattern: new URLPattern({ pathname: "/project/:slug/sse" }),
 			handler: async (req, params) => {
 				const slug = params.slug ?? "";
-				const encoder = new TextEncoder();
-				const stream = new ReadableStream({
-					start(controller) {
-						controller.enqueue(
-							encoder.encode(`event: connected\ndata: ${JSON.stringify({ slug })}\n\n`),
-						);
-						const interval = setInterval(() => {
-							controller.enqueue(encoder.encode(":heartbeat\n\n"));
-						}, 30_000);
-						req.signal.addEventListener("abort", () => {
-							clearInterval(interval);
-							controller.close();
-						});
-					},
-				});
-				return new Response(stream, {
-					status: 200,
-					headers: {
-						"Content-Type": "text/event-stream",
-						"Cache-Control": "no-cache",
-						Connection: "keep-alive",
-					},
-				});
+				const registryPath = join(homedir(), ".overstory", "projects.json");
+				const registry = await loadRegistry(registryPath);
+				const project = registry.projects.find((p) => p.slug === slug);
+				if (!project) {
+					return new Response("Project not found", { status: 404 });
+				}
+				return sseManager.connect(req, slug, project.path);
 			},
 		},
 		{

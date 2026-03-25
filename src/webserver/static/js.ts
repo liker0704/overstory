@@ -38,22 +38,9 @@ export const CLIENT_JS: string = `
 		});
 	}
 
-	/* ===== SSE Stub ===== */
-	function initSSE() {
-		var match = window.location.pathname.match(/\\/project\\/([^/]+)/);
-		if (!match || !match[1]) return;
-		var slug = match[1];
-
-		function connect() {
-			var es = new EventSource("/project/" + slug + "/sse");
-			es.onerror = function () {
-				es.close();
-				setTimeout(connect, 5000);
-			};
-		}
-
-		connect();
-	}
+	/* ===== SSE ===== */
+	// SSE connection handled by htmx sse extension via sse-connect attributes.
+	// No manual EventSource needed.
 
 	/* ===== Copy to Clipboard ===== */
 	function initCopy() {
@@ -77,7 +64,6 @@ export const CLIENT_JS: string = `
 		initNav();
 		updateRelativeTimes();
 		setInterval(updateRelativeTimes, 15000);
-		initSSE();
 		initCopy();
 	}
 
