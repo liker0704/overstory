@@ -84,6 +84,22 @@ export function mailRow(mail: MailMessage): Raw {
 </tr>`;
 }
 
+/** Renders a success alert, optionally with a link. */
+export function alertSuccess(message: string, linkHref?: string, linkText?: string): Raw {
+	if (linkHref && linkText) {
+		return html`<div class="alert alert-success">${message} <a href="${linkHref}">${linkText}</a></div>`;
+	}
+	return html`<div class="alert alert-success">${message}</div>`;
+}
+
+/** Renders a danger alert, optionally with a detail block. */
+export function alertError(message: string, detail?: string): Raw {
+	if (detail) {
+		return html`<div class="alert alert-danger">${message}<pre>${detail}</pre></div>`;
+	}
+	return html`<div class="alert alert-danger">${message}</div>`;
+}
+
 export type PanelRenderer = (data: DashboardData) => string;
 
 export const PANEL_RENDERERS: Record<string, PanelRenderer> = {
