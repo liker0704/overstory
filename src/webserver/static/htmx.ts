@@ -176,9 +176,96 @@ export const HTMX_JS: string = `
 		if (_getVerbAndUrl(root)) _bindElement(root);
 	}
 
+	/* ===== SSE Extension ===== */
+	var _sseConnections = new Map();
+
+	function _isSameOrigin(url) {
+		if (!url) return false;
+		try {
+			var parsed = new URL(url, window.location.origin);
+			return parsed.origin === window.location.origin;
+		} catch (e) {
+			return false;
+		}
+	}
+
+	function _sseConnect(container) {
+		var url = attr(container, "sse-connect");
+		if (!url) return;
+		if (!_isSameOrigin(url)) return;
+		if (_sseConnections.has(container)) return;
+
+		var backoff = 1000;
+
+		function _doConnect() {
+			var es = new EventSource(url);
+			_sseConnections.set(container, es);
+
+			es.onopen = function () {
+				backoff = 1000;
+			};
+
+			var swapElts = container.querySelectorAll("[sse-swap]");
+			swapElts.forEach(function (target) {
+				var eventName = attr(target, "sse-swap");
+				if (!eventName) return;
+				es.addEventListener(eventName, function (event) {
+					target.innerHTML = event.data;
+					_processElement(target);
+					_triggerEvent(container, "htmx:sseMessage", { event: event, target: target });
+				});
+			});
+
+			es.onmessage = function (event) {
+				_triggerEvent(container, "htmx:sseMessage", { event: event });
+			};
+
+			es.onerror = function () {
+				_sseConnections.delete(container);
+				if (!document.body.contains(container)) return;
+				var jitter = Math.floor(Math.random() * 500);
+				var delay = backoff + jitter;
+				backoff = Math.min(backoff * 2, 30000);
+				setTimeout(function () {
+					if (!document.body.contains(container)) return;
+					_doConnect();
+				}, delay);
+			};
+		}
+
+		_doConnect();
+	}
+
+	function _sseDisconnect(container) {
+		var es = _sseConnections.get(container);
+		if (es) {
+			es.close();
+			_sseConnections.delete(container);
+		}
+	}
+
+	function _processSSE(root) {
+		if (attr(root, "sse-connect")) _sseConnect(root);
+		var sseElts = root.querySelectorAll ? root.querySelectorAll("[sse-connect]") : [];
+		sseElts.forEach(function (elt) { _sseConnect(elt); });
+	}
+
+	var _sseObserver = new MutationObserver(function (mutations) {
+		mutations.forEach(function (mutation) {
+			mutation.removedNodes.forEach(function (node) {
+				if (node.nodeType !== 1) return;
+				if (attr(node, "sse-connect")) _sseDisconnect(node);
+				var nested = node.querySelectorAll ? node.querySelectorAll("[sse-connect]") : [];
+				nested.forEach(function (elt) { _sseDisconnect(elt); });
+			});
+		});
+	});
+
 	/* ===== Init ===== */
 	function init() {
 		_processElement(document.body);
+		_processSSE(document.body);
+		_sseObserver.observe(document.body, { childList: true, subtree: true });
 		_triggerEvent(document.body, "htmx:load", {});
 	}
 
