@@ -57,17 +57,22 @@ export function emptyState(message: string): Raw {
 	return html`<div class="empty-state">${message}</div>`;
 }
 
-/** Renders an agent table row. */
-export function agentRow(agent: AgentSession): Raw {
+/** Renders an agent tree node (unclosed li — caller appends children ul before closing). */
+export function agentTreeNode(agent: AgentSession, cycleWarning?: boolean): Raw {
 	const truncatedTask = agent.taskId.length > 60 ? `${agent.taskId.slice(0, 57)}...` : agent.taskId;
-	return html`<tr>
-	<td><span class="status-dot status-${agent.state}"></span></td>
-	<td>${agent.agentName}</td>
-	<td>${agent.capability}</td>
-	<td>${statusBadge(agent.state)}</td>
-	<td>${truncatedTask}</td>
-	<td>${timeAgo(agent.startedAt)}</td>
-</tr>`;
+	const warningSpan = cycleWarning
+		? html`<span class="agent-tree-warning" title="Cycle detected in parent graph">(warning cycle)</span>`
+		: new Raw("");
+	return html`<li class="agent-tree-node" id="agent-${agent.agentName}">
+	<div class="agent-tree-content">
+		<span class="status-dot status-${agent.state}"></span>
+		<span class="agent-tree-name"><a href="#agent-${agent.agentName}">${agent.agentName}</a></span>
+		${statusBadge(agent.capability)}
+		${statusBadge(agent.state)}
+		<span class="agent-tree-meta">${truncatedTask}</span>
+		<span class="agent-tree-meta">${timeAgo(agent.lastActivity)}</span>
+		${warningSpan}
+	</div>`;
 }
 
 /** Renders a mail message table row. */
