@@ -90,7 +90,7 @@ export function layout(title: string, body: Raw, options: LayoutOptions = {}): s
 			${new Raw(navHtml)}
 		</nav>
 	</header>
-	<main>
+	${slug ? html`<main hx-ext="sse" sse-connect="/project/${slug}/sse">` : new Raw("<main>")}
 		${body}
 	</main>
 	<script src="/static/htmx"></script>

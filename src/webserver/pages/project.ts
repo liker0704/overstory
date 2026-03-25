@@ -118,11 +118,9 @@ export async function handleProjectPage(
 		const headroomPanel = renderHeadroomPanel(data);
 		const resiliencePanel = renderResiliencePanel(data);
 
-		const content = html`<div hx-ext="sse" sse-connect="${`/project/${slug}/sse`}">
-	<div id="sse-metrics" sse-swap="metrics">${new Raw(metricsPanel)}</div>
-	<div id="sse-headroom" sse-swap="headroom">${new Raw(headroomPanel)}</div>
-	<div id="sse-resilience" sse-swap="resilience">${new Raw(resiliencePanel)}</div>
-</div>`;
+		const content = html`<div id="sse-metrics" sse-swap="metrics">${new Raw(metricsPanel)}</div>
+<div id="sse-headroom" sse-swap="headroom">${new Raw(headroomPanel)}</div>
+<div id="sse-resilience" sse-swap="resilience">${new Raw(resiliencePanel)}</div>`;
 
 		const htmlString = layout(`Overstory — ${slug}`, content, { activeNav: "Overview", slug });
 		return new Response(htmlString, {
