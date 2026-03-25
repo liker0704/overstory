@@ -39,6 +39,7 @@ import {
 } from "../worktree/tmux.ts";
 import { createIdentity, loadIdentity } from "./identity.ts";
 import { createManifestLoader, resolveModel } from "./manifest.ts";
+import { BEACON_POLL_INTERVAL_MS, pollForStateChange } from "./spawn.ts";
 
 // === Dependency Injection Interfaces ===
 
@@ -365,11 +366,18 @@ export async function startPersistentAgent(
 		}
 		await Bun.sleep(1_000);
 
-		// Send beacon if provided, then follow-up Enters with delays
+		// Send beacon if provided, then adaptive follow-up Enters
 		if (beacon !== undefined) {
 			await tmux.sendKeys(tmuxSession, beacon);
-			for (const delay of beaconDelays) {
-				await Bun.sleep(delay);
+			for (const timeout of beaconDelays) {
+				const departed = await pollForStateChange(
+					{ capturePaneContent },
+					tmuxSession,
+					runtime,
+					timeout,
+					BEACON_POLL_INTERVAL_MS,
+				);
+				if (departed) break;
 				await tmux.sendKeys(tmuxSession, "");
 			}
 		}

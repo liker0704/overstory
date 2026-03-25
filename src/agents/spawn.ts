@@ -50,6 +50,15 @@ import { resolveModel } from "./manifest.ts";
 import { writeOverlay } from "./overlay.ts";
 import type { AgentDefinition, AgentManifest } from "./types.ts";
 
+// === Polling Constants ===
+
+/** Maximum time to wait for beacon verification before giving up. */
+export const BEACON_VERIFY_TIMEOUT_MS = 15_000;
+/** Polling interval for beacon/state-change detection. */
+export const BEACON_POLL_INTERVAL_MS = 300;
+/** Grace period after first state change detection to confirm it's stable. */
+export const BEACON_GRACE_PERIOD_MS = 500;
+
 // === Types ===
 
 /** Options for the spawn pipeline (steps 7-14). */
@@ -155,6 +164,38 @@ export interface SpawnDeps {
 /** Interface for the spawn service. */
 export interface SpawnService {
 	spawn(opts: SpawnOptions): Promise<SpawnResult>;
+}
+
+// === Utilities ===
+
+/**
+ * Poll a tmux pane until the runtime signals it is no longer idle/ready.
+ *
+ * Returns `true` once `runtime.detectReady()` returns a non-"ready" phase
+ * (i.e. the agent has started processing), or `false` if the timeout is
+ * reached or the pane becomes unavailable.
+ */
+export async function pollForStateChange(
+	tmux: Pick<TmuxOps, "capturePaneContent">,
+	sessionName: string,
+	runtime: Pick<AgentRuntime, "detectReady">,
+	timeoutMs: number,
+	pollIntervalMs: number,
+): Promise<boolean> {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		const content = await tmux.capturePaneContent(sessionName);
+		if (content === null) {
+			return false;
+		}
+		const { phase } = runtime.detectReady(content);
+		if (phase !== "ready") {
+			await Bun.sleep(BEACON_GRACE_PERIOD_MS);
+			return true;
+		}
+		await Bun.sleep(pollIntervalMs);
+	}
+	return false;
 }
 
 // === Factory ===
@@ -638,30 +679,43 @@ async function spawnInteractive(
 	});
 	await tmux.sendKeys(tmuxSessionName, beacon);
 
-	// 13c. Follow-up Enters with increasing delays to ensure submission.
-	for (const delay of [1_000, 2_000, 3_000, 5_000]) {
-		await Bun.sleep(delay);
+	// 13c. Adaptive follow-up Enters: poll for state change after each Enter,
+	// stop early once the agent starts processing the beacon.
+	const followUpTimeouts = [1_000, 2_000, 3_000, 5_000];
+	for (const timeout of followUpTimeouts) {
+		const departed = await pollForStateChange(
+			tmux,
+			tmuxSessionName,
+			runtime,
+			timeout,
+			BEACON_POLL_INTERVAL_MS,
+		);
+		if (departed) break;
 		await tmux.sendKeys(tmuxSessionName, "");
 	}
 
-	// 13d. Verify beacon was received
+	// 13d. Verify beacon was received (poll-based)
 	const needsVerification =
 		!runtime.requiresBeaconVerification || runtime.requiresBeaconVerification();
 	if (needsVerification) {
-		const verifyAttempts = 5;
-		for (let v = 0; v < verifyAttempts; v++) {
-			await Bun.sleep(2_000);
-			const paneContent = await tmux.capturePaneContent(tmuxSessionName);
-			if (paneContent) {
-				const readyState = runtime.detectReady(paneContent);
-				if (readyState.phase !== "ready") {
-					break; // Agent is processing
-				}
-			}
-			// Still at welcome/idle screen -- resend beacon
+		const verified = await pollForStateChange(
+			tmux,
+			tmuxSessionName,
+			runtime,
+			BEACON_VERIFY_TIMEOUT_MS,
+			BEACON_POLL_INTERVAL_MS,
+		);
+		if (!verified) {
+			// Still idle — resend beacon and try once more
 			await tmux.sendKeys(tmuxSessionName, beacon);
-			await Bun.sleep(1_000);
-			await tmux.sendKeys(tmuxSessionName, ""); // Follow-up Enter
+			await tmux.sendKeys(tmuxSessionName, "");
+			await pollForStateChange(
+				tmux,
+				tmuxSessionName,
+				runtime,
+				BEACON_VERIFY_TIMEOUT_MS,
+				BEACON_POLL_INTERVAL_MS,
+			);
 		}
 	}
 
