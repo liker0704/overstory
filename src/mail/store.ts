@@ -102,6 +102,13 @@ export interface MailStore {
 
 	/** Delete messages matching the given criteria. Returns the number of messages deleted. */
 	purge(options: { all?: boolean; olderThanMs?: number; agent?: string }): number;
+
+	/** Record a mail check timestamp for debounce tracking. */
+	recordMailCheck(agent: string): void;
+
+	/** Check if a mail check is within the debounce window. */
+	isMailCheckDebounced(agent: string, debounceMs: number): boolean;
+
 	close(): void;
 }
 
@@ -166,7 +173,7 @@ CREATE TABLE IF NOT EXISTS messages (
   mission_id TEXT
 )`;
 
-/** Migrations for the mail store. Version 3: add mission_id column + composite index. */
+/** Migrations for the mail store. Version 4: add mail_check_state table for debounce tracking. */
 const MAIL_MIGRATIONS: Migration[] = [
 	{
 		version: 1,
@@ -327,6 +334,26 @@ const MAIL_MIGRATIONS: Migration[] = [
 			return !!row;
 		},
 	},
+	{
+		version: 4,
+		description: "add mail_check_state table for debounce tracking",
+		up: (db) => {
+			db.exec(`
+        CREATE TABLE IF NOT EXISTS mail_check_state (
+          agent TEXT PRIMARY KEY,
+          last_checked_at INTEGER NOT NULL
+        )
+      `);
+		},
+		detect: (db) => {
+			const row = db
+				.prepare<{ name: string }, []>(
+					"SELECT name FROM sqlite_master WHERE type='table' AND name='mail_check_state'",
+				)
+				.get();
+			return !!row;
+		},
+	},
 ];
 
 const CREATE_INDEXES = `
@@ -410,6 +437,14 @@ export function createMailStore(dbPath: string): MailStore {
 	// Create schema (if table doesn't exist yet, creates with CHECK constraints)
 	db.exec(CREATE_TABLE);
 	db.exec(CREATE_INDEXES);
+
+	// Create debounce tracking table
+	db.exec(`
+    CREATE TABLE IF NOT EXISTS mail_check_state (
+      agent TEXT PRIMARY KEY,
+      last_checked_at INTEGER NOT NULL
+    )
+  `);
 
 	// Prepare statements for all queries
 	const insertStmt = db.prepare<
@@ -508,10 +543,7 @@ export function createMailStore(dbPath: string): MailStore {
 		RETURNING *
 	`);
 
-	const claimByMissionStmt = db.prepare<
-		MessageRow,
-		{ $to_agent: string; $mission_id: string }
-	>(`
+	const claimByMissionStmt = db.prepare<MessageRow, { $to_agent: string; $mission_id: string }>(`
 		UPDATE messages
 		SET state = 'claimed', claimed_at = datetime('now')
 		WHERE id IN (
@@ -647,6 +679,15 @@ export function createMailStore(dbPath: string): MailStore {
 				});
 			}
 		},
+	);
+
+	// Debounce tracking prepared statements
+	const recordMailCheckStmt = db.prepare<void, { $agent: string; $now: number }>(
+		"INSERT OR REPLACE INTO mail_check_state (agent, last_checked_at) VALUES ($agent, $now)",
+	);
+
+	const getMailCheckStmt = db.prepare<{ last_checked_at: number } | null, { $agent: string }>(
+		"SELECT last_checked_at FROM mail_check_state WHERE agent = $agent",
 	);
 
 	// Cache for dynamically-built prepared statements (filter queries, purge variants).
@@ -987,6 +1028,16 @@ export function createMailStore(dbPath: string): MailStore {
 				stmt as ReturnType<typeof db.prepare<{ id: string }, Record<string, string>>>
 			).all(params);
 			return deleted.length;
+		},
+
+		recordMailCheck(agent: string): void {
+			recordMailCheckStmt.run({ $agent: agent, $now: Date.now() });
+		},
+
+		isMailCheckDebounced(agent: string, debounceMs: number): boolean {
+			const row = getMailCheckStmt.get({ $agent: agent });
+			if (!row) return false;
+			return Date.now() - row.last_checked_at < debounceMs;
 		},
 
 		close(): void {

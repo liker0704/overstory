@@ -912,45 +912,36 @@ describe("mailCommand", () => {
 			await mailCommand(["check", "--agent", "builder-1", "--debounce", "500"]);
 			expect(output).toContain("Build task");
 
-			// Verify state file was created
-			const statePath = join(tempDir, ".overstory", "mail-check-state.json");
-			const file = Bun.file(statePath);
-			expect(await file.exists()).toBe(true);
-
-			const state = JSON.parse(await file.text()) as Record<string, number>;
-			expect(state["builder-1"]).toBeTruthy();
-			expect(typeof state["builder-1"]).toBe("number");
+			// Verify debounce state is recorded in SQLite
+			const store = createMailStore(join(tempDir, ".overstory", "mail.db"));
+			expect(store.isMailCheckDebounced("builder-1", 500)).toBe(true);
+			store.close();
 		});
 
-		test("corrupted debounce state file is handled gracefully", async () => {
-			// Write corrupted state file
-			const statePath = join(tempDir, ".overstory", "mail-check-state.json");
-			await Bun.write(statePath, "not valid json");
-
-			// Should not throw, should treat as fresh state
-			output = "";
-			await mailCommand(["check", "--agent", "builder-1", "--debounce", "500"]);
-			expect(output).toContain("Build task");
-
-			// State should be corrected
-			const state = JSON.parse(await Bun.file(statePath).text()) as Record<string, number>;
-			expect(state["builder-1"]).toBeTruthy();
-		});
-
-		test("mail check debounce only records timestamp when flag is provided", async () => {
-			const statePath = join(tempDir, ".overstory", "mail-check-state.json");
-
+		test("debounce state is not recorded without the flag", async () => {
 			// Check without debounce flag
 			await mailCommand(["check", "--agent", "builder-1"]);
 
-			// State file should not be created
-			expect(await Bun.file(statePath).exists()).toBe(false);
+			// Debounce state should not be recorded
+			const store = createMailStore(join(tempDir, ".overstory", "mail.db"));
+			expect(store.isMailCheckDebounced("builder-1", 500)).toBe(false);
+			store.close();
+		});
+
+		test("mail check debounce only records timestamp when flag is provided", async () => {
+			// Check without debounce flag
+			await mailCommand(["check", "--agent", "builder-1"]);
+
+			// Debounce should not be active
+			const store = createMailStore(join(tempDir, ".overstory", "mail.db"));
+			expect(store.isMailCheckDebounced("builder-1", 500)).toBe(false);
 
 			// Check with debounce flag
 			await mailCommand(["check", "--agent", "builder-1", "--debounce", "500"]);
 
-			// Now state file should exist
-			expect(await Bun.file(statePath).exists()).toBe(true);
+			// Now debounce should be active
+			expect(store.isMailCheckDebounced("builder-1", 500)).toBe(true);
+			store.close();
 		});
 	});
 

@@ -196,7 +196,7 @@ describe("createMailClient", () => {
 
 	describe("checkInject", () => {
 		test("returns empty string when no unread messages", () => {
-			const result = client.checkInject("orchestrator");
+			const { output: result } = client.checkInject("orchestrator");
 			expect(result).toBe("");
 		});
 
@@ -208,7 +208,7 @@ describe("createMailClient", () => {
 				body: "All 42 tests pass",
 			});
 
-			const result = client.checkInject("orchestrator");
+			const { output: result } = client.checkInject("orchestrator");
 			expect(result).toContain("1 new message");
 			expect(result).not.toContain("messages:");
 		});
@@ -221,7 +221,7 @@ describe("createMailClient", () => {
 				body: "Finished implementation",
 			});
 
-			const result = client.checkInject("orchestrator");
+			const { output: result } = client.checkInject("orchestrator");
 			expect(result).toContain("From: builder-1");
 		});
 
@@ -233,7 +233,7 @@ describe("createMailClient", () => {
 				body: "Details here",
 			});
 
-			const result = client.checkInject("orchestrator");
+			const { output: result } = client.checkInject("orchestrator");
 			expect(result).toContain("Subject: Important Update");
 		});
 
@@ -245,7 +245,7 @@ describe("createMailClient", () => {
 				body: "The implementation is complete and all tests pass.",
 			});
 
-			const result = client.checkInject("orchestrator");
+			const { output: result } = client.checkInject("orchestrator");
 			expect(result).toContain("The implementation is complete and all tests pass.");
 		});
 
@@ -257,7 +257,7 @@ describe("createMailClient", () => {
 				body: "Need clarification",
 			});
 
-			const result = client.checkInject("orchestrator");
+			const { output: result } = client.checkInject("orchestrator");
 			expect(result).toContain(`ov mail reply ${id}`);
 		});
 
@@ -281,7 +281,7 @@ describe("createMailClient", () => {
 				body: "body3",
 			});
 
-			const result = client.checkInject("orchestrator");
+			const { output: result } = client.checkInject("orchestrator");
 			expect(result).toContain("3 new messages");
 			expect(result).toContain("From: agent-a");
 			expect(result).toContain("From: agent-b");
@@ -297,7 +297,7 @@ describe("createMailClient", () => {
 				priority: "high",
 			});
 
-			const result = client.checkInject("orchestrator");
+			const { output: result } = client.checkInject("orchestrator");
 			expect(result).toContain("[HIGH]");
 		});
 
@@ -310,7 +310,7 @@ describe("createMailClient", () => {
 				priority: "urgent",
 			});
 
-			const result = client.checkInject("orchestrator");
+			const { output: result } = client.checkInject("orchestrator");
 			expect(result).toContain("[URGENT]");
 		});
 
@@ -323,7 +323,7 @@ describe("createMailClient", () => {
 				priority: "low",
 			});
 
-			const result = client.checkInject("orchestrator");
+			const { output: result } = client.checkInject("orchestrator");
 			expect(result).toContain("[LOW]");
 		});
 
@@ -336,7 +336,7 @@ describe("createMailClient", () => {
 				priority: "normal",
 			});
 
-			const result = client.checkInject("orchestrator");
+			const { output: result } = client.checkInject("orchestrator");
 			expect(result).not.toContain("[NORMAL]");
 		});
 
@@ -348,11 +348,11 @@ describe("createMailClient", () => {
 				body: "body1",
 			});
 
-			const first = client.checkInject("orchestrator");
+			const { output: first } = client.checkInject("orchestrator");
 			expect(first).not.toBe("");
 
-			// Second call should return empty since messages are marked read
-			const second = client.checkInject("orchestrator");
+			// Second call should return empty since messages are claimed
+			const { output: second } = client.checkInject("orchestrator");
 			expect(second).toBe("");
 		});
 	});
@@ -781,7 +781,7 @@ describe("createMailClient", () => {
 				payload,
 			});
 
-			const result = client.checkInject("orchestrator");
+			const { output: result } = client.checkInject("orchestrator");
 			expect(result).toContain("worker_done");
 			expect(result).toContain("Payload:");
 			expect(result).toContain("beads-abc");
@@ -795,7 +795,7 @@ describe("createMailClient", () => {
 				body: "All good",
 			});
 
-			const result = client.checkInject("orchestrator");
+			const { output: result } = client.checkInject("orchestrator");
 			expect(result).not.toContain("Payload:");
 		});
 	});

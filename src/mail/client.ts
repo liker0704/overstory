@@ -58,13 +58,19 @@ export interface MailClient {
 	check(agentName: string, missionId?: string): MailMessage[];
 
 	/** Get unread messages formatted for hook injection (human-readable string). */
-	checkInject(agentName: string, missionId?: string): string;
+	checkInject(agentName: string, missionId?: string): { output: string; messageIds: string[] };
+
+	/** Claim messages without acking. Caller must ack after successful processing. */
+	checkClaimed(agentName: string, missionId?: string): MailMessage[];
 
 	/** Claim messages with lease. Returns claimed messages without acking. */
 	claim(agentName: string, leaseTimeoutSec?: number, missionId?: string): MailMessage[];
 
 	/** Acknowledge a claimed message as successfully processed. */
 	ack(id: string): void;
+
+	/** Acknowledge multiple messages in a single transaction. */
+	ackBatch(ids: string[]): void;
 
 	/** Negative-acknowledge a claimed message. Retries or dead-letters. */
 	nack(
@@ -99,6 +105,12 @@ export interface MailClient {
 
 	/** Reply to a message. Returns the full reply message. */
 	reply(messageId: string, body: string, from: string): MailMessage;
+
+	/** Record a mail check timestamp for debounce tracking. */
+	recordMailCheck(agent: string): void;
+
+	/** Check if a mail check is within the debounce window. */
+	isMailCheckDebounced(agent: string, debounceMs: number): boolean;
 
 	/** Close the underlying store. */
 	close(): void;
@@ -152,7 +164,7 @@ const PROTOCOL_TYPES = new Set<string>([
  * Produces a human-readable block that gets injected into the agent's
  * context via the UserPromptSubmit hook.
  */
-function formatForInjection(messages: MailMessage[]): string {
+export function formatForInjection(messages: MailMessage[]): string {
 	if (messages.length === 0) {
 		return "";
 	}
@@ -342,11 +354,16 @@ export function createMailClient(store: MailStore): MailClient {
 			return messages;
 		},
 
-		checkInject(agentName, missionId): string {
-			// v2: claim+ackBatch for at-most-once delivery (see check() comment)
+		checkInject(agentName, missionId): { output: string; messageIds: string[] } {
+			// Deferred ack: claim messages but DO NOT ack here.
+			// Caller must ack after successful stdout output to prevent message loss on crash.
 			const messages = collectMessagesForMailbox(store, agentName, undefined, missionId);
-			store.ackBatch(messages.map((m) => m.id));
-			return formatForInjection(messages);
+			const messageIds = messages.map((m) => m.id);
+			return { output: formatForInjection(messages), messageIds };
+		},
+
+		checkClaimed(agentName, missionId): MailMessage[] {
+			return collectMessagesForMailbox(store, agentName, undefined, missionId);
 		},
 
 		claim(agentName, leaseTimeoutSec, missionId): MailMessage[] {
@@ -355,6 +372,10 @@ export function createMailClient(store: MailStore): MailClient {
 
 		ack(id): void {
 			store.ack(id);
+		},
+
+		ackBatch(ids): void {
+			store.ackBatch(ids);
 		},
 
 		nack(id, reason, options): { deadLettered: boolean } {
@@ -420,6 +441,14 @@ export function createMailClient(store: MailStore): MailClient {
 				threadId,
 				payload: null,
 			});
+		},
+
+		recordMailCheck(agent): void {
+			store.recordMailCheck(agent);
+		},
+
+		isMailCheckDebounced(agent, debounceMs): boolean {
+			return store.isMailCheckDebounced(agent, debounceMs);
 		},
 
 		close(): void {

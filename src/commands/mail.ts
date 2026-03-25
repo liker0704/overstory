@@ -129,67 +129,7 @@ async function nudgeIfIdle(cwd: string, agentName: string, message: string): Pro
 //
 // Prevents excessive mail checking by tracking the last check timestamp per agent.
 // When --debounce flag is provided, mail check will skip if called within the
-// debounce window.
-
-/**
- * Path to the mail check debounce state file.
- */
-function mailCheckStatePath(cwd: string): string {
-	return join(cwd, ".overstory", "mail-check-state.json");
-}
-
-/**
- * Check if a mail check for this agent is within the debounce window.
- *
- * @param cwd - Project root directory
- * @param agentName - Agent name
- * @param debounceMs - Debounce interval in milliseconds
- * @returns true if the last check was within the debounce window
- */
-async function isMailCheckDebounced(
-	cwd: string,
-	agentName: string,
-	debounceMs: number,
-): Promise<boolean> {
-	const statePath = mailCheckStatePath(cwd);
-	const file = Bun.file(statePath);
-	if (!(await file.exists())) {
-		return false;
-	}
-	try {
-		const text = await file.text();
-		const state = JSON.parse(text) as Record<string, number>;
-		const lastCheck = state[canonicalizeMailAgentName(agentName)];
-		if (lastCheck === undefined) {
-			return false;
-		}
-		return Date.now() - lastCheck < debounceMs;
-	} catch {
-		return false;
-	}
-}
-
-/**
- * Record a mail check timestamp for debounce tracking.
- *
- * @param cwd - Project root directory
- * @param agentName - Agent name
- */
-async function recordMailCheck(cwd: string, agentName: string): Promise<void> {
-	const statePath = mailCheckStatePath(cwd);
-	let state: Record<string, number> = {};
-	const file = Bun.file(statePath);
-	if (await file.exists()) {
-		try {
-			const text = await file.text();
-			state = JSON.parse(text) as Record<string, number>;
-		} catch {
-			// Corrupt state file — start fresh
-		}
-	}
-	state[canonicalizeMailAgentName(agentName)] = Date.now();
-	await Bun.write(statePath, `${JSON.stringify(state, null, "\t")}\n`);
-}
+// debounce window. State is persisted in the mail.db SQLite store.
 
 /**
  * Open a mail client connected to the project's mail.db.
@@ -449,7 +389,16 @@ async function handleSend(opts: SendOpts, cwd: string): Promise<void> {
 	// Single-recipient message (existing logic)
 	const client = openClient(cwd);
 	try {
-		const id = client.send({ from, to: canonicalTo, subject, body, type, priority, payload, missionId });
+		const id = client.send({
+			from,
+			to: canonicalTo,
+			subject,
+			body,
+			type,
+			priority,
+			payload,
+			missionId,
+		});
 		await syncMissionPendingInputFromMail(cwd, {
 			id,
 			from,
@@ -600,23 +549,21 @@ async function handleCheck(opts: CheckOpts, cwd: string): Promise<void> {
 		debounceMs = parsed;
 	}
 
-	// Check debounce if enabled
-	if (debounceMs !== undefined) {
-		const debounced = await isMailCheckDebounced(cwd, agent, debounceMs);
-		if (debounced) {
-			// Silent skip — no output when debounced
-			return;
-		}
-	}
-
 	const client = openClient(cwd);
 	try {
+		// Check debounce if enabled (store-based, no file race)
+		if (debounceMs !== undefined) {
+			if (client.isMailCheckDebounced(canonicalizeMailAgentName(agent), debounceMs)) {
+				// Silent skip — no output when debounced
+				return;
+			}
+		}
+
 		if (inject) {
 			// Check for pending nudge markers (written by auto-nudge instead of tmux keys)
 			const pendingNudge = await readAndClearPendingNudge(cwd, agent);
-			const output = client.checkInject(agent);
+			const { output, messageIds } = client.checkInject(agent);
 
-			// Prepend a priority banner if there's a pending nudge
 			if (pendingNudge) {
 				const banner = `PRIORITY: ${pendingNudge.reason} message from ${pendingNudge.from} — "${pendingNudge.subject}"\n\n`;
 				process.stdout.write(banner);
@@ -624,6 +571,11 @@ async function handleCheck(opts: CheckOpts, cwd: string): Promise<void> {
 
 			if (output.length > 0) {
 				process.stdout.write(output);
+			}
+
+			// Deferred ack: only ack after successful stdout output
+			if (messageIds.length > 0) {
+				client.ackBatch(messageIds);
 			}
 		} else {
 			const messages = client.check(agent);
@@ -644,7 +596,7 @@ async function handleCheck(opts: CheckOpts, cwd: string): Promise<void> {
 
 		// Record this check for debounce tracking (only if debounce is enabled)
 		if (debounceMs !== undefined) {
-			await recordMailCheck(cwd, agent);
+			client.recordMailCheck(canonicalizeMailAgentName(agent));
 		}
 	} finally {
 		client.close();
