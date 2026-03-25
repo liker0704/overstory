@@ -1,4 +1,6 @@
-export const CSS: string = `
+import { NOTIFICATION_CSS } from "../../notifications/client-css.ts";
+
+const BASE_CSS: string = `
 /* ===== Reset & Base ===== */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -299,3 +301,5 @@ a:hover { text-decoration: underline; }
 	color: var(--text);
 }
 `;
+
+export const CSS: string = `${BASE_CSS}\n${NOTIFICATION_CSS}`;
