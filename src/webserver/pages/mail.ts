@@ -7,7 +7,7 @@ import { Raw, html, layout } from "../templates/layout.ts";
 import { emptyState, mailRow } from "../templates/partials.ts";
 
 export async function handleMailPage(
-	req: Request,
+	_req: Request,
 	params: Record<string, string>,
 ): Promise<Response> {
 	const registryPath = join(homedir(), ".overstory", "projects.json");
