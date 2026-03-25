@@ -1,10 +1,38 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { DashboardData } from "../../dashboard/data.ts";
 import { loadDashboardData } from "../../dashboard/data.ts";
 import { acquireStores, releaseStores } from "../connections.ts";
 import { loadRegistry } from "../registry.ts";
-import { Raw, html, layout } from "../templates/layout.ts";
+import { html, layout, Raw } from "../templates/layout.ts";
 import { emptyState, mailRow } from "../templates/partials.ts";
+
+export function renderMailPanel(data: DashboardData): string {
+	const messages = data.recentMail;
+	const unreadCount = data.status.unreadMailCount;
+
+	const header = html`<div class="page-header">
+	<h2>Mail <span class="badge badge-unread">${String(unreadCount)} unread</span></h2>
+</div>`;
+
+	if (messages.length === 0) {
+		return html`${header}${emptyState("No mail messages.")}`.value;
+	}
+
+	const rowsHtml = messages.map((m) => mailRow(m).value).join("\n");
+
+	return html`${header}<table class="table">
+	<thead><tr>
+		<th>Priority</th>
+		<th>From</th>
+		<th>To</th>
+		<th>Subject</th>
+		<th>Type</th>
+		<th>Time</th>
+	</tr></thead>
+	<tbody>${new Raw(rowsHtml)}</tbody>
+</table>`.value;
+}
 
 export async function handleMailPage(
 	_req: Request,
@@ -12,7 +40,7 @@ export async function handleMailPage(
 ): Promise<Response> {
 	const registryPath = join(homedir(), ".overstory", "projects.json");
 	const registry = await loadRegistry(registryPath);
-	const slug = params["slug"] ?? "";
+	const slug = params.slug ?? "";
 	const project = registry.projects.find((p) => p.slug === slug);
 
 	if (!project) {
@@ -25,34 +53,8 @@ export async function handleMailPage(
 
 	try {
 		const data = await loadDashboardData(projectPath, stores);
-		const messages = data.recentMail;
-		const unreadCount = data.status.unreadMailCount;
-
-		const header = html`<div class="page-header">
-	<h2>Mail <span class="badge badge-unread">${String(unreadCount)} unread</span></h2>
-</div>`;
-
-		if (messages.length === 0) {
-			const body = layout("Mail", html`${header}${emptyState("No mail messages.")}`, {
-				activeNav: "Mail",
-				slug,
-			});
-			return new Response(body, { status: 200, headers: { "Content-Type": "text/html" } });
-		}
-
-		const rowsHtml = messages.map((m) => mailRow(m).value).join("\n");
-
-		const content = html`${header}<table class="table">
-	<thead><tr>
-		<th>Priority</th>
-		<th>From</th>
-		<th>To</th>
-		<th>Subject</th>
-		<th>Type</th>
-		<th>Time</th>
-	</tr></thead>
-	<tbody>${new Raw(rowsHtml)}</tbody>
-</table>`;
+		const panelHtml = renderMailPanel(data);
+		const content = html`<div id="sse-mail" sse-swap="mail">${new Raw(panelHtml)}</div>`;
 
 		const body = layout("Mail", content, { activeNav: "Mail", slug });
 		return new Response(body, { status: 200, headers: { "Content-Type": "text/html" } });
