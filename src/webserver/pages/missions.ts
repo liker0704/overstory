@@ -4,10 +4,126 @@ import type { DashboardData } from "../../dashboard/data.ts";
 import { loadDashboardData } from "../../dashboard/data.ts";
 import { createMailStore } from "../../mail/store.ts";
 import { createMissionStore } from "../../missions/store.ts";
+import { MISSION_PHASES } from "../../missions/types.ts";
 import { acquireStores, releaseStores } from "../connections.ts";
 import { loadRegistry } from "../registry.ts";
 import { html, layout, Raw } from "../templates/layout.ts";
 import { emptyState, statusBadge, timeAgo } from "../templates/partials.ts";
+
+function renderPhaseStepper(currentPhase: string): Raw {
+	const currentIdx = MISSION_PHASES.indexOf(currentPhase as (typeof MISSION_PHASES)[number]);
+	const steps = MISSION_PHASES.map((phase, i) => {
+		let circleClass = "mission-stepper-circle";
+		let label: string = phase;
+		if (i < currentIdx) {
+			circleClass += " mission-stepper-done";
+			label = "✓";
+		} else if (i === currentIdx) {
+			circleClass += " mission-stepper-active";
+		} else {
+			circleClass += " mission-stepper-future";
+		}
+		const connectorClass =
+			i < currentIdx
+				? "mission-stepper-connector mission-stepper-connector-done"
+				: "mission-stepper-connector";
+		const connector = i < MISSION_PHASES.length - 1 ? `<div class="${connectorClass}"></div>` : "";
+		return `<div class="mission-stepper-step">
+			<div class="${circleClass}">${label}</div>
+			<div class="mission-stepper-label">${phase}</div>
+			${connector}
+		</div>`;
+	}).join("\n");
+
+	const style = `<style>
+.mission-stepper {
+	display: flex;
+	align-items: flex-start;
+	justify-content: center;
+	flex-wrap: wrap;
+	gap: 0;
+	padding: 1rem 0;
+}
+.mission-stepper-step {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	position: relative;
+}
+.mission-stepper-circle {
+	width: 2rem;
+	height: 2rem;
+	border-radius: 50%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 0.75rem;
+	font-weight: 600;
+	background: #374151;
+	color: #9ca3af;
+	border: 2px solid #4b5563;
+	z-index: 1;
+}
+.mission-stepper-circle.mission-stepper-done {
+	background: #16a34a;
+	color: #fff;
+	border-color: #22c55e;
+}
+.mission-stepper-circle.mission-stepper-active {
+	background: #2563eb;
+	color: #fff;
+	border-color: #3b82f6;
+	animation: mission-stepper-pulse 1.8s ease-in-out infinite;
+}
+.mission-stepper-circle.mission-stepper-future {
+	background: #1f2937;
+	color: #6b7280;
+	border-color: #4b5563;
+}
+.mission-stepper-label {
+	font-size: 0.65rem;
+	color: #9ca3af;
+	margin-top: 0.25rem;
+	text-align: center;
+	white-space: nowrap;
+}
+.mission-stepper-connector {
+	position: absolute;
+	top: 1rem;
+	left: calc(50% + 1rem);
+	width: calc(4rem - 1px);
+	height: 2px;
+	background: #4b5563;
+	border-top: 2px dashed #4b5563;
+}
+.mission-stepper-connector.mission-stepper-connector-done {
+	background: #22c55e;
+	border-top: 2px solid #22c55e;
+}
+@keyframes mission-stepper-pulse {
+	0%, 100% { box-shadow: 0 0 0 0 rgba(59,130,246,0.5); }
+	50% { box-shadow: 0 0 0 6px rgba(59,130,246,0); }
+}
+@media (max-width: 600px) {
+	.mission-stepper {
+		flex-direction: column;
+		align-items: flex-start;
+		padding-left: 1rem;
+	}
+	.mission-stepper-step {
+		flex-direction: row;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 0.5rem;
+	}
+	.mission-stepper-connector {
+		display: none;
+	}
+}
+</style>`;
+
+	return new Raw(`${style}<div class="mission-stepper">${steps}</div>`);
+}
 
 export function renderMissionPanel(data: DashboardData): string {
 	const missions = data.missions;
@@ -46,7 +162,31 @@ export function renderMissionPanel(data: DashboardData): string {
 		.map((r) => r.value)
 		.join("\n");
 
+	const primaryPhase = missions[0]?.phase ?? "understand";
+	const stepperHtml = renderPhaseStepper(primaryPhase);
+
 	const ge = data.graphExecution;
+	const lastTransRow = ge?.lastTransition
+		? html`<div class="metrics-row">
+		<div class="metric"><div class="metric-label">Last Transition</div><div class="metric-value">${ge.lastTransition.fromNode} → ${ge.lastTransition.toNode}</div></div>
+		<div class="metric"><div class="metric-label">Trigger</div><div class="metric-value">${ge.lastTransition.trigger}</div></div>
+		<div class="metric"><div class="metric-label">At</div><div class="metric-value">${timeAgo(ge.lastTransition.createdAt)}</div></div>
+	</div>`
+		: html``;
+	const recentTransitions = ge?.recentTransitions ?? [];
+	const historyRows = recentTransitions
+		.map(
+			(t) =>
+				html`<div class="metrics-row" style="font-size:0.8em">
+		<div class="metric"><div class="metric-label">${timeAgo(t.createdAt)}</div><div class="metric-value">${t.fromNode} → ${t.toNode} <em>${t.trigger}</em></div></div>
+	</div>`,
+		)
+		.map((r) => r.value)
+		.join("\n");
+	const historySection =
+		recentTransitions.length > 0
+			? html`<div class="graph-transition-history">${new Raw(historyRows)}</div>`
+			: html``;
 	const graphSection = ge
 		? html`<section class="graph-execution">
 	<h2>Graph Execution</h2>
@@ -55,10 +195,12 @@ export function renderMissionPanel(data: DashboardData): string {
 		<div class="metric"><div class="metric-label">Current Node</div><div class="metric-value">${ge.currentNodeId}</div></div>
 		<div class="metric"><div class="metric-label">Transitions</div><div class="metric-value">${String(ge.transitionCount)}</div></div>
 	</div>
+	${lastTransRow}
+	${historySection}
 </section>`
 		: html``;
 
-	return html`${graphSection}<table class="table">
+	return html`${stepperHtml}${graphSection}<table class="table">
 	<thead><tr>
 		<th>ID</th>
 		<th>State</th>
@@ -224,6 +366,7 @@ export async function handleMissionDetailPage(
 		<dt>Created</dt><dd>${timeAgo(mission.createdAt)}</dd>
 		<dt>Completed</dt><dd>${mission.completedAt ? timeAgo(mission.completedAt) : new Raw("—")}</dd>
 	</dl>
+	${renderPhaseStepper(mission.phase ?? "understand")}
 	${actionButtons}
 	<div id="action-result"></div>
 </div>
