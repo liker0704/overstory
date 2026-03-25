@@ -1,5 +1,16 @@
 import { OverstoryError } from "../errors.ts";
+import { closeAllPools } from "./connections.ts";
+import { handleAgentsPage } from "./pages/agents.ts";
+import { handleEventsPage } from "./pages/events.ts";
+import { handleHomePage } from "./pages/home.ts";
+import { handleMailPage } from "./pages/mail.ts";
+import { handleMergePage } from "./pages/merge.ts";
+import { handleMissionsPage } from "./pages/missions.ts";
+import { handleProjectPage } from "./pages/project.ts";
 import { createRouter } from "./router.ts";
+import { CSS } from "./static/css.ts";
+import { HTMX_JS } from "./static/htmx.ts";
+import { CLIENT_JS } from "./static/js.ts";
 import type { ProjectRegistry, Route, WebConfig } from "./types.ts";
 
 async function loadRegistry(registryPath: string): Promise<ProjectRegistry> {
@@ -27,23 +38,25 @@ export function createServer(
 	config: WebConfig,
 	registryPath: string,
 ): ReturnType<typeof Bun.serve> {
+	const cleanup = () => {
+		closeAllPools();
+	};
+	process.on("SIGTERM", cleanup);
+	process.on("SIGINT", cleanup);
+
 	const cacheHeaders = { "Cache-Control": "public, max-age=31536000" };
 
 	const routes: Route[] = [
 		{
 			method: "GET",
 			pattern: new URLPattern({ pathname: "/" }),
-			handler: async () =>
-				new Response("<html><body><h1>Overstory</h1></body></html>", {
-					status: 200,
-					headers: { "Content-Type": "text/html" },
-				}),
+			handler: handleHomePage,
 		},
 		{
 			method: "GET",
 			pattern: new URLPattern({ pathname: "/static/css" }),
 			handler: async () =>
-				new Response("", {
+				new Response(CSS, {
 					status: 200,
 					headers: { "Content-Type": "text/css", ...cacheHeaders },
 				}),
@@ -52,7 +65,7 @@ export function createServer(
 			method: "GET",
 			pattern: new URLPattern({ pathname: "/static/js" }),
 			handler: async () =>
-				new Response("", {
+				new Response(CLIENT_JS, {
 					status: 200,
 					headers: { "Content-Type": "application/javascript", ...cacheHeaders },
 				}),
@@ -61,7 +74,7 @@ export function createServer(
 			method: "GET",
 			pattern: new URLPattern({ pathname: "/static/htmx" }),
 			handler: async () =>
-				new Response("", {
+				new Response(HTMX_JS, {
 					status: 200,
 					headers: { "Content-Type": "application/javascript", ...cacheHeaders },
 				}),
@@ -98,14 +111,33 @@ export function createServer(
 		},
 		{
 			method: "GET",
+			pattern: new URLPattern({ pathname: "/project/:slug/agents" }),
+			handler: handleAgentsPage,
+		},
+		{
+			method: "GET",
+			pattern: new URLPattern({ pathname: "/project/:slug/missions" }),
+			handler: handleMissionsPage,
+		},
+		{
+			method: "GET",
+			pattern: new URLPattern({ pathname: "/project/:slug/mail" }),
+			handler: handleMailPage,
+		},
+		{
+			method: "GET",
+			pattern: new URLPattern({ pathname: "/project/:slug/merge" }),
+			handler: handleMergePage,
+		},
+		{
+			method: "GET",
+			pattern: new URLPattern({ pathname: "/project/:slug/events" }),
+			handler: handleEventsPage,
+		},
+		{
+			method: "GET",
 			pattern: new URLPattern({ pathname: "/project/:slug" }),
-			handler: async (_req, params) => {
-				const slug = params.slug ?? "";
-				return new Response(`<html><body><h1>Project: ${slug}</h1></body></html>`, {
-					status: 200,
-					headers: { "Content-Type": "text/html" },
-				});
-			},
+			handler: handleProjectPage,
 		},
 		{
 			method: "GET",
