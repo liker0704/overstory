@@ -14,6 +14,7 @@ export {
 } from "./mail/types.ts";
 export { MISSION_PHASES, MISSION_STATES, PENDING_INPUT_KINDS } from "./missions/types.ts";
 export { SPAN_KINDS, SPAN_STATUSES } from "./observability/types.ts";
+export { NOTIFICATION_KINDS } from "./notifications/types.ts";
 export { WORKFLOW_COMPONENT_ACTIONS, WORKFLOW_TDD_MODES } from "./workflow/types.ts";
 
 // === Type re-exports ===
@@ -211,6 +212,13 @@ export type {
 	SemanticSearchOptions,
 	SemanticSearchResult,
 } from "./mulch/types.ts";
+// Notification types
+export type {
+	DashboardNotification,
+	NotificationConfig,
+	NotificationKind,
+	NotificationSeverity,
+} from "./notifications/types.ts";
 export type { ExportPipeline, PipelineStats } from "./observability/pipeline.ts";
 // Observability types
 export type {
