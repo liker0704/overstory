@@ -152,7 +152,7 @@ ov sling <task-id> \
     ```bash
     ov mail send --to coordinator --subject "Batch complete: all workstreams done" \
       --body "All <N> workstreams have completed. Leads: <list>. Branches ready for merge: <list>." \
-      --type status --agent $OVERSTORY_AGENT_NAME
+      --type status --priority high --agent $OVERSTORY_AGENT_NAME
     ```
 
 ## routing-rules
