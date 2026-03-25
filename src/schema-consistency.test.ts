@@ -330,6 +330,7 @@ describe("SQL schema consistency", () => {
 				"current_node",
 				"execution_director_session_id",
 				"first_freeze_at",
+				"frozen_at",
 				"id",
 				"learnings_extracted",
 				"objective",

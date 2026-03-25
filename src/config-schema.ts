@@ -96,7 +96,7 @@ export const KNOWN_FIELDS = {
 	runtime: new Set(["default", "capabilities", "printCommand", "pi", "shellInitDelayMs"]),
 	runtimePi: new Set(["provider", "modelMap"]),
 	providerItem: new Set(["type", "baseUrl", "authTokenEnv"]),
-	mission: new Set(["planReview", "graphExecution", "maxConcurrent"]),
+	mission: new Set(["planReview", "graphExecution", "maxConcurrent", "freezeTimeoutMs"]),
 	missionPlanReview: new Set(["enabled", "tier", "maxRounds", "criticModel"]),
 	mail: new Set(["reliability"]),
 	mailReliability: new Set(["leaseTimeoutSec", "maxRetries", "backoffBaseMs", "backoffMaxMs"]),

@@ -35,7 +35,7 @@ import {
 } from "./messaging.ts";
 import { startExecutionDirector } from "./roles.ts";
 import { listSpecMeta, readSpecMeta, type SpecMeta, type SpecMetaStatus } from "./spec-meta.ts";
-import { createMissionStore } from "./store.ts";
+import { createMissionStore, logMissionDispatch } from "./store.ts";
 import {
 	ensureCanonicalWorkstreamTasks,
 	loadWorkstreamsFile,
@@ -641,6 +641,11 @@ export async function missionHandoff(
 			agentName: "operator",
 			data: { kind: "role_started", detail: "execution-director started" },
 		});
+
+		// Audit trail: record dispatched workstreams
+		for (const handoff of handoffs) {
+			logMissionDispatch(dbPath, mission.id, handoff.workstreamId);
+		}
 
 		const client = openMailClient(overstoryDir);
 		let messageId: string;

@@ -7,11 +7,12 @@
  */
 
 import { join } from "node:path";
+import { loadConfig } from "../config.ts";
 import { ValidationError } from "../errors.ts";
 import type { MailMessageType, MissionFindingPayload } from "../types.ts";
 import { recordMissionEvent } from "./events.ts";
 import { resolveActiveMissionContext } from "./runtime-context.ts";
-import { createMissionStore } from "./store.ts";
+import { appendMissionThreadId, checkMissionFreezeTimeout, createMissionStore } from "./store.ts";
 
 const MISSION_PENDING_SENDERS = new Set([
 	"mission-analyst",
@@ -51,7 +52,12 @@ export async function syncMissionPendingInputFromMail(
 			return;
 		}
 
-		missionStore.freeze(mission.id, "question", msg.id);
+		if (mission.state === "frozen") {
+			// Already frozen — append thread ID instead of overwriting
+			appendMissionThreadId(dbPath, mission.id, msg.id);
+		} else {
+			missionStore.freeze(mission.id, "question", msg.id);
+		}
 		recordMissionEvent({
 			overstoryDir,
 			mission,
@@ -68,6 +74,44 @@ export async function syncMissionPendingInputFromMail(
 			agentName: msg.from,
 			data: { kind: "state_change", from: mission.state, to: "frozen" },
 		});
+	} finally {
+		missionStore.close();
+	}
+}
+
+const DEFAULT_FREEZE_TIMEOUT_MS = 1_800_000; // 30 minutes
+
+/**
+ * Check all active frozen missions for freeze timeout and auto-unfreeze
+ * those that have exceeded the configured timeout.
+ */
+export async function checkMissionFreezeTimeouts(cwd: string): Promise<void> {
+	const overstoryDir = join(cwd, ".overstory");
+	const dbPath = join(overstoryDir, "sessions.db");
+	const missionStore = createMissionStore(dbPath);
+	try {
+		const config = await loadConfig(cwd);
+		const timeoutMs = config.mission?.freezeTimeoutMs ?? DEFAULT_FREEZE_TIMEOUT_MS;
+
+		const frozenMissions = missionStore.list({ state: "frozen" });
+		for (const mission of frozenMissions) {
+			const result = checkMissionFreezeTimeout(dbPath, mission.id, timeoutMs);
+			if (result.timedOut) {
+				missionStore.unfreeze(mission.id);
+				recordMissionEvent({
+					overstoryDir,
+					mission,
+					agentName: "system",
+					data: {
+						kind: "auto_unfreeze",
+						detail: `Mission auto-unfrozen after ${Math.round(result.elapsedMs / 60_000)}m timeout (limit: ${Math.round(timeoutMs / 60_000)}m)`,
+						frozenAt: result.frozenAt,
+						elapsedMs: result.elapsedMs,
+						timeoutMs,
+					},
+				});
+			}
+		}
 	} finally {
 		missionStore.close();
 	}

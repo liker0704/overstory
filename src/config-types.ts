@@ -204,6 +204,8 @@ export interface OverstoryConfig {
 		graphExecution?: boolean;
 		/** Maximum number of concurrently active missions. Default: 1 (backward-compatible). */
 		maxConcurrent?: number;
+		/** Timeout in ms before a frozen mission auto-unfreezes. Default: 1800000 (30 minutes). */
+		freezeTimeoutMs?: number;
 	};
 	mail?: {
 		reliability?: {

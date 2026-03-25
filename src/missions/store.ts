@@ -26,6 +26,7 @@ interface MissionRow {
 	state: string;
 	phase: string;
 	first_freeze_at: string | null;
+	frozen_at: string | null;
 	pending_user_input: number;
 	pending_input_kind: string | null;
 	pending_input_thread_id: string | null;
@@ -56,6 +57,7 @@ CREATE TABLE IF NOT EXISTS missions (
   phase TEXT NOT NULL DEFAULT 'understand'
     CHECK(phase IN ('understand','align','decide','plan','execute','done')),
   first_freeze_at TEXT,
+  frozen_at TEXT,
   pending_user_input INTEGER NOT NULL DEFAULT 0,
   pending_input_kind TEXT CHECK(pending_input_kind IS NULL OR pending_input_kind IN ('question','approval','decision','clarification')),
   pending_input_thread_id TEXT,
@@ -88,6 +90,7 @@ const REQUIRED_MISSION_COLUMNS = [
 	"state",
 	"phase",
 	"first_freeze_at",
+	"frozen_at",
 	"pending_user_input",
 	"pending_input_kind",
 	"pending_input_thread_id",
@@ -213,6 +216,7 @@ const MISSION_MIGRATIONS: Migration[] = [
 				"state",
 				"phase",
 				"first_freeze_at",
+				"frozen_at",
 				"pending_user_input",
 				"pending_input_kind",
 				"pending_input_thread_id",
@@ -245,6 +249,7 @@ const MISSION_MIGRATIONS: Migration[] = [
 					state: stateExpr,
 					phase: phaseExpr,
 					first_freeze_at: missionColumnExpr(existingColumns, "first_freeze_at", "NULL"),
+					frozen_at: missionColumnExpr(existingColumns, "frozen_at", "NULL"),
 					pending_user_input: `COALESCE(${missionColumnExpr(existingColumns, "pending_user_input", "0")}, 0)`,
 					pending_input_kind: pendingInputKindExpr,
 					pending_input_thread_id: missionColumnExpr(
@@ -316,6 +321,34 @@ const MISSION_MIGRATIONS: Migration[] = [
 				)
 				.get();
 			return checkpoints !== null && transitions !== null;
+		},
+	},
+	{
+		version: 3,
+		description: "add frozen_at column and dispatch_log table",
+		up: (db) => {
+			const cols = db.prepare("PRAGMA table_info(missions)").all() as Array<{ name: string }>;
+			if (!cols.some((c) => c.name === "frozen_at")) {
+				db.exec("ALTER TABLE missions ADD COLUMN frozen_at TEXT");
+			}
+			db.exec(`
+				CREATE TABLE IF NOT EXISTS dispatch_log (
+					mission_id TEXT NOT NULL,
+					workstream_id TEXT NOT NULL,
+					dispatched_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+					PRIMARY KEY (mission_id, workstream_id)
+				)
+			`);
+		},
+		detect: (db) => {
+			const cols = db.prepare("PRAGMA table_info(missions)").all() as Array<{ name: string }>;
+			const hasFrozenAt = cols.some((c) => c.name === "frozen_at");
+			const hasDispatchLog = db
+				.prepare<{ name: string }, []>(
+					"SELECT name FROM sqlite_master WHERE type='table' AND name='dispatch_log'",
+				)
+				.get();
+			return hasFrozenAt && hasDispatchLog !== null;
 		},
 	},
 ];
@@ -436,6 +469,7 @@ export function createMissionStore(dbPath: string): MissionStore {
 		    pending_input_kind = $kind,
 		    pending_input_thread_id = $thread_id,
 		    first_freeze_at = COALESCE(first_freeze_at, $updated_at),
+		    frozen_at = $updated_at,
 		    current_node = phase || ':frozen',
 		    updated_at = $updated_at
 		WHERE id = $id
@@ -447,6 +481,7 @@ export function createMissionStore(dbPath: string): MissionStore {
 		    pending_user_input = 0,
 		    pending_input_kind = NULL,
 		    pending_input_thread_id = NULL,
+		    frozen_at = NULL,
 		    reopen_count = reopen_count + 1,
 		    current_node = phase || ':active',
 		    updated_at = $updated_at
@@ -547,6 +582,7 @@ export function createMissionStore(dbPath: string): MissionStore {
 		    pending_user_input = 0,
 		    pending_input_kind = NULL,
 		    pending_input_thread_id = NULL,
+		    frozen_at = NULL,
 		    completed_at = $completed_at,
 		    updated_at = $updated_at
 		WHERE id = $id
@@ -758,4 +794,93 @@ export function createMissionStore(dbPath: string): MissionStore {
 			db.close();
 		},
 	};
+}
+
+/** Get the frozen_at timestamp for a mission. */
+export function getMissionFrozenAt(dbPath: string, missionId: string): string | null {
+	const db = new Database(dbPath);
+	db.exec("PRAGMA journal_mode = WAL");
+	db.exec("PRAGMA busy_timeout = 5000");
+	try {
+		const row = db
+			.prepare<{ frozen_at: string | null }, { $id: string }>(
+				"SELECT frozen_at FROM missions WHERE id = $id",
+			)
+			.get({ $id: missionId });
+		return row?.frozen_at ?? null;
+	} finally {
+		db.close();
+	}
+}
+
+/** Append a thread ID to the frozen mission's pending_input_thread_id (JSON array). */
+export function appendMissionThreadId(dbPath: string, missionId: string, threadId: string): void {
+	const db = new Database(dbPath);
+	db.exec("PRAGMA journal_mode = WAL");
+	db.exec("PRAGMA busy_timeout = 5000");
+	try {
+		const row = db
+			.prepare<{ pending_input_thread_id: string | null }, { $id: string }>(
+				"SELECT pending_input_thread_id FROM missions WHERE id = $id",
+			)
+			.get({ $id: missionId });
+		let ids: string[];
+		const current = row?.pending_input_thread_id;
+		if (!current) {
+			ids = [];
+		} else if (current.startsWith("[")) {
+			ids = JSON.parse(current) as string[];
+		} else {
+			ids = [current];
+		}
+		if (!ids.includes(threadId)) {
+			ids.push(threadId);
+		}
+		db.prepare(
+			"UPDATE missions SET pending_input_thread_id = $thread_ids, updated_at = $updated_at WHERE id = $id",
+		).run({
+			$id: missionId,
+			$thread_ids: JSON.stringify(ids),
+			$updated_at: new Date().toISOString(),
+		});
+	} finally {
+		db.close();
+	}
+}
+
+/** Check if a frozen mission has exceeded its timeout. Returns info for caller to act on. */
+export function checkMissionFreezeTimeout(
+	dbPath: string,
+	missionId: string,
+	timeoutMs: number,
+): { timedOut: boolean; frozenAt: string | null; elapsedMs: number } {
+	const frozenAt = getMissionFrozenAt(dbPath, missionId);
+	if (!frozenAt) {
+		return { timedOut: false, frozenAt: null, elapsedMs: 0 };
+	}
+	const elapsedMs = Date.now() - new Date(frozenAt).getTime();
+	return { timedOut: elapsedMs >= timeoutMs, frozenAt, elapsedMs };
+}
+
+/** Record a workstream dispatch event in the audit log. */
+export function logMissionDispatch(dbPath: string, missionId: string, workstreamId: string): void {
+	const db = new Database(dbPath);
+	db.exec("PRAGMA journal_mode = WAL");
+	db.exec("PRAGMA busy_timeout = 5000");
+	try {
+		// Ensure table exists (idempotent)
+		db.exec(`
+			CREATE TABLE IF NOT EXISTS dispatch_log (
+				mission_id TEXT NOT NULL,
+				workstream_id TEXT NOT NULL,
+				dispatched_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+				PRIMARY KEY (mission_id, workstream_id)
+			)
+		`);
+		db.prepare(
+			"INSERT OR IGNORE INTO dispatch_log (mission_id, workstream_id) VALUES ($mission_id, $workstream_id)",
+		).run({ $mission_id: missionId, $workstream_id: workstreamId });
+	} finally {
+		db.close();
+	}
 }
