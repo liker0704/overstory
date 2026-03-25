@@ -257,6 +257,8 @@ export type {
 	SessionInsight,
 	ToolProfile,
 } from "./sessions/types.ts";
+// Webserver types
+export type { ProjectEntry, ProjectRegistry, Route, WebConfig } from "./webserver/types.ts";
 // Workflow types
 export type {
 	ImportManifest,
