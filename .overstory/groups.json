@@ -1528,5 +1528,17 @@
 		"status": "active",
 		"createdAt": "2026-03-25T12:12:52.222Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-6fb99e3d",
+		"name": "dashboard-pages-batch",
+		"memberIssueIds": [
+			"overstory-6e5b",
+			"overstory-fc5f",
+			"overstory-90be"
+		],
+		"status": "active",
+		"createdAt": "2026-03-25T13:30:00.468Z",
+		"completedAt": null
 	}
 ]
