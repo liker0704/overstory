@@ -128,7 +128,10 @@ export async function handleMissionDetailPage(
 	const project = registry.projects.find((p) => p.slug === slug);
 
 	if (!project) {
-		const body = layout("Not Found", html`<h1>Project not found</h1>`, { activeNav: "Missions", slug });
+		const body = layout("Not Found", html`<h1>Project not found</h1>`, {
+			activeNav: "Missions",
+			slug,
+		});
 		return new Response(body, { status: 404, headers: { "Content-Type": "text/html" } });
 	}
 
@@ -140,7 +143,10 @@ export async function handleMissionDetailPage(
 		const mission = missionStore.getById(missionId);
 
 		if (!mission) {
-			const body = layout("Not Found", html`<h1>Mission not found</h1>`, { activeNav: "Missions", slug });
+			const body = layout("Not Found", html`<h1>Mission not found</h1>`, {
+				activeNav: "Missions",
+				slug,
+			});
 			return new Response(body, { status: 404, headers: { "Content-Type": "text/html" } });
 		}
 
@@ -227,7 +233,10 @@ ${frozenSection}
 	${coordinatorBadge}${analystBadge}${execBadge}
 </div>`;
 
-		const body = layout(`Mission: ${mission.slug || mission.id}`, content, { activeNav: "Missions", slug });
+		const body = layout(`Mission: ${mission.slug || mission.id}`, content, {
+			activeNav: "Missions",
+			slug,
+		});
 		return new Response(body, { status: 200, headers: { "Content-Type": "text/html" } });
 	} finally {
 		missionStore.close();
