@@ -1,10 +1,49 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { DashboardData } from "../../dashboard/data.ts";
 import { loadDashboardData } from "../../dashboard/data.ts";
 import { acquireStores, releaseStores } from "../connections.ts";
 import { loadRegistry } from "../registry.ts";
-import { Raw, html, layout } from "../templates/layout.ts";
+import { html, layout, Raw } from "../templates/layout.ts";
 import { emptyState, metricCard, statusBadge } from "../templates/partials.ts";
+
+export function renderMergePanel(data: DashboardData): string {
+	const queue = data.mergeQueue;
+
+	const pending = queue.filter((e) => e.status === "pending").length;
+	const completed = queue.filter((e) => e.status === "completed").length;
+	const failed = queue.filter((e) => e.status === "failed").length;
+
+	const metrics = html`<div class="metrics-row">
+	${metricCard("Pending", pending)}
+	${metricCard("Completed", completed)}
+	${metricCard("Failed", failed)}
+</div>`;
+
+	if (queue.length === 0) {
+		return html`${metrics}${emptyState("Merge queue is empty.")}`.value;
+	}
+
+	const rowsHtml = queue
+		.map(
+			(e) =>
+				html`<tr>
+	<td>${e.branchName}</td>
+	<td>${e.agentName}</td>
+	<td>${statusBadge(e.status)}</td>
+</tr>`.value,
+		)
+		.join("\n");
+
+	return html`${metrics}<table class="table">
+	<thead><tr>
+		<th>Branch</th>
+		<th>Agent</th>
+		<th>Status</th>
+	</tr></thead>
+	<tbody>${new Raw(rowsHtml)}</tbody>
+</table>`.value;
+}
 
 export async function handleMergePage(
 	_req: Request,
@@ -12,7 +51,7 @@ export async function handleMergePage(
 ): Promise<Response> {
 	const registryPath = join(homedir(), ".overstory", "projects.json");
 	const registry = await loadRegistry(registryPath);
-	const slug = params["slug"] ?? "";
+	const slug = params.slug ?? "";
 	const project = registry.projects.find((p) => p.slug === slug);
 
 	if (!project) {
@@ -25,45 +64,8 @@ export async function handleMergePage(
 
 	try {
 		const data = await loadDashboardData(projectPath, stores);
-		const queue = data.mergeQueue;
-
-		const pending = queue.filter((e) => e.status === "pending").length;
-		const completed = queue.filter((e) => e.status === "completed").length;
-		const failed = queue.filter((e) => e.status === "failed").length;
-
-		const metrics = html`<div class="metrics-row">
-	${metricCard("Pending", pending)}
-	${metricCard("Completed", completed)}
-	${metricCard("Failed", failed)}
-</div>`;
-
-		if (queue.length === 0) {
-			const body = layout("Merge Queue", html`${metrics}${emptyState("Merge queue is empty.")}`, {
-				activeNav: "Merge",
-				slug,
-			});
-			return new Response(body, { status: 200, headers: { "Content-Type": "text/html" } });
-		}
-
-		const rowsHtml = queue
-			.map(
-				(e) =>
-					html`<tr>
-	<td>${e.branchName}</td>
-	<td>${e.agentName}</td>
-	<td>${statusBadge(e.status)}</td>
-</tr>`.value,
-			)
-			.join("\n");
-
-		const content = html`${metrics}<table class="table">
-	<thead><tr>
-		<th>Branch</th>
-		<th>Agent</th>
-		<th>Status</th>
-	</tr></thead>
-	<tbody>${new Raw(rowsHtml)}</tbody>
-</table>`;
+		const panelHtml = renderMergePanel(data);
+		const content = html`<div id="sse-merge" sse-swap="merge">${new Raw(panelHtml)}</div>`;
 
 		const body = layout("Merge Queue", content, { activeNav: "Merge", slug });
 		return new Response(body, { status: 200, headers: { "Content-Type": "text/html" } });

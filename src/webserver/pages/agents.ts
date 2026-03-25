@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { DashboardData } from "../../dashboard/data.ts";
 import { loadDashboardData } from "../../dashboard/data.ts";
 import { acquireStores, releaseStores } from "../connections.ts";
 import { loadRegistry } from "../registry.ts";
@@ -15,6 +16,34 @@ async function resolveProjectPath(
 	const project = registry.projects.find((p) => p.slug === slug);
 	if (!project) return { notFound: true };
 	return { projectPath: project.path };
+}
+
+export function renderAgentsPanel(data: DashboardData): string {
+	const agents = [...data.status.agents].sort((a, b) => {
+		const aActive = a.state === "booting" || a.state === "working" ? 0 : 1;
+		const bActive = b.state === "booting" || b.state === "working" ? 0 : 1;
+		if (aActive !== bActive) return aActive - bActive;
+		return b.lastActivity.localeCompare(a.lastActivity);
+	});
+
+	if (agents.length === 0) {
+		return emptyState("No agents found.").value;
+	}
+
+	const rows = new Raw(agents.map((a) => agentRow(a).value).join("\n"));
+	return html`<table class="table">
+	<thead>
+		<tr>
+			<th></th>
+			<th>Name</th>
+			<th>Capability</th>
+			<th>State</th>
+			<th>Task</th>
+			<th>Started</th>
+		</tr>
+	</thead>
+	<tbody>${rows}</tbody>
+</table>`.value;
 }
 
 export async function handleAgentsPage(
@@ -36,32 +65,8 @@ export async function handleAgentsPage(
 	const stores = await acquireStores(projectPath);
 	try {
 		const data = await loadDashboardData(projectPath, stores);
-		const agents = [...data.status.agents].sort((a, b) => {
-			const aActive = a.state === "booting" || a.state === "working" ? 0 : 1;
-			const bActive = b.state === "booting" || b.state === "working" ? 0 : 1;
-			if (aActive !== bActive) return aActive - bActive;
-			return b.lastActivity.localeCompare(a.lastActivity);
-		});
-
-		let content: Raw;
-		if (agents.length === 0) {
-			content = emptyState("No agents found.");
-		} else {
-			const rows = new Raw(agents.map((a) => agentRow(a).value).join("\n"));
-			content = html`<table class="table">
-	<thead>
-		<tr>
-			<th></th>
-			<th>Name</th>
-			<th>Capability</th>
-			<th>State</th>
-			<th>Task</th>
-			<th>Started</th>
-		</tr>
-	</thead>
-	<tbody>${rows}</tbody>
-</table>`;
-		}
+		const panelHtml = renderAgentsPanel(data);
+		const content = html`<div id="sse-agents" sse-swap="agents">${new Raw(panelHtml)}</div>`;
 
 		const htmlString = layout(`Overstory — ${slug} — Agents`, content, {
 			activeNav: "Agents",
