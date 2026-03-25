@@ -251,6 +251,51 @@ describe("NotificationDetector", () => {
 		expect(notif.kind).toBe("info");
 	});
 
+	test("event watermark advances past limit:100 window", () => {
+		const eventStore2 = createEventStore(":memory:");
+		const detector = createNotificationDetector({ maxPerTick: 200 });
+
+		// Insert 110 error events
+		for (let i = 0; i < 110; i++) {
+			eventStore2.insert({
+				runId: null,
+				agentName: `agent-${i}`,
+				sessionId: null,
+				eventType: "error",
+				toolName: null,
+				toolArgs: null,
+				toolDurationMs: null,
+				level: "error",
+				data: null,
+			});
+		}
+
+		// First poll: should see events (capped by internal limit:100)
+		const first = detector.poll(null, eventStore2);
+		expect(first.length).toBeGreaterThan(0);
+
+		// Insert 5 more events
+		for (let i = 0; i < 5; i++) {
+			eventStore2.insert({
+				runId: null,
+				agentName: `new-agent-${i}`,
+				sessionId: null,
+				eventType: "error",
+				toolName: null,
+				toolArgs: null,
+				toolDurationMs: null,
+				level: "error",
+				data: null,
+			});
+		}
+
+		// Second poll: MUST see the new events (not zero) — sliding window fix
+		const second = detector.poll(null, eventStore2);
+		expect(second.length).toBeGreaterThanOrEqual(5);
+
+		eventStore2.close();
+	});
+
 	test("eviction cap: inserts 60 error messages, poll returns max 50", () => {
 		for (let i = 0; i < 60; i++) {
 			mailStore.insert({

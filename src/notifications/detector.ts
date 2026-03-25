@@ -13,6 +13,8 @@ export class NotificationDetector {
 	private mailLastSeenTimestamp: string | null = null;
 	/** id of the last event we've processed. */
 	private eventLastSeenId: number = 0;
+	/** createdAt of the last event we've processed. */
+	private eventLastSeenTimestamp: string | null = null;
 
 	constructor(config?: NotificationConfig) {
 		this.config = config ?? DEFAULT_NOTIFICATION_CONFIG;
@@ -89,8 +91,7 @@ export class NotificationDetector {
 	private _pollEvents(eventStore: EventStore | null): DashboardNotification[] {
 		if (!eventStore) return [];
 
-		// Use a far-past timestamp so getTimeline(since) works on first call
-		const sinceTimestamp = "1970-01-01T00:00:00.000Z";
+		const sinceTimestamp = this.eventLastSeenTimestamp ?? "1970-01-01T00:00:00.000Z";
 		const events = eventStore.getTimeline({ since: sinceTimestamp, limit: 100 });
 
 		const lastSeenId = this.eventLastSeenId;
@@ -121,15 +122,16 @@ export class NotificationDetector {
 			}
 		}
 
-		// Update watermark to highest id we saw
+		// Update watermarks
 		if (newEvents.length > 0) {
 			let maxId = this.eventLastSeenId;
+			let maxTimestamp = this.eventLastSeenTimestamp ?? "";
 			for (const evt of newEvents) {
-				if (evt.id > maxId) {
-					maxId = evt.id;
-				}
+				if (evt.id > maxId) maxId = evt.id;
+				if (evt.createdAt > maxTimestamp) maxTimestamp = evt.createdAt;
 			}
 			this.eventLastSeenId = maxId;
+			this.eventLastSeenTimestamp = maxTimestamp;
 		}
 
 		return notifications;
