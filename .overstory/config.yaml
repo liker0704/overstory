@@ -47,6 +47,7 @@ watchdog:
   zombieThresholdMs: 600000
   nudgeIntervalMs: 60000
 mission:
+  maxConcurrent: 3
   planReview:
     enabled: true
 coordinator:

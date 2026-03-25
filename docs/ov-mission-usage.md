@@ -196,6 +196,69 @@ ov mission complete
 ov review mission <mission-id-or-slug>
 ```
 
+## Autonomous Operation
+
+Missions run autonomously. The operator monitors progress via a sleep-based
+polling loop — no manual intervention unless agents ask questions.
+
+```bash
+# Typical autonomous monitoring loop (max 15 min sleep between checks)
+while true; do
+  ov mission status
+  ov mail check --agent operator
+  sleep 900   # 15 minutes max between checks
+done
+```
+
+Shorter sleep intervals (60-300s) are appropriate during active phases like
+handoff and early execution. Use 900s (15 min) for steady-state monitoring.
+
+Answer agent questions promptly via `ov mission answer` or `ov mail reply` —
+agents block until they get a response.
+
+### Linking GitHub Issues
+
+When the mission objective comes from a GitHub issue, reference it explicitly
+so the coordinator can fetch full context via `gh`:
+
+```bash
+ov mission start --slug http-server \
+  --objective "Implement HTTP server foundation per GitHub issue #47. \
+Coordinator: run 'gh issue view 47' to read the full spec and acceptance criteria."
+```
+
+This ensures the coordinator reads the issue body (requirements, file scope,
+dependencies) instead of working from the slug alone.
+
+## Monitoring Operator Mail
+
+Agents (coordinator, analyst, leads) send mail to `operator` for questions,
+status updates, and results. Check it regularly during a mission:
+
+```bash
+# Check for new unread messages addressed to operator
+ov mail check --agent operator
+
+# List all messages sent to operator (including already read)
+ov mail list --to operator
+
+# Read a specific message
+ov mail read <message-id>
+
+# Reply to an agent's question
+ov mail reply <message-id> --body "Your answer here"
+```
+
+Typical mail you will receive:
+
+- **question** (HIGH priority) — agent needs clarification to proceed
+- **status** — progress update from coordinator or execution-director
+- **result** — mission or workstream completion report
+- **error** — something broke, agent needs help
+
+Tip: run `ov mail check --agent operator` between lifecycle commands
+(`status`, `output`, `handoff`) to catch pending questions early.
+
 ## Troubleshooting
 
 - `ov mission handoff` fails:
