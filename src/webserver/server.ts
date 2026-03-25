@@ -1,4 +1,5 @@
 import { OverstoryError } from "../errors.ts";
+import { missionAction, missionAnswer, missionStart } from "./actions.ts";
 import { closeAllPools } from "./connections.ts";
 import { handleAgentsPage } from "./pages/agents.ts";
 import { handleEventsPage } from "./pages/events.ts";
@@ -11,7 +12,22 @@ import { createRouter } from "./router.ts";
 import { CSS } from "./static/css.ts";
 import { HTMX_JS } from "./static/htmx.ts";
 import { CLIENT_JS } from "./static/js.ts";
-import type { ProjectRegistry, Route, WebConfig } from "./types.ts";
+import type { ProjectEntry, ProjectRegistry, Route, WebConfig } from "./types.ts";
+
+async function resolveProject(
+	registryPath: string,
+	slug: string,
+): Promise<ProjectEntry | undefined> {
+	const registry = await loadRegistry(registryPath);
+	return registry.projects.find((p) => p.slug === slug);
+}
+
+function htmlPartial(html: string, status = 200): Response {
+	return new Response(html, {
+		status,
+		headers: { "Content-Type": "text/html" },
+	});
+}
 
 async function loadRegistry(registryPath: string): Promise<ProjectRegistry> {
 	try {
@@ -136,6 +152,17 @@ export function createServer(
 		},
 		{
 			method: "GET",
+			pattern: new URLPattern({ pathname: "/project/:slug/mission/:id" }),
+			handler: async (_req, params) => {
+				const slug = params.slug ?? "";
+				const id = params.id ?? "";
+				return htmlPartial(
+					`<div>Mission detail for ${id} in project ${slug} — not yet implemented</div>`,
+				);
+			},
+		},
+		{
+			method: "GET",
 			pattern: new URLPattern({ pathname: "/project/:slug" }),
 			handler: handleProjectPage,
 		},
@@ -164,11 +191,112 @@ export function createServer(
 		{
 			method: "POST",
 			pattern: new URLPattern({ pathname: "/project/:slug/mission/start" }),
-			handler: async () =>
-				new Response(JSON.stringify({ status: "not implemented" }), {
-					status: 202,
-					headers: { "Content-Type": "application/json" },
-				}),
+			handler: async (req, params) => {
+				const slug = params.slug ?? "";
+				const project = await resolveProject(registryPath, slug);
+				if (!project) {
+					return htmlPartial('<div class="alert alert-danger">Project not found</div>');
+				}
+				const formData = await req.formData();
+				const objective = formData.get("objective");
+				const result = await missionStart(project.path, {
+					slug,
+					objective: typeof objective === "string" ? objective : undefined,
+				});
+				if (result.success) {
+					return htmlPartial(
+						`<div class="alert alert-success">Mission started. <a href="/project/${slug}/missions">View missions</a></div>`,
+					);
+				}
+				return htmlPartial(
+					`<div class="alert alert-danger">Failed: <pre>${result.error ?? "unknown error"}</pre></div>`,
+				);
+			},
+		},
+		{
+			method: "POST",
+			pattern: new URLPattern({ pathname: "/project/:slug/mission/pause" }),
+			handler: async (_req, params) => {
+				const slug = params.slug ?? "";
+				const project = await resolveProject(registryPath, slug);
+				if (!project) {
+					return htmlPartial('<div class="alert alert-danger">Project not found</div>');
+				}
+				const result = await missionAction(project.path, "pause");
+				if (result.success) {
+					return htmlPartial(
+						`<div class="alert alert-success">Mission paused. <a href="/project/${slug}/missions">View missions</a></div>`,
+					);
+				}
+				return htmlPartial(
+					`<div class="alert alert-danger">Failed: <pre>${result.error ?? "unknown error"}</pre></div>`,
+				);
+			},
+		},
+		{
+			method: "POST",
+			pattern: new URLPattern({ pathname: "/project/:slug/mission/resume" }),
+			handler: async (_req, params) => {
+				const slug = params.slug ?? "";
+				const project = await resolveProject(registryPath, slug);
+				if (!project) {
+					return htmlPartial('<div class="alert alert-danger">Project not found</div>');
+				}
+				const result = await missionAction(project.path, "resume");
+				if (result.success) {
+					return htmlPartial(
+						`<div class="alert alert-success">Mission resumed. <a href="/project/${slug}/missions">View missions</a></div>`,
+					);
+				}
+				return htmlPartial(
+					`<div class="alert alert-danger">Failed: <pre>${result.error ?? "unknown error"}</pre></div>`,
+				);
+			},
+		},
+		{
+			method: "POST",
+			pattern: new URLPattern({ pathname: "/project/:slug/mission/stop" }),
+			handler: async (_req, params) => {
+				const slug = params.slug ?? "";
+				const project = await resolveProject(registryPath, slug);
+				if (!project) {
+					return htmlPartial('<div class="alert alert-danger">Project not found</div>');
+				}
+				const result = await missionAction(project.path, "stop");
+				if (result.success) {
+					return htmlPartial(
+						`<div class="alert alert-success">Mission stopped. <a href="/project/${slug}/missions">View missions</a></div>`,
+					);
+				}
+				return htmlPartial(
+					`<div class="alert alert-danger">Failed: <pre>${result.error ?? "unknown error"}</pre></div>`,
+				);
+			},
+		},
+		{
+			method: "POST",
+			pattern: new URLPattern({ pathname: "/project/:slug/mission/answer" }),
+			handler: async (req, params) => {
+				const slug = params.slug ?? "";
+				const project = await resolveProject(registryPath, slug);
+				if (!project) {
+					return htmlPartial('<div class="alert alert-danger">Project not found</div>');
+				}
+				const formData = await req.formData();
+				const text = formData.get("text");
+				if (typeof text !== "string" || text.trim() === "") {
+					return htmlPartial('<div class="alert alert-danger">Answer text is required</div>');
+				}
+				const result = await missionAnswer(project.path, text);
+				if (result.success) {
+					return htmlPartial(
+						`<div class="alert alert-success">Answer submitted. <a href="/project/${slug}/missions">View missions</a></div>`,
+					);
+				}
+				return htmlPartial(
+					`<div class="alert alert-danger">Failed: <pre>${result.error ?? "unknown error"}</pre></div>`,
+				);
+			},
 		},
 	];
 
