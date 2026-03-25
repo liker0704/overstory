@@ -28,13 +28,13 @@ describe("NotificationDetector", () => {
 	});
 
 	test("poll() returns empty array initially with no data", () => {
-		const detector = createNotificationDetector({ mailStore, eventStore });
-		expect(detector.poll()).toEqual([]);
+		const detector = createNotificationDetector();
+		expect(detector.poll(mailStore, eventStore)).toEqual([]);
 	});
 
 	test("null mailStore and eventStore do not throw", () => {
-		const detector = createNotificationDetector({ mailStore: null, eventStore: null });
-		expect(detector.poll()).toEqual([]);
+		const detector = createNotificationDetector();
+		expect(detector.poll(null, null)).toEqual([]);
 	});
 
 	test("mail error messages generate error notifications", () => {
@@ -49,8 +49,8 @@ describe("NotificationDetector", () => {
 			threadId: null,
 		});
 
-		const detector = createNotificationDetector({ mailStore, eventStore: null });
-		const notifications = detector.poll();
+		const detector = createNotificationDetector();
+		const notifications = detector.poll(mailStore, null);
 
 		expect(notifications).toHaveLength(1);
 		const notif = notifications[0];
@@ -75,8 +75,8 @@ describe("NotificationDetector", () => {
 			threadId: null,
 		});
 
-		const detector = createNotificationDetector({ mailStore, eventStore: null });
-		const notifications = detector.poll();
+		const detector = createNotificationDetector();
+		const notifications = detector.poll(mailStore, null);
 
 		expect(notifications).toHaveLength(1);
 		const notif = notifications[0];
@@ -100,8 +100,8 @@ describe("NotificationDetector", () => {
 			threadId: null,
 		});
 
-		const detector = createNotificationDetector({ mailStore, eventStore: null });
-		const notifications = detector.poll();
+		const detector = createNotificationDetector();
+		const notifications = detector.poll(mailStore, null);
 
 		expect(notifications).toHaveLength(1);
 		const notif = notifications[0];
@@ -126,8 +126,8 @@ describe("NotificationDetector", () => {
 			data: "Something failed hard",
 		});
 
-		const detector = createNotificationDetector({ mailStore: null, eventStore });
-		const notifications = detector.poll();
+		const detector = createNotificationDetector();
+		const notifications = detector.poll(null, eventStore);
 
 		expect(notifications).toHaveLength(1);
 		const notif = notifications[0];
@@ -153,8 +153,8 @@ describe("NotificationDetector", () => {
 			data: "spawned in worktree /tmp/abc",
 		});
 
-		const detector = createNotificationDetector({ mailStore: null, eventStore });
-		const notifications = detector.poll();
+		const detector = createNotificationDetector();
+		const notifications = detector.poll(null, eventStore);
 
 		expect(notifications).toHaveLength(1);
 		const notif = notifications[0];
@@ -178,13 +178,13 @@ describe("NotificationDetector", () => {
 			threadId: null,
 		});
 
-		const detector = createNotificationDetector({ mailStore, eventStore: null });
+		const detector = createNotificationDetector();
 
-		const first = detector.poll();
+		const first = detector.poll(mailStore, null);
 		expect(first).toHaveLength(1);
 
 		// No new messages — should return empty
-		const second = detector.poll();
+		const second = detector.poll(mailStore, null);
 		expect(second).toHaveLength(0);
 
 		// Wait to ensure a different createdAt timestamp
@@ -202,7 +202,7 @@ describe("NotificationDetector", () => {
 			threadId: null,
 		});
 
-		const third = detector.poll();
+		const third = detector.poll(mailStore, null);
 		expect(third).toHaveLength(1);
 		const notif = third[0];
 		expect(notif).toBeDefined();
@@ -223,12 +223,12 @@ describe("NotificationDetector", () => {
 			data: "first error",
 		});
 
-		const detector = createNotificationDetector({ mailStore: null, eventStore });
+		const detector = createNotificationDetector();
 
-		const first = detector.poll();
+		const first = detector.poll(null, eventStore);
 		expect(first).toHaveLength(1);
 
-		const second = detector.poll();
+		const second = detector.poll(null, eventStore);
 		expect(second).toHaveLength(0);
 
 		eventStore.insert({
@@ -243,7 +243,7 @@ describe("NotificationDetector", () => {
 			data: "new spawn",
 		});
 
-		const third = detector.poll();
+		const third = detector.poll(null, eventStore);
 		expect(third).toHaveLength(1);
 		const notif = third[0];
 		expect(notif).toBeDefined();
@@ -265,8 +265,8 @@ describe("NotificationDetector", () => {
 			});
 		}
 
-		const detector = createNotificationDetector({ mailStore, eventStore: null });
-		const notifications = detector.poll();
+		const detector = createNotificationDetector();
+		const notifications = detector.poll(mailStore, null);
 
 		expect(notifications.length).toBeLessThanOrEqual(50);
 	});
@@ -285,12 +285,8 @@ describe("NotificationDetector", () => {
 			});
 		}
 
-		const detector = createNotificationDetector({
-			mailStore,
-			eventStore: null,
-			config: { maxPerTick: 5 },
-		});
-		const notifications = detector.poll();
+		const detector = createNotificationDetector({ maxPerTick: 5 });
+		const notifications = detector.poll(mailStore, null);
 		expect(notifications).toHaveLength(5);
 	});
 });

@@ -6,15 +6,7 @@ import {
 	type NotificationConfig,
 } from "./types.ts";
 
-export interface NotificationDetectorDeps {
-	mailStore: MailStore | null;
-	eventStore: EventStore | null;
-	config?: NotificationConfig;
-}
-
 export class NotificationDetector {
-	private readonly mailStore: MailStore | null;
-	private readonly eventStore: EventStore | null;
 	private readonly config: NotificationConfig;
 
 	/** createdAt of the last mail message we've processed. */
@@ -22,18 +14,16 @@ export class NotificationDetector {
 	/** id of the last event we've processed. */
 	private eventLastSeenId: number = 0;
 
-	constructor(deps: NotificationDetectorDeps) {
-		this.mailStore = deps.mailStore;
-		this.eventStore = deps.eventStore;
-		this.config = deps.config ?? DEFAULT_NOTIFICATION_CONFIG;
+	constructor(config?: NotificationConfig) {
+		this.config = config ?? DEFAULT_NOTIFICATION_CONFIG;
 	}
 
 	/** Poll for new notifications since the last call. Returns most-recent first, capped at maxPerTick. */
-	poll(): DashboardNotification[] {
+	poll(mailStore: MailStore | null, eventStore: EventStore | null): DashboardNotification[] {
 		const notifications: DashboardNotification[] = [];
 
-		notifications.push(...this._pollMail());
-		notifications.push(...this._pollEvents());
+		notifications.push(...this._pollMail(mailStore));
+		notifications.push(...this._pollEvents(eventStore));
 
 		// Sort most recent first
 		notifications.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
@@ -41,10 +31,10 @@ export class NotificationDetector {
 		return notifications.slice(0, this.config.maxPerTick);
 	}
 
-	private _pollMail(): DashboardNotification[] {
-		if (!this.mailStore) return [];
+	private _pollMail(mailStore: MailStore | null): DashboardNotification[] {
+		if (!mailStore) return [];
 
-		const messages = this.mailStore.getAll({ limit: 100 });
+		const messages = mailStore.getAll({ limit: 100 });
 		const lastSeen = this.mailLastSeenTimestamp;
 
 		const newMessages = lastSeen ? messages.filter((m) => m.createdAt > lastSeen) : messages;
@@ -96,12 +86,12 @@ export class NotificationDetector {
 		return notifications;
 	}
 
-	private _pollEvents(): DashboardNotification[] {
-		if (!this.eventStore) return [];
+	private _pollEvents(eventStore: EventStore | null): DashboardNotification[] {
+		if (!eventStore) return [];
 
 		// Use a far-past timestamp so getTimeline(since) works on first call
 		const sinceTimestamp = "1970-01-01T00:00:00.000Z";
-		const events = this.eventStore.getTimeline({ since: sinceTimestamp, limit: 100 });
+		const events = eventStore.getTimeline({ since: sinceTimestamp, limit: 100 });
 
 		const lastSeenId = this.eventLastSeenId;
 		const newEvents = events.filter((e) => e.id > lastSeenId);
@@ -146,6 +136,6 @@ export class NotificationDetector {
 	}
 }
 
-export function createNotificationDetector(deps: NotificationDetectorDeps): NotificationDetector {
-	return new NotificationDetector(deps);
+export function createNotificationDetector(config?: NotificationConfig): NotificationDetector {
+	return new NotificationDetector(config);
 }
