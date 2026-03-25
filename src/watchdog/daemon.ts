@@ -84,7 +84,13 @@ const MAX_ESCALATION_LEVEL = 3;
  * Persistent agent capabilities that are excluded from run-level completion checks.
  * These agents are long-running and should not count toward "all workers done".
  */
-const PERSISTENT_CAPABILITIES = new Set(["coordinator", "monitor"]);
+const PERSISTENT_CAPABILITIES = new Set([
+	"coordinator",
+	"coordinator-mission",
+	"mission-analyst",
+	"execution-director",
+	"monitor",
+]);
 
 /**
  * Module-level registry of active event tailers for headless agents.
@@ -423,6 +429,18 @@ async function checkRunCompletion(ctx: {
 		// Nudge delivery failure is non-fatal
 	}
 
+	// Also nudge execution-director if one is active in this run
+	const hasActiveED = runSessions.some(
+		(s) => s.capability === "execution-director" && s.state !== "completed",
+	);
+	if (hasActiveED) {
+		try {
+			await nudge(root, "execution-director", message, true);
+		} catch {
+			// Nudge delivery failure is non-fatal
+		}
+	}
+
 	// Record the event
 	const capabilitiesArr = Array.from(new Set(workerSessions.map((s) => s.capability))).sort();
 	const phase = capabilitiesArr.length === 1 ? capabilitiesArr[0] : "mixed";
@@ -541,13 +559,23 @@ export function startDaemon(options: DaemonOptions & { intervalMs: number }): { 
 	const { intervalMs } = options;
 
 	// Run the first tick immediately, then on interval
-	runDaemonTick(options).catch(() => {
-		// Swallow errors in the first tick — daemon must not crash
+	runDaemonTick(options).catch((err) => {
+		try {
+			const message = err instanceof Error ? err.message : String(err);
+			console.error(`[watchdog] Tick failed: ${message}`);
+		} catch {
+			// Guard: logging must not throw
+		}
 	});
 
 	const interval = setInterval(() => {
-		runDaemonTick(options).catch(() => {
-			// Swallow errors in periodic ticks — daemon must not crash
+		runDaemonTick(options).catch((err) => {
+			try {
+				const message = err instanceof Error ? err.message : String(err);
+				console.error(`[watchdog] Tick failed: ${message}`);
+			} catch {
+				// Guard: logging must not throw
+			}
 		});
 	}, intervalMs);
 

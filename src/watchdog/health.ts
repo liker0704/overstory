@@ -106,15 +106,17 @@ function evaluateTimeBased(
 	// periods waiting for mail/events. Skip time-based stale/zombie detection for
 	// them — only tmux/pid liveness matters (checked above).
 	if (PERSISTENT_CAPABILITIES.has(session.capability)) {
-		// Transition booting → working if we reach here (process alive)
 		const state = session.state === "booting" ? "working" : session.state;
+		const PERSISTENT_STALE_MS = 4 * 60 * 60 * 1000; // 4 hours
+		const persistentStale = elapsedMs > PERSISTENT_STALE_MS;
 		return {
 			...base,
 			processAlive: true,
 			state: state === "stalled" ? "working" : state,
 			action: "none",
-			reconciliationNote:
-				session.state === "stalled"
+			reconciliationNote: persistentStale
+				? `Persistent capability "${session.capability}" has had no activity for ${Math.round(elapsedMs / 60000)}m — may be stuck`
+				: session.state === "stalled"
 					? `Persistent capability "${session.capability}" exempted from stale detection — resetting to working`
 					: null,
 		};
