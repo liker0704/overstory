@@ -1556,7 +1556,8 @@
 		"name": "sse-realtime-batch-1",
 		"memberIssueIds": [
 			"overstory-c58f",
-			"overstory-f0fe"
+			"overstory-f0fe",
+			"overstory-31c7"
 		],
 		"status": "active",
 		"createdAt": "2026-03-25T15:17:18.955Z",
