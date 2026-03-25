@@ -1,5 +1,9 @@
 import type { DashboardData } from "../dashboard/data.ts";
 import { EventBuffer, loadDashboardData } from "../dashboard/data.ts";
+import {
+	createNotificationDetector,
+	type NotificationDetector,
+} from "../notifications/detector.ts";
 import { acquireStores, releaseStores } from "./connections.ts";
 
 export interface SSEManagerConfig {
@@ -48,6 +52,7 @@ interface ProjectPollState {
 	panelHashes: Map<string, string>;
 	eventBuffer: EventBuffer;
 	snapshotNeeded: Set<string>; // client ids that need full snapshot
+	notificationDetector: NotificationDetector;
 }
 
 export interface SSEManagerDeps {
@@ -208,6 +213,7 @@ export class SSEManager {
 				panelHashes: new Map(),
 				eventBuffer: new EventBuffer(),
 				snapshotNeeded: new Set(),
+				notificationDetector: createNotificationDetector(),
 			};
 			this.projects.set(slug, state);
 		}
@@ -254,6 +260,11 @@ export class SSEManager {
 			return;
 		}
 
+		const notifications = state.notificationDetector.poll(
+			stores.mailStore ?? null,
+			stores.eventStore ?? null,
+		);
+
 		let data: DashboardData;
 		try {
 			data = await this.deps.loadDashboardData(
@@ -262,6 +273,8 @@ export class SSEManager {
 				null,
 				undefined,
 				state.eventBuffer,
+				undefined,
+				notifications,
 			);
 		} catch {
 			this.deps.releaseStores(state.projectPath);
@@ -316,6 +329,19 @@ export class SSEManager {
 
 		for (const id of deadClients) {
 			this._removeClient(slug, id);
+		}
+
+		// Emit notification events to all connected clients (after panel HTML events)
+		if (notifications.length > 0) {
+			for (const client of state.clients.values()) {
+				for (const notif of notifications) {
+					const ok = tryEnqueue(client, buildSseEvent("notification", JSON.stringify(notif)));
+					if (!ok) {
+						this._removeClient(slug, client.id);
+						break;
+					}
+				}
+			}
 		}
 	}
 }

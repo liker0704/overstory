@@ -18,6 +18,7 @@ import { createMetricsStore, type MetricsStore } from "../metrics/store.ts";
 import { getCellEngineStatus } from "../missions/engine-wiring.ts";
 import { type MissionRoleStates, resolveMissionRoleStates } from "../missions/runtime-context.ts";
 import { createMissionStore } from "../missions/store.ts";
+import type { DashboardNotification } from "../notifications/types.ts";
 import { createResilienceStore } from "../resilience/store.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import type { SessionStore } from "../sessions/store.ts";
@@ -235,7 +236,14 @@ export interface DashboardData {
 		currentNodeId: string;
 		transitionCount: number;
 		lastTransition?: { fromNode: string; toNode: string; trigger: string; createdAt: string };
+		recentTransitions?: Array<{
+			fromNode: string;
+			toNode: string;
+			trigger: string;
+			createdAt: string;
+		}>;
 	} | null;
+	notifications?: DashboardNotification[];
 }
 
 /**
@@ -276,6 +284,7 @@ export async function loadDashboardData(
 	thresholds?: { staleMs: number; zombieMs: number },
 	eventBuffer?: EventBuffer,
 	runtimeConfig?: OverstoryConfig["runtime"],
+	notifications?: DashboardNotification[],
 ): Promise<DashboardData> {
 	// Get all sessions from the pre-opened session store -- fall back to cache on SQLite errors.
 	let allSessions: AgentSession[];
@@ -509,6 +518,7 @@ export async function loadDashboardData(
 								currentNodeId: engineStatus.currentNodeId,
 								transitionCount: engineStatus.transitions.length,
 								lastTransition: lastT,
+								recentTransitions: engineStatus.transitions.slice(-10),
 							};
 						}
 					} catch {
@@ -572,5 +582,6 @@ export async function loadDashboardData(
 		resilience,
 		headroom,
 		graphExecution,
+		notifications: notifications ?? [],
 	};
 }
