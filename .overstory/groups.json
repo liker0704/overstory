@@ -1562,5 +1562,19 @@
 		"status": "active",
 		"createdAt": "2026-03-25T15:17:18.955Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-aef609ae",
+		"name": "webui-notifications-graph-batch",
+		"memberIssueIds": [
+			"overstory-f9d9",
+			"overstory-bcc3",
+			"overstory-5bee",
+			"overstory-3b62",
+			"overstory-ff59"
+		],
+		"status": "active",
+		"createdAt": "2026-03-25T23:04:02.309Z",
+		"completedAt": null
 	}
 ]
