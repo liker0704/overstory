@@ -1,4 +1,6 @@
-export const CLIENT_JS: string = `
+import { NOTIFICATION_JS } from "../../notifications/client-js.ts";
+
+const BASE_CLIENT_JS: string = `
 (function () {
 	"use strict";
 
@@ -74,3 +76,5 @@ export const CLIENT_JS: string = `
 	}
 })();
 `;
+
+export const CLIENT_JS: string = `${BASE_CLIENT_JS}\n${NOTIFICATION_JS}`;
