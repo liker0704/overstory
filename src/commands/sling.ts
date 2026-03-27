@@ -29,7 +29,9 @@ import { createMailClient } from "../mail/client.ts";
 import { createMailStore } from "../mail/store.ts";
 import { resolveActiveMissionContext } from "../missions/runtime-context.ts";
 import { createMissionStore } from "../missions/store.ts";
+import { TDD_MODES, type TddMode } from "../missions/types.ts";
 import { validateCurrentMissionSpec } from "../missions/workstream-control.ts";
+import { loadWorkstreamsFile } from "../missions/workstreams.ts";
 import { createMulchClient } from "../mulch/client.ts";
 import { canDispatch } from "../resilience/circuit-breaker.ts";
 import { createResilienceStore } from "../resilience/store.ts";
@@ -152,6 +154,8 @@ export interface SlingOptions {
 	noScoutCheck?: boolean;
 	baseBranch?: string;
 	profile?: string;
+	/** TDD mode override for Flash Quality pipeline. */
+	tddMode?: string;
 }
 
 export interface AutoDispatchOptions {
@@ -629,16 +633,44 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 	const missionContext = await resolveActiveMissionContext(overstoryDir);
 	const hasMission = missionContext !== null;
 
-	// Resolve mission slug for resource isolation
+	// Resolve mission slug and artifact root for resource isolation and TDD path resolution
 	let missionSlug: string | undefined;
+	let missionArtifactRoot: string | undefined;
 	if (missionContext) {
 		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
 		try {
 			const mission = missionStore.getById(missionContext.missionId);
 			missionSlug = mission?.slug;
+			missionArtifactRoot = mission?.artifactRoot ?? undefined;
 		} finally {
 			missionStore.close();
 		}
+	}
+
+	// Resolve TDD mode: explicit flag > workstream config > undefined
+	let resolvedTddMode: TddMode | undefined;
+	if (opts.tddMode !== undefined) {
+		if ((TDD_MODES as readonly string[]).includes(opts.tddMode)) {
+			resolvedTddMode = opts.tddMode as TddMode;
+		}
+	} else if (hasMission && missionArtifactRoot !== undefined) {
+		const workstreamsPath = join(missionArtifactRoot, "plan", "workstreams.json");
+		const wsResult = await loadWorkstreamsFile(workstreamsPath);
+		if (wsResult.valid && wsResult.workstreams) {
+			const matchingWs = wsResult.workstreams.workstreams.find((ws) => ws.taskId === taskId);
+			resolvedTddMode = matchingWs?.tddMode;
+		}
+	}
+
+	// Resolve TDD artifact paths when tddMode requires them
+	let resolvedArchitecturePath: string | undefined;
+	let resolvedTestPlanPath: string | undefined;
+	if (
+		(resolvedTddMode === "full" || resolvedTddMode === "light") &&
+		missionArtifactRoot !== undefined
+	) {
+		resolvedArchitecturePath = join(missionArtifactRoot, "plan", "architecture.md");
+		resolvedTestPlanPath = join(missionArtifactRoot, "plan", "test-plan.yaml");
 	}
 
 	// 2. Validate depth limit
@@ -972,6 +1004,9 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 			skipTaskCheck,
 			json: opts.json ?? false,
 			missionSlug,
+			tddMode: resolvedTddMode,
+			architecturePath: resolvedArchitecturePath,
+			testPlanPath: resolvedTestPlanPath,
 		});
 
 		// 14. Output result

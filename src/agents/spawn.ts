@@ -41,7 +41,7 @@ import type { AgentRuntime } from "../runtimes/types.ts";
 import type { SessionStore } from "../sessions/store.ts";
 import type { RunStore } from "../sessions/types.ts";
 import type { TrackerClient } from "../tracker/types.ts";
-import type { AgentSession, OverlayConfig } from "../types.ts";
+import type { AgentSession, OverlayConfig, TddMode } from "../types.ts";
 import { createWorktree, rollbackWorktree } from "../worktree/manager.ts";
 import { spawnHeadlessAgent } from "../worktree/process.ts";
 import { createIdentity, loadIdentity } from "./identity.ts";
@@ -93,6 +93,12 @@ export interface SpawnOptions {
 	json: boolean;
 	/** Mission slug for worktree isolation. */
 	missionSlug?: string;
+	/** TDD mode for Flash Quality pipeline. */
+	tddMode?: TddMode;
+	/** Path to architecture.md for Flash Quality. */
+	architecturePath?: string;
+	/** Path to test-plan.yaml for Flash Quality. */
+	testPlanPath?: string;
 }
 
 /** Result of a successful spawn. */
@@ -352,6 +358,9 @@ async function executePostWorktreeSteps(
 		trackerCli: trackerCliName(deps.resolvedBackend),
 		trackerName: deps.resolvedBackend,
 		instructionPath: runtime.instructionPath,
+		tddMode: opts.tddMode,
+		architecturePath: opts.architecturePath,
+		testPlanPath: opts.testPlanPath,
 	};
 
 	await writeOverlay(worktreePath, overlayConfig, config.project.root, runtime.instructionPath);
