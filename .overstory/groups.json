@@ -1599,5 +1599,16 @@
 		"status": "active",
 		"createdAt": "2026-03-27T15:38:33.780Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-f56470f0",
+		"name": "structured-mulch-wave1",
+		"memberIssueIds": [
+			"overstory-c107",
+			"overstory-0248"
+		],
+		"status": "active",
+		"createdAt": "2026-03-27T19:03:46.478Z",
+		"completedAt": null
 	}
 ]
