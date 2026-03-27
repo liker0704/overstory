@@ -1224,18 +1224,9 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 			}
 
 			if (check.action === "terminate") {
-				// Break zombie re-termination loop: dead zombie → completed, don't re-record failure
-				// Skip if rate-limited — those zombies may need respawn investigation
-				if (wasZombie && !tmuxAlive && !recentRateLimitHistory) {
-					reconcileSessionToCompleted({
-						session,
-						store,
-						runId,
-						eventStore,
-						resilienceStore,
-						eventType: "completed_cleanup",
-						reason: "Zombie with dead tmux promoted to completed",
-					});
+				// Break zombie re-termination loop: skip re-recording failure for already-zombie sessions.
+				// Keep zombie state (preserves resume capability) but don't re-record breaker failure.
+				if (wasZombie && !tmuxAlive) {
 					continue;
 				}
 
