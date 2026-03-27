@@ -29,6 +29,7 @@ import type {
 import { createWatchdogControl } from "../watchdog/control.ts";
 import {
 	attachOrSwitch,
+	getCurrentSessionName,
 	isSessionAlive,
 	killProcessTree,
 	killSession,
@@ -292,12 +293,20 @@ async function terminalizeMission(opts: {
 	targetState: "completed" | "stopped";
 	json: boolean;
 	deps?: MissionCommandDeps;
-}): Promise<{ bundlePath: string | null; reviewId: string | null }> {
+}): Promise<{
+	bundlePath: string | null;
+	reviewId: string | null;
+	deferredSelfSession: string | null;
+}> {
 	const { overstoryDir, projectRoot, mission, targetState, json, deps } = opts;
 	const dbPath = join(overstoryDir, "sessions.db");
 	const missionStore = createMissionStore(dbPath);
 	const stopRole = deps?.stopMissionRole ?? stopMissionRole;
 	const stopAgent = deps?.stopAgentCommand ?? stopCommand;
+
+	// Detect if we're running inside a mission tmux session (coordinator calling ov mission complete).
+	// If so, skip killing our own session until all cleanup is done.
+	const selfTmuxSession = await getCurrentSessionName();
 
 	try {
 		const roleStopFailures: string[] = [];
@@ -314,29 +323,45 @@ async function terminalizeMission(opts: {
 				]
 			: ["coordinator", "mission-analyst", "execution-director"];
 		const stoppedRoles = new Set<string>();
-		for (const roleName of roleNames) {
-			// Skip if we already stopped the base role via its scoped variant
-			const baseRole = roleName.replace(`-${slug}`, "");
-			if (stoppedRoles.has(baseRole)) continue;
-			try {
-				await stopRole(roleName, {
-					projectRoot,
-					overstoryDir,
-					completeRun: false,
-					runStatus: targetState === "completed" ? "completed" : "stopped",
-				});
-				stoppedRoles.add(baseRole);
-				recordMissionEvent({
-					overstoryDir,
-					mission,
-					agentName: "operator",
-					data: { kind: "role_stopped", detail: `${roleName} stopped` },
-				});
-			} catch {
-				if (!slug || !roleName.includes(slug)) {
-					roleStopFailures.push(roleName);
+		// Open session store once for self-detection lookups
+		const { store: selfCheckStore } = selfTmuxSession
+			? openSessionStore(overstoryDir)
+			: { store: null };
+		try {
+			for (const roleName of roleNames) {
+				// Skip if we already stopped the base role via its scoped variant
+				const baseRole = roleName.replace(`-${slug}`, "");
+				if (stoppedRoles.has(baseRole)) continue;
+				// Skip killing our own session — defer until all cleanup is done
+				if (selfTmuxSession && selfCheckStore) {
+					const roleSession = selfCheckStore.getByName(roleName);
+					if (roleSession?.tmuxSession === selfTmuxSession) {
+						stoppedRoles.add(baseRole);
+						continue;
+					}
+				}
+				try {
+					await stopRole(roleName, {
+						projectRoot,
+						overstoryDir,
+						completeRun: false,
+						runStatus: targetState === "completed" ? "completed" : "stopped",
+					});
+					stoppedRoles.add(baseRole);
+					recordMissionEvent({
+						overstoryDir,
+						mission,
+						agentName: "operator",
+						data: { kind: "role_stopped", detail: `${roleName} stopped` },
+					});
+				} catch {
+					if (!slug || !roleName.includes(slug)) {
+						roleStopFailures.push(roleName);
+					}
 				}
 			}
+		} finally {
+			selfCheckStore?.close();
 		}
 
 		// Fallback: directly kill tmux sessions for roles that failed graceful stop
@@ -356,6 +381,7 @@ async function terminalizeMission(opts: {
 			const tmuxNames = roleTmuxNames[roleName];
 			if (tmuxNames) {
 				for (const tmuxName of tmuxNames) {
+					if (tmuxName === selfTmuxSession) continue;
 					try {
 						if (await isSessionAlive(tmuxName)) {
 							await killSession(tmuxName);
@@ -451,6 +477,7 @@ async function terminalizeMission(opts: {
 			const { store: verifyStore } = openSessionStore(overstoryDir);
 			try {
 				for (const session of verifyStore.getByRun(mission.runId)) {
+					if (session.tmuxSession === selfTmuxSession) continue;
 					if (session.tmuxSession && (await isSessionAlive(session.tmuxSession))) {
 						try {
 							await killSession(session.tmuxSession);
@@ -540,7 +567,7 @@ async function terminalizeMission(opts: {
 			}
 		}
 
-		return { bundlePath, reviewId: review.record.id };
+		return { bundlePath, reviewId: review.record.id, deferredSelfSession: selfTmuxSession };
 	} finally {
 		missionStore.close();
 	}
@@ -1253,6 +1280,14 @@ export async function missionStop(
 			} else {
 				printSuccess("Mission stopped", mission.slug);
 			}
+			if (result.deferredSelfSession) {
+				try {
+					await killSession(result.deferredSelfSession);
+				} catch {
+					// Best effort
+				}
+				process.exit(0);
+			}
 		} else {
 			await suspendMission({ overstoryDir, projectRoot, mission, json });
 			if (json) {
@@ -1587,6 +1622,17 @@ export async function missionComplete(
 			});
 		} else {
 			printSuccess("Mission completed", mission.slug);
+		}
+
+		// Deferred self-kill: if we're the coordinator, kill our own session
+		// now that all cleanup is done.
+		if (result.deferredSelfSession) {
+			try {
+				await killSession(result.deferredSelfSession);
+			} catch {
+				// If kill fails, force exit — session dies with process
+			}
+			process.exit(0);
 		}
 	} finally {
 		missionStore.close();
