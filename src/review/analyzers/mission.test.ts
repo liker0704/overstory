@@ -26,6 +26,7 @@ function makeMission(overrides?: Partial<Mission>): Mission {
 		analystSessionId: "analyst-001",
 		executionDirectorSessionId: "exec-001",
 		coordinatorSessionId: null,
+		architectSessionId: null,
 		pausedLeadNames: [],
 		pauseReason: null,
 		currentNode: null,

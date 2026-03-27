@@ -21,6 +21,9 @@ export interface MissionArtifactPaths {
 	researchSummaryMd: string;
 	planDir: string;
 	workstreamsJson: string;
+	architectureMd: string;
+	testPlanYaml: string;
+	refactorSpecsDir: string;
 	resultsDir: string;
 }
 
@@ -95,6 +98,9 @@ export function getMissionArtifactPaths(
 		researchSummaryMd: join(researchDir, "_summary.md"),
 		planDir,
 		workstreamsJson: join(planDir, "workstreams.json"),
+		architectureMd: join(planDir, "architecture.md"),
+		testPlanYaml: join(planDir, "test-plan.yaml"),
+		refactorSpecsDir: join(planDir, "refactor-specs"),
 		resultsDir: join(root, "results"),
 	};
 }
@@ -114,6 +120,7 @@ export async function ensureMissionArtifacts(
 	await mkdir(paths.root, { recursive: true });
 	await mkdir(paths.researchDir, { recursive: true });
 	await mkdir(paths.planDir, { recursive: true });
+	await mkdir(paths.refactorSpecsDir, { recursive: true });
 	await mkdir(paths.resultsDir, { recursive: true });
 
 	await writeIfMissing(
@@ -196,6 +203,9 @@ export async function materializeMissionRolePrompt(opts: {
 		`- research/current-state.md: ${paths.currentStateMd}`,
 		`- research/_summary.md: ${paths.researchSummaryMd}`,
 		`- plan/workstreams.json: ${paths.workstreamsJson}`,
+		`- plan/architecture.md: ${paths.architectureMd}`,
+		`- plan/test-plan.yaml: ${paths.testPlanYaml}`,
+		`- plan/refactor-specs/: ${paths.refactorSpecsDir}`,
 		`- results/: ${paths.resultsDir}`,
 		"",
 		"## Runtime Notes",

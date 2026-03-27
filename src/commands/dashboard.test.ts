@@ -52,6 +52,7 @@ function makeMission(overrides: Partial<Mission> = {}): Mission {
 		analystSessionId: null,
 		executionDirectorSessionId: null,
 		coordinatorSessionId: null,
+		architectSessionId: null,
 		pausedLeadNames: [],
 		pauseReason: "brief refresh requires regeneration",
 		currentNode: null,
