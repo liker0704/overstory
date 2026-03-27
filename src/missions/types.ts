@@ -345,6 +345,30 @@ export interface TestPlan {
 	suites: TestPlanSuite[];
 }
 
+// === Holdout Validation Types ===
+
+export type HoldoutLevel = 1 | 2 | 3;
+export type HoldoutCheckStatus = "pass" | "fail" | "warn" | "skip";
+
+export interface HoldoutCheck {
+	id: string;
+	level: HoldoutLevel;
+	name: string;
+	status: HoldoutCheckStatus;
+	message: string;
+	details?: string[];
+}
+
+export interface HoldoutResult {
+	missionId: string;
+	passed: boolean;
+	checks: HoldoutCheck[];
+	level1Passed: boolean;
+	level2Passed: boolean;
+	level3Passed: boolean | null;
+	duration: number;
+}
+
 export const SYNC_AGENT_DEFAULT_AUDIENCE: Record<string, string[]> = {
 	convention: ["builder", "tester", "reviewer"],
 	pattern: ["all"],
