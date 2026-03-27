@@ -358,16 +358,16 @@ describe("CELL_REGISTRY", () => {
 	test("plan-review graph is valid", () => {
 		const cell = CELL_REGISTRY["plan-review"];
 		if (!cell) throw new Error("plan-review not in registry");
-		const graph = cell.buildGraph();
-		const result = validateGraph(graph, { startNodeId: "plan-review:dispatch" });
+		const graph = cell.buildSubgraph({ tier: "full", maxRounds: 3, artifactRoot: "" });
+		const result = validateGraph(graph, { startNodeId: "plan-review:dispatch-critics" });
 		expect(result.valid).toBe(true);
 	});
 
 	test("architecture-review graph is valid", () => {
 		const cell = CELL_REGISTRY["architecture-review"];
 		if (!cell) throw new Error("architecture-review not in registry");
-		const graph = cell.buildGraph();
-		const result = validateGraph(graph, { startNodeId: "architecture-review:dispatch" });
+		const graph = cell.buildSubgraph({ tier: "full", maxRounds: 3, artifactRoot: "" });
+		const result = validateGraph(graph, { startNodeId: "arch-review:dispatch-critics" });
 		expect(result.valid).toBe(true);
 	});
 });
@@ -385,10 +385,10 @@ describe("startCellEngine", () => {
 	test("creates and runs engine for plan-review — stops at async gate", async () => {
 		const deps = makeDeps();
 		const result = await startCellEngine(baseMission, "plan-review", deps);
-		// Engine should run: dispatch (noop→dispatched) → await-critics (gate:async) → stop
+		// Engine should run: dispatch-critics (handler) → collect-verdicts (gate:async) → stop
 		expect(result.status).toBe("gate");
 		expect(result.gateType).toBe("async");
-		expect(result.currentNodeId).toBe("plan-review:await-critics");
+		expect(result.currentNodeId).toBe("plan-review:collect-verdicts");
 	});
 
 	test("creates and runs engine for architecture-review — stops at async gate", async () => {
@@ -396,7 +396,7 @@ describe("startCellEngine", () => {
 		const result = await startCellEngine(baseMission, "architecture-review", deps);
 		expect(result.status).toBe("gate");
 		expect(result.gateType).toBe("async");
-		expect(result.currentNodeId).toBe("architecture-review:await-critics");
+		expect(result.currentNodeId).toBe("arch-review:collect-verdicts");
 	});
 
 	test("idempotent: calling startCellEngine again resumes from checkpoint, not re-dispatch", async () => {
@@ -404,15 +404,15 @@ describe("startCellEngine", () => {
 		const missionStore = createMockMissionStore();
 		const deps: EngineDeps = { checkpointStore, missionStore };
 
-		// First call: runs from dispatch → await-critics (gate)
+		// First call: runs from dispatch-critics → collect-verdicts (gate)
 		const first = await startCellEngine(baseMission, "plan-review", deps);
-		expect(first.currentNodeId).toBe("plan-review:await-critics");
+		expect(first.currentNodeId).toBe("plan-review:collect-verdicts");
 
 		// Second call with same checkpointStore: engine resumes from checkpoint
-		// Should still be gated at await-critics (not re-dispatch)
+		// Should still be gated at collect-verdicts (not re-dispatch)
 		const second = await startCellEngine(baseMission, "plan-review", deps);
 		expect(second.status).toBe("gate");
-		expect(second.currentNodeId).toBe("plan-review:await-critics");
+		expect(second.currentNodeId).toBe("plan-review:collect-verdicts");
 	});
 });
 
@@ -431,13 +431,13 @@ describe("advanceCellGate", () => {
 		const missionStore = createMockMissionStore();
 		const deps: EngineDeps = { checkpointStore, missionStore };
 
-		// Start engine — stops at await-critics gate
+		// Start engine — stops at collect-verdicts gate
 		await startCellEngine(baseMission, "plan-review", deps);
 
-		// Advance with 'all-returned' — should reach aggregate (noop→approved) → done (terminal)
-		const result = await advanceCellGate(baseMission, "all-returned", null, deps);
+		// Advance with 'verdicts-collected' — convergence handler returns approved → approved (terminal)
+		const result = await advanceCellGate(baseMission, "verdicts-collected", null, deps);
 		expect(result.status).toBe("completed");
-		expect(result.currentNodeId).toBe("plan-review:done");
+		expect(result.currentNodeId).toBe("plan-review:approved");
 	});
 
 	test("errors when current node is not a gate node", async () => {
@@ -445,10 +445,10 @@ describe("advanceCellGate", () => {
 		const missionStore = createMockMissionStore();
 		const deps: EngineDeps = { checkpointStore, missionStore };
 
-		// Place checkpoint at aggregate (not a gate node)
-		checkpointStore.saveCheckpoint(baseMission.id, "plan-review:aggregate", null);
+		// Place checkpoint at convergence (not a gate node)
+		checkpointStore.saveCheckpoint(baseMission.id, "plan-review:convergence", null);
 
-		// advanceNode requires current node to be gate — aggregate is not, so error
+		// advanceNode requires current node to be gate — convergence is not, so error
 		const result = await advanceCellGate(baseMission, "revision-needed", null, deps);
 		expect(result.status).toBe("error");
 		expect(result.error).toContain("not a gate node");
@@ -475,7 +475,7 @@ describe("getCellEngineStatus", () => {
 		expect(status).not.toBeNull();
 		if (!status) throw new Error("expected status to be non-null");
 		expect(status.cellType).toBe("plan-review");
-		expect(status.currentNodeId).toBe("plan-review:await-critics");
+		expect(status.currentNodeId).toBe("plan-review:collect-verdicts");
 		expect(Array.isArray(status.transitions)).toBe(true);
 	});
 

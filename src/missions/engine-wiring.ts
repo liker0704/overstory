@@ -8,21 +8,15 @@
  */
 
 import type { OverstoryConfig } from "../config-types.ts";
-import type { CheckpointStore, Mission, MissionGraph, MissionStore } from "../types.ts";
+import type { CheckpointStore, Mission, MissionStore } from "../types.ts";
+import { architectureReviewCell } from "./cells/architecture-review.ts";
+import { planReviewCell } from "./cells/plan-review.ts";
+import type { ReviewCellConfig, ReviewCellDefinition } from "./cells/types.ts";
 import { createGraphEngine, type RunResult } from "./engine.ts";
-import { createHandlerRegistry } from "./handlers.ts";
-import type { HandlerRegistry } from "./types.ts";
 
 // === Types ===
 
-export interface ReviewCellDefinition {
-	/** Human-readable name. */
-	name: string;
-	/** Build the cell's subgraph. */
-	buildGraph(): MissionGraph;
-	/** Build handlers for this cell. */
-	buildHandlers(): HandlerRegistry;
-}
+export type { ReviewCellConfig, ReviewCellDefinition } from "./cells/types.ts";
 
 export interface EngineDeps {
 	checkpointStore: CheckpointStore;
@@ -36,117 +30,7 @@ export interface EngineStatus {
 	transitions: Array<{ fromNode: string; toNode: string; trigger: string; createdAt: string }>;
 }
 
-// === Cell definitions ===
-
-const planReviewCell: ReviewCellDefinition = {
-	name: "Plan Review",
-	buildGraph(): MissionGraph {
-		return {
-			version: 1,
-			nodes: [
-				{ kind: "cell", id: "plan-review:dispatch", cellType: "plan-review", handler: "noop" },
-				{
-					kind: "cell",
-					id: "plan-review:await-critics",
-					cellType: "plan-review",
-					gate: "async",
-				},
-				{
-					kind: "cell",
-					id: "plan-review:aggregate",
-					cellType: "plan-review",
-					handler: "noop",
-				},
-				{ kind: "cell", id: "plan-review:done", cellType: "plan-review", terminal: true },
-			],
-			edges: [
-				// noop returns "default" trigger — used for handler-driven transitions
-				{ from: "plan-review:dispatch", to: "plan-review:await-critics", trigger: "default" },
-				// gate trigger: fired by external input (all critics returned)
-				{
-					from: "plan-review:await-critics",
-					to: "plan-review:aggregate",
-					trigger: "all-returned",
-				},
-				// noop-driven happy path: aggregate advances to done
-				{ from: "plan-review:aggregate", to: "plan-review:done", trigger: "default" },
-				// manual advance path: revision loops back to dispatch
-				{
-					from: "plan-review:aggregate",
-					to: "plan-review:dispatch",
-					trigger: "revision-needed",
-				},
-			],
-		};
-	},
-	buildHandlers(): HandlerRegistry {
-		return createHandlerRegistry();
-	},
-};
-
-const architectureReviewCell: ReviewCellDefinition = {
-	name: "Architecture Review",
-	buildGraph(): MissionGraph {
-		return {
-			version: 1,
-			nodes: [
-				{
-					kind: "cell",
-					id: "architecture-review:dispatch",
-					cellType: "architecture-review",
-					handler: "noop",
-				},
-				{
-					kind: "cell",
-					id: "architecture-review:await-critics",
-					cellType: "architecture-review",
-					gate: "async",
-				},
-				{
-					kind: "cell",
-					id: "architecture-review:aggregate",
-					cellType: "architecture-review",
-					handler: "noop",
-				},
-				{
-					kind: "cell",
-					id: "architecture-review:done",
-					cellType: "architecture-review",
-					terminal: true,
-				},
-			],
-			edges: [
-				// noop returns "default" trigger — used for handler-driven transitions
-				{
-					from: "architecture-review:dispatch",
-					to: "architecture-review:await-critics",
-					trigger: "default",
-				},
-				// gate trigger: fired by external input (all critics returned)
-				{
-					from: "architecture-review:await-critics",
-					to: "architecture-review:aggregate",
-					trigger: "all-returned",
-				},
-				// noop-driven happy path: aggregate advances to done
-				{
-					from: "architecture-review:aggregate",
-					to: "architecture-review:done",
-					trigger: "default",
-				},
-				// manual advance path: revision loops back to dispatch
-				{
-					from: "architecture-review:aggregate",
-					to: "architecture-review:dispatch",
-					trigger: "revision-needed",
-				},
-			],
-		};
-	},
-	buildHandlers(): HandlerRegistry {
-		return createHandlerRegistry();
-	},
-};
+// === Cell registry ===
 
 export const CELL_REGISTRY: Record<string, ReviewCellDefinition> = {
 	"plan-review": planReviewCell,
@@ -174,6 +58,7 @@ export async function startCellEngine(
 	mission: Mission,
 	cellType: string,
 	deps: EngineDeps,
+	config?: ReviewCellConfig,
 ): Promise<RunResult> {
 	const cell = CELL_REGISTRY[cellType];
 	if (!cell) {
@@ -182,8 +67,18 @@ export async function startCellEngine(
 		);
 	}
 
-	const graph = cell.buildGraph();
-	const handlers = cell.buildHandlers();
+	const defaultConfig: ReviewCellConfig = config ?? {
+		tier: "full",
+		maxRounds: 3,
+		artifactRoot: mission.artifactRoot ?? "",
+	};
+
+	const graph = cell.buildSubgraph(defaultConfig);
+	const handlers = cell.buildHandlers({
+		mailSend: deps.sendMail ?? (async () => {}),
+		checkpointStore: deps.checkpointStore,
+		missionStore: deps.missionStore,
+	});
 
 	// Idempotent dispatch: if checkpoint exists, engine resumes from it automatically
 	// (createGraphEngine resolves startNodeId from checkpoint when not specified)
@@ -246,8 +141,18 @@ export async function advanceCellGate(
 		};
 	}
 
-	const graph = cell.buildGraph();
-	const handlers = cell.buildHandlers();
+	const defaultConfig: ReviewCellConfig = {
+		tier: "full",
+		maxRounds: 3,
+		artifactRoot: mission.artifactRoot ?? "",
+	};
+
+	const graph = cell.buildSubgraph(defaultConfig);
+	const handlers = cell.buildHandlers({
+		mailSend: deps.sendMail ?? (async () => {}),
+		checkpointStore: deps.checkpointStore,
+		missionStore: deps.missionStore,
+	});
 
 	// Engine resumes from checkpoint automatically
 	const engine = createGraphEngine({
