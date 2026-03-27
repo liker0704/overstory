@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { DEFAULT_QUALITY_GATES } from "../config.ts";
 import { AgentError } from "../errors.ts";
 import { formatTddOverlay } from "../missions/tdd.ts";
+import { capabilityToAudience } from "../mulch/audience.ts";
 import type { OverlayConfig, QualityGate } from "../types.ts";
 
 /**
@@ -29,11 +30,12 @@ function formatFileScope(fileScope: readonly string[]): string {
  * Format mulch domains as a `ml prime` command.
  * Returns a human-readable fallback if no domains are configured.
  */
-function formatMulchDomains(domains: readonly string[]): string {
+function formatMulchDomains(domains: readonly string[], audience?: string): string {
 	if (domains.length === 0) {
 		return "No specific expertise domains configured";
 	}
-	return `\`\`\`bash\nml prime ${domains.join(" ")}\n\`\`\``;
+	const audienceFlag = audience ? ` --audience ${audience}` : "";
+	return `\`\`\`bash\nml prime ${domains.join(" ")}${audienceFlag}\n\`\`\``;
 }
 
 /**
@@ -345,7 +347,10 @@ export async function generateOverlay(config: OverlayConfig): Promise<string> {
 		"{{PARENT_AGENT}}": config.parentAgent ?? "coordinator",
 		"{{DEPTH}}": String(config.depth),
 		"{{FILE_SCOPE}}": formatFileScope(config.fileScope),
-		"{{MULCH_DOMAINS}}": formatMulchDomains(config.mulchDomains),
+		"{{MULCH_DOMAINS}}": formatMulchDomains(
+			config.mulchDomains,
+			capabilityToAudience(config.capability),
+		),
 		"{{MULCH_EXPERTISE}}": formatMulchExpertise(config.mulchExpertise),
 		"{{PROJECT_CONTEXT}}": formatProjectContext(config.projectContext),
 		"{{CAN_SPAWN}}": formatCanSpawn(config),

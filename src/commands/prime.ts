@@ -16,6 +16,7 @@ import type { ProjectContext } from "../context/types.ts";
 import { jsonOutput } from "../json.ts";
 import { printWarning } from "../logging/color.ts";
 import { createMetricsStore } from "../metrics/store.ts";
+import { capabilityToAudience } from "../mulch/audience.ts";
 import { createMulchClient } from "../mulch/client.ts";
 import type { EmbeddingProvider } from "../mulch/semantic.ts";
 import { openSessionStore } from "../sessions/compat.ts";
@@ -110,6 +111,8 @@ export interface PrimeOptions {
 	instructionPath?: string;
 	/** Files to use as context signal for semantic reranking. Requires mulch.semantic.enabled: true in config. */
 	files?: string[];
+	/** Filter expertise by audience role (auto-detected from --agent capability if not provided). */
+	audience?: string;
 }
 
 /**
@@ -225,6 +228,7 @@ export async function primeCommand(opts: PrimeOptions): Promise<void> {
 	const useJson = opts.json ?? false;
 	const instructionPath = opts.instructionPath ?? ".claude/CLAUDE.md";
 	const contextFiles = opts.files ?? [];
+	let resolvedAudience = opts.audience;
 
 	// 1. Load config
 	const config = await loadConfig(process.cwd());
@@ -242,6 +246,24 @@ export async function primeCommand(opts: PrimeOptions): Promise<void> {
 	};
 	const semanticCfg = mulchWithSemantic.semantic;
 	const semanticEnabled = semanticCfg?.enabled === true;
+
+	// Resolve audience from agent session capability if not explicitly provided
+	if (!resolvedAudience && agentName !== null) {
+		try {
+			const overstoryDir = join(config.project.root, ".overstory");
+			const { store } = openSessionStore(overstoryDir);
+			try {
+				const agentSession = store.getByName(agentName);
+				if (agentSession?.capability) {
+					resolvedAudience = capabilityToAudience(agentSession.capability);
+				}
+			} finally {
+				store.close();
+			}
+		} catch {
+			// Session lookup is optional — silently skip
+		}
+	}
 
 	// 3. Load mulch expertise (optional — skip on failure)
 	let expertiseOutput: string | null = null;
@@ -272,10 +294,14 @@ export async function primeCommand(opts: PrimeOptions): Promise<void> {
 				} else {
 					// Embeddings unavailable — fall back to standard prime with warning
 					printWarning("Semantic embeddings unavailable; using standard prime output");
-					expertiseOutput = await mulch.prime(domains, config.mulch.primeFormat);
+					expertiseOutput = await mulch.prime(domains, config.mulch.primeFormat, {
+						audience: resolvedAudience,
+					});
 				}
 			} else {
-				expertiseOutput = await mulch.prime(domains, config.mulch.primeFormat);
+				expertiseOutput = await mulch.prime(domains, config.mulch.primeFormat, {
+					audience: resolvedAudience,
+				});
 			}
 		} catch {
 			// Mulch is optional — silently skip if it fails

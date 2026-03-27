@@ -36,6 +36,7 @@ import type { ProjectContext } from "../context/types.ts";
 import { AgentError } from "../errors.ts";
 import type { MailClient } from "../mail/client.ts";
 import type { MailStore } from "../mail/store.ts";
+import { capabilityToAudience } from "../mulch/audience.ts";
 import type { MulchClient } from "../mulch/client.ts";
 import type { AgentRuntime } from "../runtimes/types.ts";
 import type { SessionStore } from "../sessions/store.ts";
@@ -287,9 +288,11 @@ async function executePostWorktreeSteps(
 	if (config.mulch.enabled && opts.fileScope.length > 0) {
 		try {
 			const mulch = deps.mulch();
+			const audience = capabilityToAudience(opts.resolvedCapability);
 			mulchExpertise = await mulch.prime(undefined, undefined, {
 				files: opts.fileScope,
 				sortByScore: true,
+				...(audience ? { audience } : {}),
 			});
 		} catch {
 			mulchExpertise = undefined;
