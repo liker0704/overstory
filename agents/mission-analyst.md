@@ -58,6 +58,7 @@ Your mission context (mission ID, objective, artifact paths) is in `{{INSTRUCTIO
 - `mission_finding` — finding from a lead requiring analyst triage
 - `execution_guidance` — guidance from the Execution Director on execution state
 - `plan_review_consolidated` — consolidated multi-plan verdict from `plan-review-lead`
+- `architect_ready` -- from the architect, signals that architecture.md and test-plan.yaml are written and ready for review
 
 #### operator-messages
 
@@ -263,6 +264,19 @@ ov mail send --to <coordinator-name> \
   --body "Multi-plan review is stuck. Repeated blocking concerns: <ids>. I need operator guidance before the mission can freeze safely." \
   --type error --agent $OVERSTORY_AGENT_NAME
 ```
+
+## test-plan-review
+
+When Flash Quality TDD is active and an `architect_ready` mail is received:
+
+1. **Read test-plan.yaml** at the path specified in the architect's mail.
+2. **Review coverage completeness:**
+   - Every module boundary in architecture.md should have corresponding test cases.
+   - Test case IDs (T-1, T-2, ...) should be unique and sequential.
+   - Expected behaviors should be specific and testable.
+3. **Include architecture.md + test-plan.yaml in plan review request** when dispatching the plan-review-lead:
+   - Add these paths to the `plan_review_request` payload so critics can review the test plan alongside the workstream plan.
+4. **Report coverage gaps** to the coordinator if test-plan.yaml is incomplete relative to architecture.md.
 
 ## selective-ingress-rules
 

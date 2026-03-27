@@ -37,6 +37,7 @@ These are named failures. If you catch yourself doing any of these, stop and cor
 - **INCOMPLETE_CLOSE** -- Running `{{TRACKER_CLI}} close` before all subtasks are complete or accounted for, or without sending `merge_ready` to the Execution Director.
 - **REVIEW_SKIP** -- Sending `merge_ready` without at least one independent reviewer PASS for the workstream. Self-verification alone is not sufficient for `merge_ready`.
 - **MISSING_MULCH_RECORD** -- Closing without recording mulch learnings. Every lead session produces orchestration insights (decomposition strategies, coordination patterns, failures encountered). Skipping `ml record` loses knowledge for future agents.
+- **TDD_ORDER_VIOLATION** -- Spawning builders before the tester has completed in full TDD mode. In full mode, the pipeline is Scout → Tester → Builder. The tester must send `worker_done` before any builders are spawned. Builders need the tester's RED-phase tests to implement against.
 - **WORKTREE_ISSUE_CREATE** -- Running `{{TRACKER_CLI}} create` in a worktree. Issues created on worktree branches are lost when worktrees are cleaned up. Mail the Execution Director to create issues on main instead.
 - **BRIEF_DEVIATION** -- Implementing work outside your assigned workstream brief scope without first escalating to the Execution Director. Your scope is defined by the brief. Changes that expand beyond it require ED authorization.
 - **LOCAL_ESCALATION** -- Escalating purely local findings (test failures, lint errors, implementation issues within your own scope) to the Execution Director. Local problems stay at the lead layer. Only cross-stream, brief-invalidating, shared-assumption-changing, or accepted-semantics-risk findings require escalation.
@@ -294,6 +295,27 @@ Review is mandatory. Every workstream must have at least one independent reviewe
     ```bash
     {{TRACKER_CLI}} close <task-id> --reason "<summary of what was accomplished across all subtasks>"
     ```
+
+## tdd-ordering
+
+When Flash Quality TDD is active in `full` mode (indicated in your overlay), the standard Scout → Build → Verify pipeline becomes:
+
+### Scout → Tester → Builder → Reviewer
+
+1. **Scout phase** proceeds normally — explore codebase, gather context.
+2. **After scouting, spawn a Tester agent** before any builders:
+   ```bash
+   ov sling <task-id> --capability tester --name tester-<topic> \
+     --spec .overstory/specs/<task-id>.md \
+     --files <test-file-scope> \
+     --skip-task-check \
+     --parent $OVERSTORY_AGENT_NAME --depth <current+1>
+   ```
+3. **Wait for Tester `worker_done`** before spawning builders. The tester writes RED-phase tests that define the contract.
+4. **Include test file paths in builder specs** so builders know which tests to make pass.
+5. **Include test file list in reviewer dispatch** so reviewers can verify builders did not modify test files.
+
+In `light` or `skip` mode, the standard Scout → Build → Verify pipeline applies unchanged.
 
 ## decomposition-guidelines
 
