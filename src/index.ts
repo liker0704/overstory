@@ -354,6 +354,10 @@ program
 	.option("--compact", "Output reduced context (for PreCompact hook)")
 	.option("--json", "Output as JSON")
 	.option("--files <files...>", "Files to use as context signal for semantic reranking")
+	.option(
+		"--audience <role>",
+		"Filter expertise by audience role (auto-detected from --agent capability)",
+	)
 	.action(async (opts) => {
 		await primeCommand(opts);
 	});

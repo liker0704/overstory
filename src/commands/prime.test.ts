@@ -527,6 +527,95 @@ describe("renderCompactContext", () => {
 	});
 });
 
+describe("primeCommand --audience option", () => {
+	let chunks: string[];
+	let originalWrite: typeof process.stdout.write;
+	let originalStderrWrite: typeof process.stderr.write;
+	let tempDir: string;
+	let originalCwd: string;
+
+	beforeEach(async () => {
+		chunks = [];
+		originalWrite = process.stdout.write;
+		process.stdout.write = ((chunk: string) => {
+			chunks.push(chunk);
+			return true;
+		}) as typeof process.stdout.write;
+
+		originalStderrWrite = process.stderr.write;
+		process.stderr.write = (() => true) as typeof process.stderr.write;
+
+		tempDir = await mkdtemp(join(tmpdir(), "prime-audience-test-"));
+		const overstoryDir = join(tempDir, ".overstory");
+		await Bun.write(
+			join(overstoryDir, "config.yaml"),
+			`project:\n  name: audience-test\n  root: ${tempDir}\n  canonicalBranch: main\nmulch:\n  enabled: false\n`,
+		);
+
+		originalCwd = process.cwd();
+		process.chdir(tempDir);
+	});
+
+	afterEach(async () => {
+		process.stdout.write = originalWrite;
+		process.stderr.write = originalStderrWrite;
+		process.chdir(originalCwd);
+		await cleanupTempDir(tempDir);
+	});
+
+	test("--audience builder is accepted and does not error", async () => {
+		// mulch is disabled in test config — audience is accepted but not forwarded
+		await expect(primeCommand({ audience: "builder" })).resolves.toBeUndefined();
+		const out = chunks.join("");
+		expect(out).toContain("# Overstory Context");
+	});
+
+	test("audience is undefined when neither --agent nor --audience is specified", async () => {
+		// No audience, no agent — unfiltered fallback
+		await expect(primeCommand({})).resolves.toBeUndefined();
+		const out = chunks.join("");
+		expect(out).toContain("# Overstory Context");
+	});
+
+	test("--agent with active session does not error (audience auto-detect path)", async () => {
+		// Agent exists in sessions.db — capability-to-audience lookup runs without error
+		const sessions: AgentSession[] = [
+			{
+				id: "session-aud-1",
+				agentName: "aud-builder",
+				capability: "builder",
+				runtime: "claude",
+				worktreePath: join(tempDir, ".overstory", "worktrees", "aud-builder"),
+				branchName: "overstory/aud-builder/task-aud",
+				taskId: "task-aud",
+				tmuxSession: "overstory-aud-builder",
+				state: "working",
+				pid: 9999,
+				parentAgent: null,
+				depth: 0,
+				runId: null,
+				startedAt: new Date().toISOString(),
+				lastActivity: new Date().toISOString(),
+				escalationLevel: 0,
+				stalledSince: null,
+				rateLimitedSince: null,
+				runtimeSessionId: null,
+				transcriptPath: null,
+				originalRuntime: null,
+				statusLine: null,
+			},
+		];
+		await Bun.write(
+			join(tempDir, ".overstory", "sessions.json"),
+			`${JSON.stringify(sessions, null, 2)}\n`,
+		);
+
+		await expect(primeCommand({ agent: "aud-builder" })).resolves.toBeUndefined();
+		const out = chunks.join("");
+		expect(out).toContain("# Agent Context: aud-builder");
+	});
+});
+
 describe("loadCachedProjectContext", () => {
 	let tempDir: string;
 
