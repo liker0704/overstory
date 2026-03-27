@@ -345,6 +345,24 @@ export interface TestPlan {
 	suites: TestPlanSuite[];
 }
 
+export const SYNC_AGENT_DEFAULT_AUDIENCE: Record<string, string[]> = {
+	convention: ["builder", "tester", "reviewer"],
+	pattern: ["all"],
+	failure: ["all"],
+	decision: ["architect", "builder", "reviewer", "lead"],
+	reference: ["coordinator", "analyst", "architect"],
+};
+
+export interface SyncAgentContext {
+	missionSlug: string;
+	relatedFiles: string[];
+	status: "accepted";
+	classification: "foundational";
+	architecturePath: string;
+	bundlePath: string;
+	defaultAudience: Record<string, string[]>;
+}
+
 export interface MissionStore {
 	create(mission: InsertMission): Mission;
 	getById(id: string): Mission | null;
