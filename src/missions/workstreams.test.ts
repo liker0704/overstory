@@ -200,6 +200,33 @@ describe("validateWorkstreamsFile", () => {
 		});
 		expect(result.valid).toBe(true);
 	});
+
+	test("valid workstream with tddMode passes", () => {
+		const result = validateWorkstreamsFile({
+			version: 1,
+			workstreams: [makeWorkstream({ tddMode: "refactor" })],
+		});
+		expect(result.valid).toBe(true);
+		expect(result.workstreams?.workstreams[0]?.tddMode).toBe("refactor");
+	});
+
+	test("invalid tddMode fails", () => {
+		const result = validateWorkstreamsFile({
+			version: 1,
+			workstreams: [{ ...makeWorkstream(), tddMode: "unknown" }],
+		});
+		expect(result.valid).toBe(false);
+		expect(result.errors.some((e) => e.path.includes(".tddMode"))).toBe(true);
+	});
+
+	test("workstream without tddMode defaults to skip", () => {
+		const result = validateWorkstreamsFile({
+			version: 1,
+			workstreams: [makeWorkstream()],
+		});
+		expect(result.valid).toBe(true);
+		expect(result.workstreams?.workstreams[0]?.tddMode).toBe("skip");
+	});
 });
 
 // === loadWorkstreamsFile ===

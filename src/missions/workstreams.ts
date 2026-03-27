@@ -9,6 +9,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { TrackerClient } from "../tracker/types.ts";
+import { TDD_MODES, type TddMode } from "./types.ts";
 
 // === Status ===
 
@@ -30,6 +31,7 @@ export interface Workstream {
 	dependsOn: string[];
 	briefPath: string | null;
 	status: WorkstreamStatus;
+	tddMode?: TddMode;
 }
 
 export interface WorkstreamsFile {
@@ -133,6 +135,14 @@ export function validateWorkstreamsFile(raw: unknown): ValidationResult {
 			entryValid = false;
 		}
 
+		if (ws.tddMode !== undefined && !TDD_MODES.includes(ws.tddMode as TddMode)) {
+			errors.push({
+				path: `${base}.tddMode`,
+				message: `Expected one of: ${TDD_MODES.join(", ")}`,
+			});
+			entryValid = false;
+		}
+
 		if (entryValid) {
 			parsed.push({
 				id: ws.id as string,
@@ -142,6 +152,7 @@ export function validateWorkstreamsFile(raw: unknown): ValidationResult {
 				dependsOn: ws.dependsOn as string[],
 				briefPath: ws.briefPath as string | null,
 				status: ws.status as WorkstreamStatus,
+				tddMode: (ws.tddMode as TddMode | undefined) ?? "skip",
 			});
 		}
 	}
