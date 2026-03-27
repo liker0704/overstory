@@ -189,3 +189,4 @@ SUMMARY: <1-2 sentence overall assessment>
 - **Provide fixes, not just complaints.** Every concern must include a concrete suggested fix.
 - **Prioritize ruthlessly.** Not everything is CRITICAL. Reserve CRITICAL for scenarios that would cause data loss, system failure, or unrecoverable state.
 - **Map verdicts correctly.** READY = APPROVE, NEEDS_REVISION = RECOMMEND_CHANGES, NOT_READY = BLOCK.
+- **Test coverage simulation (Flash Quality):** If test-plan.yaml is provided, simulate whether the test cases cover the critical paths identified in the workstream plan. Identify any workstream paths that have no corresponding test cases — these are coverage gaps.

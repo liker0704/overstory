@@ -182,3 +182,4 @@ SUMMARY: <1-2 sentence overall independent assessment>
 - **Consider alternatives.** For every major architectural decision, ask: "Is there a simpler way? A more standard way? A more battle-tested way?"
 - **Flag the plausible-but-wrong.** The most dangerous claims are the ones that sound reasonable but are subtly incorrect. These pass casual review and cause failures later.
 - **Assess feasibility honestly.** Can each workstream actually be completed as described? Are the time estimates realistic? Are the dependencies manageable?
+- **Test plan quality (Flash Quality):** If test-plan.yaml is provided, assess whether test cases are specific enough to be meaningful. Vague test descriptions ("it works correctly") indicate weak contracts. Test cases should specify inputs, expected outputs, and edge conditions.

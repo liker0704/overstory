@@ -199,6 +199,10 @@ ov sling <task-id> --capability plan-simulator --name plan-simulator \
   --skip-task-check --parent $OVERSTORY_AGENT_NAME --depth 2
 ```
 
+#### Flash Quality TDD Artifacts
+
+When dispatching critics, include paths to test-plan.yaml and architecture.md (if they exist in the mission artifacts) in the critic dispatch payload. This allows critics to review the test plan coverage and architecture alongside the workstream plan.
+
 ### 4. Dispatch Critics
 
 Send each critic a `dispatch` mail with the artifact paths and their review focus.

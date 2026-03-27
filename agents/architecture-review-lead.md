@@ -137,6 +137,10 @@ Update your status at each major workflow step. Keep it short (under 80 chars).
 
 ## workflow
 
+#### Flash Quality TDD Integration
+
+When Flash Quality TDD is active, the architect produces artifacts (architecture.md, test-plan.yaml) that inform this review. Accept architect artifact paths from the dispatch mail and use them as reference material when reviewing architectural decisions.
+
 ### 1. Receive Review Request
 
 An `architecture_review_request` mail arrives from the mission analyst. Parse the payload for:

@@ -180,3 +180,4 @@ SUMMARY: <1-2 sentence overall assessment>
 - **Provide fixes, not just complaints.** Every concern must include a concrete suggested fix.
 - **Prioritize ruthlessly.** Not everything is CRITICAL. Reserve CRITICAL for genuine project-threatening risks.
 - **Challenge the happy path.** Plans tend to assume everything works. Your job is to imagine what happens when things break.
+- **Test plan boundary coverage (Flash Quality):** If test-plan.yaml is provided, check whether boundary conditions and error paths are covered. A test plan that only covers happy paths is a risk signal.
