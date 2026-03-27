@@ -262,6 +262,38 @@ export function buildAgentManifest(): AgentManifest {
 			canSpawn: false,
 			constraints: ["read-only"],
 		},
+		architect: {
+			file: "architect.md",
+			model: "opus",
+			tools: ["Read", "Glob", "Grep", "Bash", "Write"],
+			capabilities: ["architect", "design"],
+			canSpawn: false,
+			constraints: ["no-worktree"],
+		},
+		tester: {
+			file: "tester.md",
+			model: "sonnet",
+			tools: ["Read", "Glob", "Grep", "Bash", "Write", "Edit"],
+			capabilities: ["tester", "test-write"],
+			canSpawn: false,
+			constraints: [],
+		},
+		"architecture-review-lead": {
+			file: "architecture-review-lead.md",
+			model: "opus",
+			tools: ["Read", "Glob", "Grep", "Bash"],
+			capabilities: ["review", "coordinate", "architecture-review"],
+			canSpawn: true,
+			constraints: ["read-only", "no-worktree"],
+		},
+		"plan-architecture-critic": {
+			file: "plan-architecture-critic.md",
+			model: "sonnet",
+			tools: ["Read", "Glob", "Grep", "Bash"],
+			capabilities: ["review", "plan-critic", "architecture"],
+			canSpawn: false,
+			constraints: ["read-only", "no-worktree"],
+		},
 	};
 
 	// Build capability index: map each capability to agent names that declare it

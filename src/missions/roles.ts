@@ -214,6 +214,56 @@ export async function startExecutionDirector(
 }
 
 /**
+ * Start the architect persistent root agent.
+ *
+ * Calls startPersistentAgent with capability='architect', links the
+ * resulting session to the mission via MissionStore.bindSessions, and returns
+ * the start result.
+ */
+export async function startArchitectRole(
+	opts: StartMissionRoleOpts,
+	_deps?: MissionRoleDeps,
+): Promise<StartPersistentAgentResult> {
+	const startAgent = _deps?.startAgent ?? startPersistentAgent;
+	const storeFactory = _deps?.createStore ?? createMissionStore;
+
+	const architectName = opts.agentName ?? "architect";
+	const tmuxSession = opts.missionSlug ? `ov-architect-${opts.missionSlug}` : "ov-architect";
+
+	const result = await startAgent({
+		agentName: architectName,
+		capability: "architect",
+		projectRoot: opts.projectRoot,
+		overstoryDir: opts.overstoryDir,
+		tmuxSession,
+		createRun: false,
+		existingRunId: opts.existingRunId,
+		appendSystemPromptFile: opts.appendSystemPromptFile,
+		appendSystemPrompt: opts.appendSystemPrompt,
+		beacon: opts.beacon,
+	});
+
+	const store = storeFactory(join(opts.overstoryDir, "sessions.db"));
+	try {
+		const mission = store.getById(opts.missionId);
+		if (!mission) {
+			throw new AgentError(`Mission not found: ${opts.missionId}`, {
+				agentName: "architect",
+			});
+		}
+		// architectSessionId is added by data-layer-builder in parallel; cast is temporary.
+		const sessions = { architectSessionId: result.session.id } as unknown as Parameters<
+			typeof store.bindSessions
+		>[1];
+		store.bindSessions(opts.missionId, sessions);
+	} finally {
+		store.close();
+	}
+
+	return result;
+}
+
+/**
  * Start the plan-review-lead persistent root agent.
  *
  * Spawned during the plan phase to coordinate critic agents. Unlike other

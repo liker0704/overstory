@@ -566,6 +566,37 @@ export async function missionHandoff(
 		}
 
 		let dispatchableWorkstreams = validation.workstreams.workstreams;
+
+		// Flash Quality handoff gate: validate architecture + test-plan when active
+		const hasFlashQuality = dispatchableWorkstreams.some(
+			(ws) => ws.tddMode === "full" || ws.tddMode === "light",
+		);
+		if (hasFlashQuality) {
+			const archFile = Bun.file(join(paths.planDir, "architecture.md"));
+			if (!(await archFile.exists())) {
+				const msg = "Flash Quality active but plan/architecture.md is missing";
+				if (json) {
+					jsonError("mission handoff", msg);
+				} else {
+					printError("Mission handoff failed", msg);
+				}
+				process.exitCode = 1;
+				return;
+			}
+
+			const tpFile = Bun.file(join(paths.planDir, "test-plan.yaml"));
+			if (!(await tpFile.exists())) {
+				const msg = "Flash Quality active but plan/test-plan.yaml is missing";
+				if (json) {
+					jsonError("mission handoff", msg);
+				} else {
+					printError("Mission handoff failed", msg);
+				}
+				process.exitCode = 1;
+				return;
+			}
+		}
+
 		const config = await loadConfig(projectRoot);
 		if (config.taskTracker.enabled) {
 			try {
