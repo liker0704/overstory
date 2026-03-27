@@ -575,6 +575,28 @@ describe("generateOverlay", () => {
 
 		expect(output).not.toContain("{{DISPATCH_OVERRIDES}}");
 	});
+
+	test("includes TDD overlay for builder in full mode", async () => {
+		const config = makeConfig({ capability: "builder", tddMode: "full" });
+		const output = await generateOverlay(config);
+
+		expect(output).toContain("TDD Mode: Full");
+		expect(output).toContain("READ-ONLY");
+	});
+
+	test("no TDD overlay when tddMode is undefined", async () => {
+		const config = makeConfig({ capability: "builder", tddMode: undefined });
+		const output = await generateOverlay(config);
+
+		expect(output).not.toContain("TDD Mode");
+	});
+
+	test("no unreplaced TDD_OVERLAY placeholder when tddMode undefined", async () => {
+		const config = makeConfig();
+		const output = await generateOverlay(config);
+
+		expect(output).not.toContain("{{TDD_OVERLAY}}");
+	});
 });
 
 describe("writeOverlay", () => {
