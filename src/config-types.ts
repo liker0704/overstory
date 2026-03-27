@@ -206,6 +206,10 @@ export interface OverstoryConfig {
 		maxConcurrent?: number;
 		/** Timeout in ms before a frozen mission auto-unfreezes. Default: 1800000 (30 minutes). */
 		freezeTimeoutMs?: number;
+		holdout?: {
+			enabled?: boolean;
+			level3Enabled?: boolean;
+		};
 	};
 	mail?: {
 		reliability?: {
