@@ -7,6 +7,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { SYNC_AGENT_DEFAULT_AUDIENCE, type SyncAgentContext } from "./types.ts";
 
 // === Types ===
 
@@ -203,6 +204,44 @@ export function buildWorkstreamPatternRecord(
 			`Dependencies: ${deps || "none"}.`,
 		tags: ["mission", slug, "decomposition"],
 		classification: "tactical",
+	};
+}
+
+// === Sync agent context ===
+
+export function parseComponentFiles(content: string): string[] {
+	const files: string[] = [];
+	const regex = /^\|([^|\n]+)\|([^|\n]+)\|/gm;
+	let m = regex.exec(content);
+	while (m) {
+		const cell = m[2]?.trim() ?? "";
+		if (cell && cell !== "File" && cell !== "file" && !cell.startsWith("-")) {
+			files.push(cell);
+		}
+		m = regex.exec(content);
+	}
+	return files;
+}
+
+export function buildSyncAgentContext(opts: {
+	artifactRoot: string;
+	bundlePath: string;
+	missionSlug: string;
+	projectRoot: string;
+}): SyncAgentContext | null {
+	const { artifactRoot, bundlePath, missionSlug } = opts;
+	const architecturePath = join(artifactRoot, "architecture.md");
+	const archContent = readTextSafe(architecturePath);
+	if (!archContent) return null;
+
+	return {
+		missionSlug,
+		relatedFiles: parseComponentFiles(archContent),
+		status: "accepted",
+		classification: "foundational",
+		architecturePath,
+		bundlePath,
+		defaultAudience: SYNC_AGENT_DEFAULT_AUDIENCE,
 	};
 }
 

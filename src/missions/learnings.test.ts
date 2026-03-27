@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	buildLowScoringDimensionRecords,
 	buildMissionSummaryRecord,
+	buildSyncAgentContext,
 	buildWorkstreamPatternRecord,
 	parseDecisions,
 	readJsonSafe,
@@ -196,6 +197,62 @@ describe("buildWorkstreamPatternRecord", () => {
 
 	test("returns null for empty workstreams", () => {
 		expect(buildWorkstreamPatternRecord([], [], "test")).toBeNull();
+	});
+});
+
+describe("buildSyncAgentContext", () => {
+	test("returns null when architecture.md missing", () => {
+		const result = buildSyncAgentContext({
+			artifactRoot: tempDir,
+			bundlePath: join(tempDir, "bundle"),
+			missionSlug: "test-mission",
+			projectRoot: tempDir,
+		});
+		expect(result).toBeNull();
+	});
+
+	test("extracts relatedFiles from Components table", async () => {
+		const artifactRoot = join(tempDir, "artifacts");
+		await mkdir(artifactRoot);
+		await writeFile(
+			join(artifactRoot, "architecture.md"),
+			[
+				"## Components",
+				"",
+				"| Action | File | Purpose | Workstream |",
+				"|--------|------|---------|-----------|",
+				"| create | src/missions/types.ts | Types | ws-core |",
+				"| create | src/missions/learnings.ts | Learnings | ws-core |",
+			].join("\n"),
+		);
+
+		const result = buildSyncAgentContext({
+			artifactRoot,
+			bundlePath: join(tempDir, "bundle"),
+			missionSlug: "test-mission",
+			projectRoot: tempDir,
+		});
+
+		expect(result).not.toBeNull();
+		expect(result?.relatedFiles).toContain("src/missions/types.ts");
+		expect(result?.relatedFiles).toContain("src/missions/learnings.ts");
+		expect(result?.missionSlug).toBe("test-mission");
+		expect(result?.status).toBe("accepted");
+		expect(result?.classification).toBe("foundational");
+	});
+
+	test("returns empty relatedFiles when no Components table", async () => {
+		await writeFile(join(tempDir, "architecture.md"), "# Architecture\n\nNo components here.");
+
+		const result = buildSyncAgentContext({
+			artifactRoot: tempDir,
+			bundlePath: join(tempDir, "bundle"),
+			missionSlug: "test-mission",
+			projectRoot: tempDir,
+		});
+
+		expect(result).not.toBeNull();
+		expect(result?.relatedFiles).toEqual([]);
 	});
 });
 
