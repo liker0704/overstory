@@ -265,6 +265,85 @@ export interface CheckpointStore {
 	deleteCheckpoints(missionId: string): void;
 }
 
+// === Flash Quality Types ===
+
+export type TddMode = "full" | "light" | "skip" | "refactor";
+export const TDD_MODES: readonly TddMode[] = ["full", "light", "skip", "refactor"] as const;
+
+// Architecture.md parsed representation
+
+export interface ArchitectureComponent {
+	action: string;
+	file: string;
+	purpose: string;
+	workstream: string;
+}
+
+export interface ArchitectureInterface {
+	name: string;
+	workstream: string;
+	confidence?: "High" | "Medium" | "Low";
+	signatures: string;
+	behavior: string;
+	invariants: string[];
+	errorCases: string[];
+}
+
+export interface ArchitectureTddAssignment {
+	workstreamId: string;
+	tddMode: TddMode;
+	rationale: string;
+}
+
+export interface ArchitectureDecision {
+	id: string;
+	chosen: string;
+	confidence: "High" | "Medium" | "Low";
+	rejected: Array<{ option: string; reason: string }>;
+}
+
+export interface Architecture {
+	context: string;
+	components: ArchitectureComponent[];
+	interfaces: ArchitectureInterface[];
+	tddAssignments: ArchitectureTddAssignment[];
+	decisions: ArchitectureDecision[];
+	constraints: {
+		boundaries: string[];
+		patterns: string[];
+		prohibitions: string[];
+	};
+}
+
+// test-plan.yaml parsed representation
+
+export interface TestPlanCase {
+	id: string;
+	description: string;
+	type: "unit" | "integration" | "e2e" | "regression";
+	expectedBehavior: string;
+}
+
+export interface TestPlanFile {
+	path: string;
+	description: string;
+	interfaceRef: string;
+	cases: TestPlanCase[];
+}
+
+export interface TestPlanSuite {
+	workstreamId: string;
+	tddMode: TddMode;
+	files: TestPlanFile[];
+}
+
+export interface TestPlan {
+	version: 1;
+	missionId: string;
+	architectureRef: string;
+	suites: TestPlanSuite[];
+}
+
 export interface MissionStore {
 	create(mission: InsertMission): Mission;
 	getById(id: string): Mission | null;

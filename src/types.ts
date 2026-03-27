@@ -12,9 +12,14 @@ export {
 	PLAN_CRITIC_TYPES,
 	PLAN_REVIEW_TIER_CRITICS,
 } from "./mail/types.ts";
-export { MISSION_PHASES, MISSION_STATES, PENDING_INPUT_KINDS } from "./missions/types.ts";
-export { SPAN_KINDS, SPAN_STATUSES } from "./observability/types.ts";
+export {
+	MISSION_PHASES,
+	MISSION_STATES,
+	PENDING_INPUT_KINDS,
+	TDD_MODES,
+} from "./missions/types.ts";
 export { NOTIFICATION_KINDS } from "./notifications/types.ts";
+export { SPAN_KINDS, SPAN_STATUSES } from "./observability/types.ts";
 export { WORKFLOW_COMPONENT_ACTIONS, WORKFLOW_TDD_MODES } from "./workflow/types.ts";
 
 // === Type re-exports ===
@@ -183,6 +188,11 @@ export type {
 export type { SessionMetrics, TokenSnapshot } from "./metrics/types.ts";
 // Mission types
 export type {
+	Architecture,
+	ArchitectureComponent,
+	ArchitectureDecision,
+	ArchitectureInterface,
+	ArchitectureTddAssignment,
 	CheckpointStore,
 	GraphTransitionResult,
 	InsertMission,
@@ -196,6 +206,11 @@ export type {
 	MissionSummary,
 	NodeCheckpoint,
 	PendingInputKind,
+	TddMode,
+	TestPlan,
+	TestPlanCase,
+	TestPlanFile,
+	TestPlanSuite,
 	TransitionRecord,
 } from "./missions/types.ts";
 // Mulch types
