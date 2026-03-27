@@ -153,15 +153,12 @@ describe("deployHooks", () => {
 		const content = await Bun.file(outputPath).text();
 		const parsed = JSON.parse(content);
 		const postToolUse = parsed.hooks.PostToolUse;
-		// PostToolUse should have 3 entries: logger, mail check, and mulch diff Bash hook
-		expect(postToolUse).toHaveLength(3);
+		// PostToolUse should have 2 entries: logger and mulch diff Bash hook
+		expect(postToolUse).toHaveLength(2);
 		// First entry is the logging hook
 		expect(postToolUse[0].hooks[0].command).toContain("ov log tool-end");
-		// Second entry is the debounced mail check
-		expect(postToolUse[1].hooks[0].command).toContain("ov mail check --inject");
-		expect(postToolUse[1].hooks[0].command).toContain('--agent "$OVERSTORY_AGENT_NAME"');
-		expect(postToolUse[1].hooks[0].command).toContain("--debounce 30000");
-		expect(postToolUse[1].hooks[0].command).toContain("OVERSTORY_RUNTIME_SESSION_ID");
+		// Second entry is the mulch diff hook (mail check is injected separately via UserPromptSubmit)
+		expect(postToolUse[1].hooks[0].command).toContain("ml diff");
 	});
 
 	test("PostToolUse hook includes mulch diff Bash hook", async () => {
