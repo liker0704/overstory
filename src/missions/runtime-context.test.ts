@@ -20,6 +20,7 @@ function makeMission(overrides: Partial<Mission> = {}): Mission {
 		analystSessionId: null,
 		executionDirectorSessionId: null,
 		coordinatorSessionId: null,
+		architectSessionId: null,
 		pausedLeadNames: [],
 		pauseReason: null,
 		currentNode: null,

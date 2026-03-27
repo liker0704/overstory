@@ -46,6 +46,7 @@ interface MissionRow {
 	analyst_session_id: string | null;
 	execution_director_session_id: string | null;
 	coordinator_session_id: string | null;
+	architect_session_id: string | null;
 	paused_lead_names: string;
 	pause_reason: string | null;
 	current_node: string | null;
@@ -77,6 +78,7 @@ CREATE TABLE IF NOT EXISTS missions (
   analyst_session_id TEXT,
   execution_director_session_id TEXT,
   coordinator_session_id TEXT,
+  architect_session_id TEXT,
   paused_lead_names TEXT NOT NULL DEFAULT '[]',
   pause_reason TEXT,
   current_node TEXT,
@@ -110,6 +112,7 @@ const REQUIRED_MISSION_COLUMNS = [
 	"analyst_session_id",
 	"execution_director_session_id",
 	"coordinator_session_id",
+	"architect_session_id",
 	"paused_lead_names",
 	"pause_reason",
 	"current_node",
@@ -236,6 +239,7 @@ const MISSION_MIGRATIONS: Migration[] = [
 				"analyst_session_id",
 				"execution_director_session_id",
 				"coordinator_session_id",
+				"architect_session_id",
 				"paused_lead_names",
 				"pause_reason",
 				"current_node",
@@ -281,6 +285,7 @@ const MISSION_MIGRATIONS: Migration[] = [
 						"coordinator_session_id",
 						"NULL",
 					),
+					architect_session_id: missionColumnExpr(existingColumns, "architect_session_id", "NULL"),
 					paused_lead_names: `COALESCE(${missionColumnExpr(existingColumns, "paused_lead_names", "'[]'")}, '[]')`,
 					pause_reason: missionColumnExpr(existingColumns, "pause_reason", "NULL"),
 					current_node: missionColumnExpr(existingColumns, "current_node", "NULL"),
@@ -361,6 +366,20 @@ const MISSION_MIGRATIONS: Migration[] = [
 			return hasFrozenAt && hasDispatchLog !== null;
 		},
 	},
+	{
+		version: 4,
+		description: "add architect_session_id column",
+		up: (db) => {
+			const cols = db.prepare("PRAGMA table_info(missions)").all() as Array<{ name: string }>;
+			if (!cols.some((c) => c.name === "architect_session_id")) {
+				db.exec("ALTER TABLE missions ADD COLUMN architect_session_id TEXT");
+			}
+		},
+		detect: (db) => {
+			const cols = db.prepare("PRAGMA table_info(missions)").all() as Array<{ name: string }>;
+			return cols.some((c) => c.name === "architect_session_id");
+		},
+	},
 ];
 
 /** Convert a database row (snake_case) to a Mission object (camelCase). */
@@ -382,6 +401,7 @@ function rowToMission(row: MissionRow): Mission {
 		analystSessionId: row.analyst_session_id,
 		executionDirectorSessionId: row.execution_director_session_id,
 		coordinatorSessionId: row.coordinator_session_id,
+		architectSessionId: row.architect_session_id,
 		pausedLeadNames: safeJsonParse(row.paused_lead_names, []),
 		pauseReason: row.pause_reason,
 		currentNode: row.current_node ?? null,
@@ -521,6 +541,7 @@ export function createMissionStore(dbPath: string): MissionStore {
 			$analyst_session_id: string | null;
 			$execution_director_session_id: string | null;
 			$coordinator_session_id: string | null;
+			$architect_session_id: string | null;
 			$updated_at: string;
 		}
 	>(`
@@ -528,6 +549,7 @@ export function createMissionStore(dbPath: string): MissionStore {
 		SET analyst_session_id = COALESCE($analyst_session_id, analyst_session_id),
 		    execution_director_session_id = COALESCE($execution_director_session_id, execution_director_session_id),
 		    coordinator_session_id = COALESCE($coordinator_session_id, coordinator_session_id),
+		    architect_session_id = COALESCE($architect_session_id, architect_session_id),
 		    updated_at = $updated_at
 		WHERE id = $id
 	`);
@@ -723,6 +745,7 @@ export function createMissionStore(dbPath: string): MissionStore {
 				analystSessionId?: string;
 				executionDirectorSessionId?: string;
 				coordinatorSessionId?: string;
+				architectSessionId?: string;
 			},
 		): void {
 			bindSessionsStmt.run({
@@ -730,6 +753,7 @@ export function createMissionStore(dbPath: string): MissionStore {
 				$analyst_session_id: sessions.analystSessionId ?? null,
 				$execution_director_session_id: sessions.executionDirectorSessionId ?? null,
 				$coordinator_session_id: sessions.coordinatorSessionId ?? null,
+				$architect_session_id: sessions.architectSessionId ?? null,
 				$updated_at: new Date().toISOString(),
 			});
 		},

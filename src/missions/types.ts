@@ -167,6 +167,7 @@ export interface Mission {
 	analystSessionId: string | null;
 	executionDirectorSessionId: string | null;
 	coordinatorSessionId: string | null;
+	architectSessionId: string | null;
 	pausedLeadNames: string[];
 	pauseReason: string | null;
 	currentNode: string | null;
@@ -364,6 +365,7 @@ export interface MissionStore {
 			analystSessionId?: string;
 			executionDirectorSessionId?: string;
 			coordinatorSessionId?: string;
+			architectSessionId?: string;
 		},
 	): void;
 	bindCoordinatorSession(id: string, sessionId: string): void;

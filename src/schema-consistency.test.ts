@@ -323,6 +323,7 @@ describe("SQL schema consistency", () => {
 
 			const expected = [
 				"analyst_session_id",
+				"architect_session_id",
 				"artifact_root",
 				"completed_at",
 				"coordinator_session_id",

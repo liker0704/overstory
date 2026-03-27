@@ -253,15 +253,17 @@ describe("computeArtifactStaleness", () => {
 		expect(report.overallStatus).toBe("fresh");
 	});
 
-	test("returns results for all 5 artifact types on fresh run", async () => {
+	test("returns results for all 7 artifact types on fresh run", async () => {
 		const report = await computeArtifactStaleness(tempDir);
-		expect(report.results).toHaveLength(5);
+		expect(report.results).toHaveLength(7);
 		const types = report.results.map((r) => r.artifactType);
 		expect(types).toContain("brief");
 		expect(types).toContain("spec");
 		expect(types).toContain("mission-plan");
 		expect(types).toContain("review-output");
 		expect(types).toContain("mission-score");
+		expect(types).toContain("architecture");
+		expect(types).toContain("test-plan");
 	});
 
 	test("not stale on first run (fresh state)", async () => {

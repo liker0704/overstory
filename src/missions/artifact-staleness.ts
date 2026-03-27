@@ -22,7 +22,14 @@ export const SNAPSHOT_FILENAME = ".artifact-staleness.json";
 
 // === Types ===
 
-export type ArtifactType = "brief" | "spec" | "mission-plan" | "review-output" | "mission-score";
+export type ArtifactType =
+	| "brief"
+	| "spec"
+	| "mission-plan"
+	| "review-output"
+	| "mission-score"
+	| "architecture"
+	| "test-plan";
 
 export interface ArtifactStalenessResult {
 	artifactType: ArtifactType;
@@ -68,6 +75,8 @@ export const ARTIFACT_DEPENDENCIES: Record<ArtifactType, string[]> = {
 	"mission-plan": ["mission.md", "decisions.md", "open-questions.md", "plan/workstreams.json"],
 	"review-output": ["mission.md", "decisions.md"],
 	"mission-score": ["results/summary.json", "results/review.json"],
+	architecture: ["mission.md", "decisions.md", "research/_summary.md"],
+	"test-plan": ["plan/architecture.md", "plan/workstreams.json"],
 };
 
 // === Core functions ===
@@ -242,6 +251,8 @@ export async function computeArtifactStaleness(
 		"mission-plan",
 		"review-output",
 		"mission-score",
+		"architecture",
+		"test-plan",
 	];
 
 	const results: ArtifactStalenessResult[] = [];
