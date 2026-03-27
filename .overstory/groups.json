@@ -1621,5 +1621,15 @@
 		"status": "active",
 		"createdAt": "2026-03-27T19:15:11.849Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-93382bad",
+		"name": "holdout-batch-1",
+		"memberIssueIds": [
+			"overstory-5935"
+		],
+		"status": "active",
+		"createdAt": "2026-03-27T21:05:10.079Z",
+		"completedAt": null
 	}
 ]
