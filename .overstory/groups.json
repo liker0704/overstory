@@ -1576,5 +1576,16 @@
 		"status": "active",
 		"createdAt": "2026-03-25T23:04:02.309Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-79b057b0",
+		"name": "batch-1-foundations",
+		"memberIssueIds": [
+			"overstory-3849",
+			"overstory-a72f"
+		],
+		"status": "active",
+		"createdAt": "2026-03-27T15:24:39.810Z",
+		"completedAt": null
 	}
 ]
