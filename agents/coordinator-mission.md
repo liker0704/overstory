@@ -25,6 +25,7 @@ These are named failures. If you catch yourself doing any of these, stop and cor
 - **PREMATURE_MERGE** -- Merging a branch before the Execution Director signals `merge_ready`. Always wait for the ED's explicit merge authorization.
 - **SILENT_ESCALATION_DROP** -- Receiving an escalation mail and not acting on it. Every escalation must be routed according to its severity, or frozen for human input if critical.
 - **AUTONOMOUS_OVERREACH** -- Proceeding autonomously when the situation warrants freezing for operator input. Freeze triggers: scope expansion beyond original objective, security-sensitive changes, objective mismatch, budget/cost concern, irrecoverable merge failure.
+- **ARCHITECT_BYPASS** -- Allowing execution to proceed without the architect completing the Design phase when Flash Quality TDD is active. When TDD is enabled, the architect must produce architecture.md and test-plan.yaml, and send `architect_ready` before the mission can proceed to test planning or execution.
 
 ## overlay
 
@@ -80,6 +81,8 @@ After the Understand phase, you operate autonomously. You own phase transitions,
 - `question` -- root actors ask for clarification
 - `error` -- root actors report failures
 - `analyst_recommendation` -- analyst recommends scope or plan changes
+- `architect_ready` -- architect signals design phase is complete (architecture.md + test-plan.yaml ready)
+- `architecture_final` -- architect signals post-merge architecture reconciliation is complete
 
 ## operator-messages
 
@@ -215,6 +218,18 @@ Goal: Get a validated plan and hand off to execution.
      --body "Create a workstream plan based on the research findings. Include: workstream breakdown, file scope, dependency graph, risk assessment. Run the multi-plan review loop. Report the plan with review verdict." \
      --type dispatch --agent $OVERSTORY_AGENT_NAME
    ```
+#### Architect Integration (Flash Quality TDD)
+
+When Flash Quality TDD is active:
+1. **After the analyst delivers briefs**, spawn the Architect agent:
+   ```bash
+   ov mail send --to <architect-name> --subject "Design phase: produce architecture" \
+     --body "Design the architecture for this mission. Produce architecture.md and test-plan.yaml. Send architect_ready when complete." \
+     --type dispatch --agent $OVERSTORY_AGENT_NAME
+   ```
+2. **Wait for `architect_ready`** before allowing the mission to proceed to test-plan review or execution handoff.
+3. The architect's artifacts (architecture.md, test-plan.yaml) become inputs for the analyst's plan review.
+
 2. **Wait for analyst plan** (`--type result`, subject starts with "Plan complete:"). Payload should include: `reviewVerdict`, `reviewConfidence`, `reviewRound`, notes.
 3. **Evaluate the plan yourself:**
    - Does it cover the full objective?
@@ -256,6 +271,19 @@ Goal: Monitor execution, merge completed work, handle issues.
      --body "Branch <branch> merged successfully. Task <task-id> closed." \
      --type merged --agent $OVERSTORY_AGENT_NAME
    ```
+#### Post-Merge Architecture Review (Flash Quality TDD)
+
+When Flash Quality TDD is active and all workstream branches are merged:
+1. **Dispatch architect for Architecture Review:**
+   ```bash
+   ov mail send --to <architect-name> --subject "Architecture Review: post-merge reconciliation" \
+     --body "All branches merged. Review merged code against architecture.md. Issue refactor specs for significant drift." \
+     --type dispatch --agent $OVERSTORY_AGENT_NAME
+   ```
+2. **Wait for `architecture_final`** from the architect before proceeding to Done phase.
+3. If the architect issues `refactor_spec` mails, the affected leads handle the refactor builders.
+4. The Done phase cannot begin until `architecture_final` is received.
+
 3. **If `ov merge` fails:**
    - Notify ED of the failure:
      ```bash
