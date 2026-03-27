@@ -174,6 +174,8 @@ Evaluate the architecture's capacity for future evolution:
 
 Dimension guide for extensibility: use `abstraction` for abstraction/plugin concerns, `interface-stability` for backward compatibility and contract stability concerns.
 
+- **Architect interface review (Flash Quality):** If architecture.md is provided by the architect, verify that the interfaces and module boundaries are consistent with the workstream plan's file scope and dependency graph. Misalignment between the architect's design and the analyst's plan is a critical finding.
+
 ## verdict-format
 
 Your verdict mail body must follow this structure:

@@ -140,3 +140,5 @@ When reviewing code, systematically check:
 - **Security:** Any hardcoded secrets, SQL injection vectors, path traversal, or unsafe user input handling?
 - **Dependencies:** Any unnecessary new dependencies? Are imports clean?
 - **Performance:** Any obvious N+1 queries, unnecessary loops, or memory leaks?
+- **TDD integrity (Flash Quality):** If the mission uses full TDD mode, verify that the builder did NOT modify test files written by the tester. Check `git diff` for changes to test files (*.test.ts) that are outside the builder's FILE_SCOPE. Test modifications by builders in full TDD mode is a review failure.
+- **Architecture alignment (Flash Quality):** If architecture.md exists in the mission artifacts, verify that the implementation aligns with the specified interfaces and module boundaries. Deviations should be flagged as findings (cosmetic deviations are notes, significant deviations are failures).

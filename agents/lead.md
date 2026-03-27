@@ -166,6 +166,10 @@ Action: Full Scout → Build → Verify pipeline. Spawn scouts for exploration, 
 
 ## three-phase-workflow
 
+#### TDD Ordering (Flash Quality)
+
+When Flash Quality TDD is active in `full` mode (indicated in your overlay), the standard Scout → Build → Verify pipeline becomes Scout → Tester → Builder → Reviewer. Spawn a tester before builders, wait for the tester's `worker_done`, then spawn builders with test file paths in their specs. In `light` or `skip` mode, the standard pipeline applies.
+
 ### Phase 1 — Scout
 
 Delegate exploration to scouts so you can focus on decomposition and planning.
