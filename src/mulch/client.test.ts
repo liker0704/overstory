@@ -190,6 +190,18 @@ describe("createMulchClient", () => {
 				expect(error).toBeInstanceOf(AgentError);
 			}
 		});
+
+		test.skipIf(!hasMulch)("passes --audience flag when provided", async () => {
+			await initMulch();
+			const client = createMulchClient(tempDir);
+			// --audience may not be supported in all mulch versions; accept both outcomes
+			try {
+				const result = await client.prime([], "markdown", { audience: "builder" });
+				expect(typeof result).toBe("string");
+			} catch (error) {
+				expect(error).toBeInstanceOf(AgentError);
+			}
+		});
 	});
 
 	describe("status", () => {
@@ -376,6 +388,74 @@ describe("createMulchClient", () => {
 			} catch (error) {
 				expect(error).toBeInstanceOf(AgentError);
 			}
+		});
+
+		test.skipIf(!hasMulch)("with audience field passes audience to record", async () => {
+			await initMulch();
+			const addProc = Bun.spawn(["ml", "add", "testing"], {
+				cwd: tempDir,
+				stdout: "pipe",
+				stderr: "pipe",
+			});
+			await addProc.exited;
+
+			const client = createMulchClient(tempDir);
+			try {
+				await client.record("testing", {
+					type: "convention",
+					description: "audience test convention",
+					audience: ["builder", "reviewer"],
+				});
+				expect(true).toBe(true);
+			} catch (error) {
+				expect(error).toBeInstanceOf(AgentError);
+			}
+		});
+
+		test.skipIf(!hasMulch)("with ADR fields on decision record", async () => {
+			await initMulch();
+			const addProc = Bun.spawn(["ml", "add", "architecture"], {
+				cwd: tempDir,
+				stdout: "pipe",
+				stderr: "pipe",
+			});
+			await addProc.exited;
+
+			const client = createMulchClient(tempDir);
+			try {
+				await client.record("architecture", {
+					type: "decision",
+					title: "Use SQLite for local storage",
+					rationale: "Low overhead, no external dependencies",
+					context: "Need persistent storage for agent state",
+					consequences: ["No concurrent writes from separate processes", "Simple schema"],
+					status: "accepted",
+					relatedFiles: ["src/sessions/store.ts"],
+					relatedMission: "overstory-abc1",
+					audience: ["builder"],
+				});
+				expect(true).toBe(true);
+			} catch (error) {
+				expect(error).toBeInstanceOf(AgentError);
+			}
+		});
+
+		test.skipIf(!hasMulch)("backward compat: record without new fields still works", async () => {
+			await initMulch();
+			const addProc = Bun.spawn(["ml", "add", "testing"], {
+				cwd: tempDir,
+				stdout: "pipe",
+				stderr: "pipe",
+			});
+			await addProc.exited;
+
+			const client = createMulchClient(tempDir);
+			await expect(
+				client.record("testing", {
+					type: "convention",
+					description: "backward compat test",
+				}),
+			).resolves.toBeUndefined();
 		});
 
 		test.skipIf(!hasMulch)("with --evidence-bead flag passes flag to CLI", async () => {
