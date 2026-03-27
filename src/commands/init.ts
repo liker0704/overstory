@@ -294,6 +294,14 @@ export function buildAgentManifest(): AgentManifest {
 			canSpawn: false,
 			constraints: ["read-only", "no-worktree"],
 		},
+		"architecture-sync": {
+			file: "architecture-sync.md",
+			model: "sonnet",
+			tools: ["Read", "Glob", "Grep", "Bash"],
+			capabilities: ["architecture-sync", "knowledge-extraction"],
+			canSpawn: false,
+			constraints: ["read-only", "no-worktree"],
+		},
 	};
 
 	// Build capability index: map each capability to agent names that declare it

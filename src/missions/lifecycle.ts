@@ -565,6 +565,62 @@ async function terminalizeMission(opts: {
 					printWarning("Learnings extraction failed", String(err));
 				}
 			}
+
+			// Spawn architecture-sync agent (Phase 3)
+			try {
+				const { buildSyncAgentContext } = await import("./learnings.ts");
+				const artifactRoot =
+					refreshedMission.artifactRoot ?? join(overstoryDir, "missions", mission.id);
+				const syncContext = buildSyncAgentContext({
+					bundlePath,
+					artifactRoot,
+					missionSlug: refreshedMission.slug,
+					projectRoot,
+				});
+				if (syncContext !== null) {
+					const agentName = `arch-sync-${refreshedMission.slug}`;
+					const taskId = `${mission.id}-sync`;
+					const slingProc = Bun.spawn(
+						[
+							"ov",
+							"sling",
+							taskId,
+							"--capability",
+							"architecture-sync",
+							"--name",
+							agentName,
+							"--skip-task-check",
+							"--depth",
+							"0",
+						],
+						{ cwd: projectRoot, stdout: "pipe", stderr: "pipe" },
+					);
+					await slingProc.exited;
+					Bun.spawn(
+						[
+							"ov",
+							"mail",
+							"send",
+							"--to",
+							agentName,
+							"--subject",
+							`Sync: ${refreshedMission.slug}`,
+							"--body",
+							JSON.stringify(syncContext),
+							"--type",
+							"dispatch",
+						],
+						{ cwd: projectRoot, stdout: "pipe", stderr: "pipe" },
+					);
+					if (!json) {
+						printSuccess("Architecture-sync agent spawned", agentName);
+					}
+				}
+			} catch (err) {
+				if (!json) {
+					printWarning("Architecture sync failed", String(err));
+				}
+			}
 		}
 
 		return { bundlePath, reviewId: review.record.id, deferredSelfSession: selfTmuxSession };
