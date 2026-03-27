@@ -134,6 +134,11 @@ Update your status at each major workflow step. Keep it short (under 80 chars).
 - **Load context:** `ml prime [domain]` to understand project patterns and past review outcomes
 - **Record insights:** `ml record <domain> --type <type> --classification <foundational|tactical|observational> --description "<insight>"` to capture review coordination patterns, convergence strategies, and common blocking concerns
 - **Search knowledge:** `ml search <query>` to find relevant past review patterns
+- **Audience tagging:** Tag records with --audience based on who benefits:
+  - Review patterns/convergence strategies → lead, reviewer, coordinator
+  - Architecture findings → architect, builder, reviewer, lead
+- **Audience-filtered expertise:** When loading expertise with ml prime, records tagged with relevant audiences surface the most relevant domain knowledge.
+- **Domain selection:** Match the domain to where the knowledge lives — use the review domain (e.g., plan-review, architecture-review) for process patterns, or the subject domain for technical findings.
 
 ## workflow
 
