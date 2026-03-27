@@ -102,6 +102,9 @@ Update your status at each major workflow step. Keep it short (under 80 chars).
 - **Query expertise:** `ml prime [domain]` to load relevant context
 - **Surface insights:** Include notable findings (patterns, conventions, gotchas) in your result mail so your parent has full context for spec writing.
 - **Classification guidance for parents:** When including notable findings in your result mail, indicate suggested classification: `foundational` (confirmed stable convention), `tactical` (task-specific pattern), or `observational` (unverified finding). This helps your parent record accurately.
+- **Structured finding format:** When surfacing notable findings in result mail, use this format so your parent can record accurately:
+  Pattern: <what you found>. Audience: <who needs this — e.g., builder, tester, reviewer>. Classification: <foundational|tactical|observational>. Domain: <module name where the knowledge lives>.
+  This helps the lead record with correct --audience, --classification, and domain targeting.
 
 ## workflow
 

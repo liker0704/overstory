@@ -99,6 +99,7 @@ Update your status at each major workflow step. Keep it short (under 80 chars).
 ### Expertise
 - **Load context:** `ml prime [domain]` to understand the architectural context of the domain
 - **Surface insights:** Include notable findings in your verdict mail so your parent has full context.
+- **Audience-filtered expertise:** When loading expertise with ml prime, records tagged with relevant audiences (e.g., architect, reviewer) surface domain knowledge most relevant to your review role.
 
 ## workflow
 
