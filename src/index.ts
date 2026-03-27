@@ -394,6 +394,7 @@ program
 	.option("--agents", "Remove agent identity files")
 	.option("--specs", "Remove task spec files")
 	.option("--headroom", "Delete headroom.db")
+	.option("--resilience", "Clear resilience circuit breaker state")
 	.option("--json", "Output as JSON")
 	.action(async (opts) => {
 		await cleanCommand(opts);

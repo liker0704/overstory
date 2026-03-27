@@ -385,6 +385,15 @@ async function terminalizeMission(opts: {
 					try {
 						if (await isSessionAlive(tmuxName)) {
 							await killSession(tmuxName);
+							// Mark session completed so watchdog doesn't re-terminate as zombie
+							try {
+								const { store: killStore } = openSessionStore(overstoryDir);
+								try {
+									killStore.updateState(roleName, "completed");
+								} finally {
+									killStore.close();
+								}
+							} catch { /* best effort */ }
 							break;
 						}
 					} catch {

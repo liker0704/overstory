@@ -441,6 +441,18 @@ export async function stopPersistentAgent(
 		store.updateState(agentName, "completed");
 		store.updateLastActivity(agentName);
 
+		// Record successful stop in resilience circuit breaker
+		try {
+			const { createResilienceStore } = await import("../resilience/store.ts");
+			const { recordSuccess } = await import("../resilience/circuit-breaker.ts");
+			const resStore = createResilienceStore(join(overstoryDir, "resilience.db"));
+			try {
+				recordSuccess(resStore, session.capability);
+			} finally {
+				resStore.close();
+			}
+		} catch { /* resilience recording is non-fatal */ }
+
 		// Resolve runId: prefer session field, fall back to current-run.txt
 		const currentRunPath = join(overstoryDir, "current-run.txt");
 		let resolvedRunId: string | null = session.runId ?? null;

@@ -52,6 +52,7 @@ export interface CleanOptions {
 	agents?: boolean;
 	specs?: boolean;
 	headroom?: boolean;
+	resilience?: boolean;
 	json?: boolean;
 }
 
@@ -135,6 +136,7 @@ interface CleanResult {
 	agentsCleared: boolean;
 	specsCleared: boolean;
 	headroomWiped: boolean;
+	resilienceWiped: boolean;
 	nudgeStateCleared: boolean;
 	currentRunCleared: boolean;
 	mulchHealth: {
@@ -589,6 +591,7 @@ export async function cleanCommand(opts: CleanOptions): Promise<void> {
 	const doAgents = all || (opts.agents ?? false);
 	const doSpecs = all || (opts.specs ?? false);
 	const doHeadroom = all || (opts.headroom ?? false);
+	const doResilience = all || (opts.resilience ?? false);
 
 	const anySelected =
 		agentName ||
@@ -600,7 +603,8 @@ export async function cleanCommand(opts: CleanOptions): Promise<void> {
 		doLogs ||
 		doAgents ||
 		doSpecs ||
-		doHeadroom;
+		doHeadroom ||
+		doResilience;
 
 	if (!anySelected) {
 		throw new ValidationError(
@@ -644,6 +648,7 @@ export async function cleanCommand(opts: CleanOptions): Promise<void> {
 		agentsCleared: false,
 		specsCleared: false,
 		headroomWiped: false,
+		resilienceWiped: false,
 		nudgeStateCleared: false,
 		currentRunCleared: false,
 		mulchHealth: null,
@@ -695,6 +700,9 @@ export async function cleanCommand(opts: CleanOptions): Promise<void> {
 	}
 	if (doHeadroom) {
 		result.headroomWiped = await wipeSqliteDb(join(overstoryDir, "headroom.db"));
+	}
+	if (doResilience) {
+		result.resilienceWiped = await wipeSqliteDb(join(overstoryDir, "resilience.db"));
 	}
 
 	// 6. Wipe sessions.db + legacy sessions.json
@@ -753,6 +761,7 @@ export async function cleanCommand(opts: CleanOptions): Promise<void> {
 	if (result.mailWiped) lines.push("Wiped mail.db");
 	if (result.metricsWiped) lines.push("Wiped metrics.db");
 	if (result.headroomWiped) lines.push("Wiped headroom.db");
+	if (result.resilienceWiped) lines.push("Wiped resilience.db");
 	if (result.sessionsCleared) lines.push("Wiped sessions.db");
 	if (result.mergeQueueCleared) lines.push("Wiped merge-queue.db");
 	if (result.logsCleared) lines.push("Cleared logs/");

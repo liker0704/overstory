@@ -49,6 +49,7 @@ import { createMulchClient } from "../mulch/client.ts";
 import { normalizeSpans } from "../observability/normalize.ts";
 import { createExportPipeline, type ExportPipeline } from "../observability/pipeline.ts";
 import { buildExporters } from "../observability/registry.ts";
+import { recordSuccess } from "../resilience/circuit-breaker.ts";
 import { handleTaskFailure } from "../resilience/engine.ts";
 import { createResilienceStore, type ResilienceStore } from "../resilience/store.ts";
 import type { RerouteDecision, ResilienceConfig } from "../resilience/types.ts";
@@ -265,11 +266,20 @@ function reconcileSessionToCompleted(params: {
 	store: ReturnType<typeof openSessionStore>["store"];
 	runId: string | null;
 	eventStore: EventStore | null;
+	resilienceStore?: ResilienceStore | null;
 	eventType: string;
 	reason?: string;
 }): void {
-	const { session, store, runId, eventStore, eventType, reason } = params;
+	const { session, store, runId, eventStore, resilienceStore: rStore, eventType, reason } =
+		params;
 	store.updateState(session.agentName, "completed");
+	if (rStore) {
+		try {
+			recordSuccess(rStore, session.capability);
+		} catch {
+			/* non-fatal */
+		}
+	}
 	store.updateLastActivity(session.agentName);
 	store.updateEscalation(session.agentName, 0, null);
 	store.updateRateLimitedSince(session.agentName, null);
@@ -1158,6 +1168,7 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 										store,
 										runId,
 										eventStore,
+										resilienceStore,
 										eventType: "zombie_session_end_reconciled",
 										reason: "tmux alive, ready prompt, no recent rate-limit history",
 									});
@@ -1184,6 +1195,7 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 						store,
 						runId,
 						eventStore,
+						resilienceStore,
 						eventType: recentRateLimitHistory
 							? "rate_limit_session_end_dead_reconciled"
 							: "zombie_session_end_dead_reconciled",
@@ -1197,6 +1209,9 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 
 			const check = evaluateHealth(session, tmuxAlive, thresholds, rateLimitState);
 
+			// Capture pre-transition state to detect zombie re-termination loops
+			const wasZombie = session.state === "zombie";
+
 			// Transition state forward only (investigate action holds state)
 			const newState = transitionState(session.state, check);
 			if (newState !== session.state) {
@@ -1209,6 +1224,21 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 			}
 
 			if (check.action === "terminate") {
+				// Break zombie re-termination loop: dead zombie → completed, don't re-record failure
+				// Skip if rate-limited — those zombies may need respawn investigation
+				if (wasZombie && !tmuxAlive && !recentRateLimitHistory) {
+					reconcileSessionToCompleted({
+						session,
+						store,
+						runId,
+						eventStore,
+						resilienceStore,
+						eventType: "completed_cleanup",
+						reason: "Zombie with dead tmux promoted to completed",
+					});
+					continue;
+				}
+
 				// Record the failure via mulch (Tier 0 detection)
 				const reason = check.reconciliationNote ?? "Process terminated";
 				await recordFailureFn(root, session, reason, 0);
