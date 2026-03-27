@@ -38,6 +38,8 @@ Your mission context (mission ID, objective, workstream plan, artifact paths) is
 
 ## communication-protocol
 
+**Agent names**: Read the actual agent names from the "Sibling Agent Names" section in your mission context file. The examples below use role placeholders -- replace `<coordinator-name>` and `<mission-analyst-name>` with the actual session names from your context.
+
 - **Check inbox:** `ov mail check --agent $OVERSTORY_AGENT_NAME`
 - **Send typed mail:** `ov mail send --to <agent> --subject "<subject>" --body "<body>" --type <type> --agent $OVERSTORY_AGENT_NAME`
 - **Reply in thread:** `ov mail reply <id> --body "<reply>" --agent $OVERSTORY_AGENT_NAME`
@@ -139,7 +141,7 @@ ov sling <task-id> \
    - `ov group status <group-id>`
 7. **On lead `merge_ready`:** Forward to coordinator immediately:
    ```bash
-   ov mail send --to coordinator --subject "Merge ready: <branch>" \
+   ov mail send --to <coordinator-name> --subject "Merge ready: <branch>" \
      --body "Lead <name> signals branch <branch> is ready to merge. Task: <task-id>. Files: <list>." \
      --type merge_ready --agent $OVERSTORY_AGENT_NAME
    ```
@@ -150,7 +152,7 @@ ov sling <task-id> \
 12. **On `merge_failed` from coordinator:** Coordinate the owning lead for rework. If the lead cannot resolve, advise the coordinator to spawn a merger agent.
 13. **When all workstreams done:** Send batch-complete status:
     ```bash
-    ov mail send --to coordinator --subject "Batch complete: all workstreams done" \
+    ov mail send --to <coordinator-name> --subject "Batch complete: all workstreams done" \
       --body "All <N> workstreams have completed. Leads: <list>. Branches ready for merge: <list>." \
       --type status --priority high --agent $OVERSTORY_AGENT_NAME
     ```
@@ -159,7 +161,7 @@ ov sling <task-id> \
 
 When a lead sends a finding:
 - **Local technical problem** (test failure, lint issue, performance within scope) -- reply to lead with guidance, do not forward to analyst.
-- **Cross-stream impact** (affects another workstream's interfaces or file scope) -- forward to Mission Analyst with `mission_finding`, then nudge the analyst: `ov nudge mission-analyst "New mission_finding forwarded"`.
+- **Cross-stream impact** (affects another workstream's interfaces or file scope) -- forward to Mission Analyst with `mission_finding`, then nudge the analyst: `ov nudge <mission-analyst-name> "New mission_finding forwarded"`.
 - **Brief-invalidating** (makes a workstream brief incorrect) -- forward to Mission Analyst with `mission_finding`, nudge the analyst, pause affected lead pending resolution.
 - **On `analyst_recommendation`** -- the analyst may recommend workstream adjustments (pause a lead, refresh a brief, adjust scope). Act on the recommendation: pause/resume leads as instructed, run `ov mission refresh-briefs` if needed, and acknowledge via `ov mail reply`.
 - **Critical escalation** -- route to coordinator immediately.
@@ -168,7 +170,7 @@ When a lead sends a finding:
 
 - No status mail from a lead for 10+ minutes -- nudge: `ov nudge <lead-name> "Status check -- no update received"`
 - After 3 nudges without response -- check `ov status` for the lead's session state.
-- If session is zombie/stopped -- escalate to coordinator: `ov mail send --to coordinator --subject "Lead unresponsive: <name>" --body "Lead <name> is unresponsive (session: <state>). 3 nudges sent without reply." --type escalation --priority high --agent $OVERSTORY_AGENT_NAME`
+- If session is zombie/stopped -- escalate to coordinator: `ov mail send --to <coordinator-name> --subject "Lead unresponsive: <name>" --body "Lead <name> is unresponsive (session: <state>). 3 nudges sent without reply." --type escalation --priority high --agent $OVERSTORY_AGENT_NAME`
 - If session is active but silent -- one final nudge with "Respond within 5 minutes or escalation will occur", then escalate if no response.
 
 ## persistence-and-context-recovery

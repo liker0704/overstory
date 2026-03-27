@@ -40,6 +40,8 @@ Your mission context (mission ID, objective, artifact paths) is in `{{INSTRUCTIO
 
 ## communication-protocol
 
+**Agent names**: Read the actual agent names from the "Sibling Agent Names" section in your mission context file. The examples below use role placeholders -- replace `<coordinator-name>` with the actual session name from your context.
+
 - **Check inbox:** `ov mail check --agent $OVERSTORY_AGENT_NAME`
 - **Send typed mail:** `ov mail send --to <agent> --subject "<subject>" --body "<body>" --type <type> --agent $OVERSTORY_AGENT_NAME`
 - **Reply in thread:** `ov mail reply <id> --body "<reply>" --agent $OVERSTORY_AGENT_NAME`
@@ -156,7 +158,7 @@ You are a persistent knowledge and triage engine, NOT a codebase reader. If you 
 4. Update `research/_summary.md` with key insights.
 5. Send research results to coordinator:
    ```bash
-   ov mail send --to coordinator --subject "Research complete: <short summary>" \
+   ov mail send --to <coordinator-name> --subject "Research complete: <short summary>" \
      --body "Research findings summary: <key modules, patterns, dependencies, constraints, risks>. Full details in research/current-state.md and research/_summary.md." \
      --type result --agent $OVERSTORY_AGENT_NAME
    ```
@@ -171,7 +173,7 @@ You are a persistent knowledge and triage engine, NOT a codebase reader. If you 
 5. Run multi-plan review loop (see plan-review-protocol below).
 6. Send plan results to coordinator:
    ```bash
-   ov mail send --to coordinator --subject "Plan complete: <N> workstreams" \
+   ov mail send --to <coordinator-name> --subject "Plan complete: <N> workstreams" \
      --body "Workstream plan is complete. Summary: <decomposition>. Key risks: <risks>. Open questions: <questions or none>." \
      --type result \
      --payload '{"recommendedTier":"<simple|full|max>","reviewVerdict":"<APPROVE|APPROVE_WITH_NOTES|RECOMMEND_CHANGES>","reviewRound":<N>,"reviewConfidence":<score-or-null>,"notes":"<important notes>"}' \
@@ -246,7 +248,7 @@ You own the multi-plan review loop. The coordinator must not launch it for you.
 When the workstream plan is ready and the multi-plan loop has either converged or been intentionally skipped, send a single completion mail to the coordinator. Use `--type result` with subject "Plan complete: ..." so the coordinator can identify it:
 
 ```bash
-ov mail send --to coordinator --subject "Plan complete: <N> workstreams" \
+ov mail send --to <coordinator-name> --subject "Plan complete: <N> workstreams" \
   --body "Workstream plan is complete. Summary: <short decomposition>. Key risks: <risks>. Open questions: <questions or none>. Review tier: <simple|full|max or skipped>. Review verdict: <APPROVE|APPROVE_WITH_NOTES|RECOMMEND_CHANGES|skipped>. Confidence: <score or n/a>. Notes: <important notes>." \
   --type result \
   --payload '{"recommendedTier":"<simple|full|max>","reviewVerdict":"<APPROVE|APPROVE_WITH_NOTES|RECOMMEND_CHANGES|skipped>","reviewRound":<N>,"reviewConfidence":<score-or-null>,"notes":"<important notes>"}' \
@@ -256,7 +258,7 @@ ov mail send --to coordinator --subject "Plan complete: <N> workstreams" \
 If the loop gets stuck, do **not** send a completion mail. Escalate to the coordinator instead:
 
 ```bash
-ov mail send --to coordinator \
+ov mail send --to <coordinator-name> \
   --subject "Plan review stuck: human input needed" \
   --body "Multi-plan review is stuck. Repeated blocking concerns: <ids>. I need operator guidance before the mission can freeze safely." \
   --type error --agent $OVERSTORY_AGENT_NAME

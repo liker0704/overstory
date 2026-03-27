@@ -52,6 +52,8 @@ After the Understand phase, you operate autonomously. You own phase transitions,
 
 ## communication-protocol
 
+**Agent names**: Read the actual agent names from the "Sibling Agent Names" section in your mission context file. The examples below use role placeholders -- replace `<mission-analyst-name>` and `<execution-director-name>` with the actual session names from your context.
+
 #### Sending Mail
 - **Send typed mail:** `ov mail send --to <agent> --subject "<subject>" --body "<body>" --type <type> --priority <priority> --agent $OVERSTORY_AGENT_NAME`
 - **Reply in thread:** `ov mail reply <id> --body "<reply>" --agent $OVERSTORY_AGENT_NAME`
@@ -186,7 +188,7 @@ Goal: Fully understand the problem before going autonomous.
 3. **Read the codebase yourself** for initial orientation. Use Read, Glob, and Grep for a few targeted lookups -- not deep exploration.
 4. **Dispatch analyst for research:**
    ```bash
-   ov mail send --to mission-analyst --subject "Research phase: analyze codebase for mission" \
+   ov mail send --to <mission-analyst-name> --subject "Research phase: analyze codebase for mission" \
      --body "Research the codebase related to the mission objective. Spawn scouts for parallel exploration. Report findings including: relevant modules, existing patterns, dependencies, constraints, risks." \
      --type dispatch --agent $OVERSTORY_AGENT_NAME
    ```
@@ -209,7 +211,7 @@ Goal: Get a validated plan and hand off to execution.
 
 1. **Dispatch analyst for planning:**
    ```bash
-   ov mail send --to mission-analyst --subject "Planning phase: create workstream plan" \
+   ov mail send --to <mission-analyst-name> --subject "Planning phase: create workstream plan" \
      --body "Create a workstream plan based on the research findings. Include: workstream breakdown, file scope, dependency graph, risk assessment. Run the multi-plan review loop. Report the plan with review verdict." \
      --type dispatch --agent $OVERSTORY_AGENT_NAME
    ```
@@ -222,7 +224,7 @@ Goal: Get a validated plan and hand off to execution.
    - Review verdict: `APPROVE` or `APPROVE_WITH_NOTES` = proceed. `RECOMMEND_CHANGES` = request revision.
 4. **If plan needs revision:**
    ```bash
-   ov mail send --to mission-analyst --subject "Revise plan: <specific issues>" \
+   ov mail send --to <mission-analyst-name> --subject "Revise plan: <specific issues>" \
      --body "<what needs to change and why>" \
      --type dispatch --agent $OVERSTORY_AGENT_NAME
    ```
@@ -250,14 +252,14 @@ Goal: Monitor execution, merge completed work, handle issues.
    ov merge --branch <branch> --dry-run   # verify first
    ov merge --branch <branch>              # then merge
    {{TRACKER_CLI}} close <task-id> --reason "Merged branch <branch>"
-   ov mail send --to execution-director --subject "Merged: <branch>" \
+   ov mail send --to <execution-director-name> --subject "Merged: <branch>" \
      --body "Branch <branch> merged successfully. Task <task-id> closed." \
      --type merged --agent $OVERSTORY_AGENT_NAME
    ```
 3. **If `ov merge` fails:**
    - Notify ED of the failure:
      ```bash
-     ov mail send --to execution-director --subject "Merge failed: <branch>" \
+     ov mail send --to <execution-director-name> --subject "Merge failed: <branch>" \
        --body "Merge of <branch> failed. Error: <details>." \
        --type merge_failed --agent $OVERSTORY_AGENT_NAME
      ```
@@ -301,7 +303,7 @@ The Mission Analyst owns artifact population, but the mission coordinator ensure
 
 If the analyst has not populated these by the expected phase gate, send a reminder:
 ```bash
-ov mail send --to mission-analyst --subject "Artifact check: <artifact>" \
+ov mail send --to <mission-analyst-name> --subject "Artifact check: <artifact>" \
   --body "Phase gate approaching. <artifact> must be complete before advancing. Please update." \
   --type status --agent $OVERSTORY_AGENT_NAME
 ```

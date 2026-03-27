@@ -587,6 +587,8 @@ export async function missionHandoff(
 
 		const pausedWorkstreamIds = new Set(mission.pausedWorkstreamIds);
 		const edAgentName = mission.slug ? `execution-director-${mission.slug}` : "execution-director";
+		const coordAgentName = mission.slug ? `coordinator-${mission.slug}` : "coordinator";
+		const analystAgentName = mission.slug ? `mission-analyst-${mission.slug}` : "mission-analyst";
 		const allHandoffs = packageHandoffs(dispatchableWorkstreams);
 		const handoffs = allHandoffs.filter(
 			(handoff) => !pausedWorkstreamIds.has(handoff.workstreamId),
@@ -652,6 +654,10 @@ export async function missionHandoff(
 			capability: "execution-director",
 			roleLabel: "Execution Director",
 			mission,
+			siblingNames: {
+				"Coordinator agent": coordAgentName,
+				"Mission Analyst agent": analystAgentName,
+			},
 		});
 		drainAgentInbox(overstoryDir, edAgentName);
 

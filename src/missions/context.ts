@@ -164,8 +164,9 @@ export async function materializeMissionRolePrompt(opts: {
 		Mission,
 		"id" | "slug" | "objective" | "artifactRoot" | "runId" | "phase" | "state"
 	>;
+	siblingNames?: Record<string, string>;
 }): Promise<MaterializedMissionRolePrompt> {
-	const { overstoryDir, agentName, capability, roleLabel, mission } = opts;
+	const { overstoryDir, agentName, capability, roleLabel, mission, siblingNames } = opts;
 	const paths = await ensureMissionArtifacts(mission);
 	const agentDir = join(overstoryDir, "agents", agentName);
 	await mkdir(agentDir, { recursive: true });
@@ -204,6 +205,16 @@ export async function materializeMissionRolePrompt(opts: {
 		"- Update mission artifacts directly under the paths above.",
 		"- Use ov mail for coordination and operator questions.",
 		"",
+		...(siblingNames && Object.keys(siblingNames).length > 0
+			? [
+					"## Sibling Agent Names",
+					"",
+					"Use these exact names for `--to` in `ov mail send` commands:",
+					"",
+					...Object.entries(siblingNames).map(([role, name]) => `- ${role}: \`${name}\``),
+					"",
+				]
+			: []),
 		buildMissionPlanningContract(),
 		"",
 	].join("\n");

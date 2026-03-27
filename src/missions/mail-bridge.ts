@@ -14,12 +14,12 @@ import { recordMissionEvent } from "./events.ts";
 import { resolveActiveMissionContext } from "./runtime-context.ts";
 import { appendMissionThreadId, checkMissionFreezeTimeout, createMissionStore } from "./store.ts";
 
-const MISSION_PENDING_SENDERS = new Set([
+const MISSION_PENDING_SENDER_PREFIXES = [
 	"mission-analyst",
 	"execution-director",
 	"coordinator-mission",
 	"coordinator",
-]);
+];
 
 export async function syncMissionPendingInputFromMail(
 	cwd: string,
@@ -32,7 +32,11 @@ export async function syncMissionPendingInputFromMail(
 		missionId?: string;
 	},
 ): Promise<void> {
-	if (msg.to !== "operator" || msg.type !== "question" || !MISSION_PENDING_SENDERS.has(msg.from)) {
+	if (
+		msg.to !== "operator" ||
+		msg.type !== "question" ||
+		!MISSION_PENDING_SENDER_PREFIXES.some((p) => msg.from.startsWith(p))
+	) {
 		return;
 	}
 

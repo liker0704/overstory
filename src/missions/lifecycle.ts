@@ -635,12 +635,18 @@ export async function missionStart(
 		// --- Start mission coordinator (user-facing role) ---
 		// Scope agent names by slug for parallel mission support
 		const coordAgentName = slug ? `coordinator-${slug}` : "coordinator";
+		const analystAgentName = slug ? `mission-analyst-${slug}` : "mission-analyst";
+		const edAgentName = slug ? `execution-director-${slug}` : "execution-director";
 		const coordPrompt = await materializeMissionRolePrompt({
 			overstoryDir,
 			agentName: coordAgentName,
 			capability: "coordinator-mission",
 			roleLabel: "Mission Coordinator",
 			mission,
+			siblingNames: {
+				"Mission Analyst agent": analystAgentName,
+				"Execution Director agent": edAgentName,
+			},
 		});
 		drainAgentInbox(overstoryDir, coordAgentName);
 
@@ -664,13 +670,15 @@ export async function missionStart(
 		missionStore.bindCoordinatorSession(mission.id, coordResult.session.id);
 
 		// --- Start mission analyst (internal research role) ---
-		const analystAgentName = slug ? `mission-analyst-${slug}` : "mission-analyst";
 		const analystPrompt = await materializeMissionRolePrompt({
 			overstoryDir,
 			agentName: analystAgentName,
 			capability: "mission-analyst",
 			roleLabel: "Mission Analyst",
 			mission,
+			siblingNames: {
+				"Coordinator agent": coordAgentName,
+			},
 		});
 		drainAgentInbox(overstoryDir, analystAgentName);
 
@@ -1406,14 +1414,22 @@ async function restartMissionRoles(
 	}
 	const runId = mission.runId;
 
+	const coordAgentName = "coordinator";
+	const analystAgentName = "mission-analyst";
+	const edAgentName = "execution-director";
+
 	const coordPrompt = await materializeMissionRolePrompt({
 		overstoryDir,
-		agentName: "coordinator",
+		agentName: coordAgentName,
 		capability: "coordinator-mission",
 		roleLabel: "Mission Coordinator",
 		mission,
+		siblingNames: {
+			"Mission Analyst agent": analystAgentName,
+			"Execution Director agent": edAgentName,
+		},
 	});
-	drainAgentInbox(overstoryDir, "coordinator");
+	drainAgentInbox(overstoryDir, coordAgentName);
 
 	const coordResult = await startMissionCoordinator({
 		missionId: mission.id,
@@ -1423,7 +1439,7 @@ async function restartMissionRoles(
 		existingRunId: runId,
 		appendSystemPromptFile: coordPrompt.promptPath,
 		beacon: buildMissionRoleBeacon({
-			agentName: "coordinator",
+			agentName: coordAgentName,
 			missionId: mission.id,
 			contextPath: coordPrompt.contextPath,
 		}),
@@ -1438,10 +1454,13 @@ async function restartMissionRoles(
 
 	const analystPrompt = await materializeMissionRolePrompt({
 		overstoryDir,
-		agentName: "mission-analyst",
+		agentName: analystAgentName,
 		capability: "mission-analyst",
 		roleLabel: "Mission Analyst",
 		mission,
+		siblingNames: {
+			"Coordinator agent": coordAgentName,
+		},
 	});
 	drainAgentInbox(overstoryDir, "mission-analyst");
 
