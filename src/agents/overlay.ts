@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { DEFAULT_QUALITY_GATES } from "../config.ts";
 import { AgentError } from "../errors.ts";
+import { formatTddOverlay } from "../missions/tdd.ts";
 import type { OverlayConfig, QualityGate } from "../types.ts";
 
 /**
@@ -362,6 +363,12 @@ export async function generateOverlay(config: OverlayConfig): Promise<string> {
 		"{{TRACKER_CLI}}": config.trackerCli ?? "sd",
 		"{{TRACKER_NAME}}": config.trackerName ?? "seeds",
 		"{{INSTRUCTION_PATH}}": config.instructionPath ?? ".claude/CLAUDE.md",
+		"{{TDD_OVERLAY}}": formatTddOverlay(
+			config.capability,
+			config.tddMode,
+			config.testPlanPath,
+			config.architecturePath,
+		),
 	};
 
 	let result = template;

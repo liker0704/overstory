@@ -303,6 +303,7 @@ export type {
 
 import type { AgentState } from "./agents/types.ts";
 import type { QualityGate } from "./config-types.ts";
+import type { TddMode } from "./missions/types.ts";
 
 // === Overlay ===
 
@@ -338,6 +339,9 @@ export interface OverlayConfig {
 	qualityGates?: QualityGate[];
 	/** Relative path to the instruction file within the worktree (runtime-specific). Defaults to .claude/CLAUDE.md. */
 	instructionPath?: string;
+	tddMode?: TddMode;
+	architecturePath?: string;
+	testPlanPath?: string;
 }
 
 // === Watchdog ===
