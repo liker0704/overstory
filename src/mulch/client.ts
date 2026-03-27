@@ -39,6 +39,7 @@ export interface MulchClient {
 			files?: string[];
 			excludeDomain?: string[];
 			sortByScore?: boolean;
+			audience?: string;
 		},
 	): Promise<string>;
 
@@ -74,6 +75,12 @@ export interface MulchClient {
 			outcomeDuration?: number;
 			outcomeTestResults?: string;
 			outcomeAgent?: string;
+			audience?: string[];
+			context?: string;
+			consequences?: string[];
+			status?: string;
+			relatedFiles?: string[];
+			relatedMission?: string;
 		},
 	): Promise<void>;
 
@@ -161,6 +168,7 @@ type MulchExpertiseRecord =
 			outcomes?: MulchOutcome[];
 			relates_to?: string[];
 			supersedes?: string[];
+			audience?: string[];
 	  }
 	| {
 			type: "pattern";
@@ -175,6 +183,7 @@ type MulchExpertiseRecord =
 			outcomes?: MulchOutcome[];
 			relates_to?: string[];
 			supersedes?: string[];
+			audience?: string[];
 	  }
 	| {
 			type: "failure";
@@ -188,6 +197,7 @@ type MulchExpertiseRecord =
 			outcomes?: MulchOutcome[];
 			relates_to?: string[];
 			supersedes?: string[];
+			audience?: string[];
 	  }
 	| {
 			type: "decision";
@@ -201,6 +211,12 @@ type MulchExpertiseRecord =
 			outcomes?: MulchOutcome[];
 			relates_to?: string[];
 			supersedes?: string[];
+			audience?: string[];
+			context?: string;
+			consequences?: string[];
+			status?: "accepted" | "superseded" | "deprecated";
+			relatedFiles?: string[];
+			relatedMission?: string;
 	  }
 	| {
 			type: "reference";
@@ -215,6 +231,7 @@ type MulchExpertiseRecord =
 			outcomes?: MulchOutcome[];
 			relates_to?: string[];
 			supersedes?: string[];
+			audience?: string[];
 	  }
 	| {
 			type: "guide";
@@ -228,6 +245,7 @@ type MulchExpertiseRecord =
 			outcomes?: MulchOutcome[];
 			relates_to?: string[];
 			supersedes?: string[];
+			audience?: string[];
 	  };
 
 /**
@@ -323,6 +341,12 @@ function buildExpertiseRecord(options: {
 	outcomeDuration?: number;
 	outcomeTestResults?: string;
 	outcomeAgent?: string;
+	audience?: string[];
+	context?: string;
+	consequences?: string[];
+	status?: string;
+	relatedFiles?: string[];
+	relatedMission?: string;
 }): MulchExpertiseRecord {
 	const base = {
 		classification: (options.classification ?? "tactical") as
@@ -343,6 +367,7 @@ function buildExpertiseRecord(options: {
 					},
 				]
 			: undefined,
+		audience: options.audience,
 	};
 
 	switch (options.type) {
@@ -368,6 +393,11 @@ function buildExpertiseRecord(options: {
 				type: "decision",
 				title: options.title ?? "",
 				rationale: options.rationale ?? "",
+				context: options.context,
+				consequences: options.consequences,
+				status: options.status as "accepted" | "superseded" | "deprecated" | undefined,
+				relatedFiles: options.relatedFiles,
+				relatedMission: options.relatedMission,
 			};
 		case "reference":
 			return {
@@ -461,6 +491,9 @@ export function createMulchClient(cwd: string, semanticConfig?: SemanticConfig):
 			}
 			if (options?.sortByScore) {
 				args.push("--sort-by-score");
+			}
+			if (options?.audience) {
+				args.push("--audience", options.audience);
 			}
 			const { stdout } = await runMulch(args, "prime");
 			return stdout;
