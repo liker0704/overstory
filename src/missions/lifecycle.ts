@@ -437,6 +437,41 @@ async function terminalizeMission(opts: {
 			drainAgentInbox(overstoryDir, agentName);
 		}
 
+		// --- Holdout validation ---
+		if (targetState === "completed") {
+			const holdoutConfig = await loadConfig(projectRoot);
+			const holdoutEnabled = holdoutConfig.mission?.holdout?.enabled !== false;
+			if (holdoutEnabled) {
+				const { runMissionHoldout } = await import("./holdout.ts");
+				const holdoutResult = await runMissionHoldout({
+					overstoryDir,
+					projectRoot,
+					missionId: mission.id,
+					maxLevel: holdoutConfig.mission?.holdout?.level3Enabled ? 3 : 2,
+				});
+				if (!holdoutResult.passed) {
+					if (json) {
+						console.log(JSON.stringify({ holdout: holdoutResult }, null, 2));
+					} else {
+						console.error("Holdout validation failed:");
+						for (const check of holdoutResult.checks) {
+							if (check.status === "fail") {
+								console.error(`  [L${check.level}] ${check.name}: ${check.message}`);
+								if (check.details) {
+									for (const d of check.details) {
+										console.error(`      ${d}`);
+									}
+								}
+							}
+						}
+					}
+					process.exitCode = 1;
+					missionStore.close();
+					return { bundlePath: null, reviewId: null, deferredSelfSession: null };
+				}
+			}
+		}
+
 		const beforeState = mission.state;
 		const beforePhase = mission.phase;
 		if (targetState === "completed") {

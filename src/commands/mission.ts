@@ -9,14 +9,6 @@
 import { join } from "node:path";
 import { Command } from "commander";
 import { loadConfig } from "../config.ts";
-import {
-	clearMissionRuntimePointers,
-	readCurrentMissionPointer,
-	readCurrentRunPointer,
-	resolveMissionByIdOrSlug,
-	writeMissionRuntimePointers,
-} from "../missions/runtime-context.ts";
-import { createMissionStore } from "../missions/store.ts";
 import { missionRefreshBriefsCommand } from "../missions/brief-refresh.ts";
 import { missionBundle } from "../missions/bundle.ts";
 import {
@@ -37,6 +29,14 @@ import {
 	missionShow,
 	missionStatus,
 } from "../missions/render.ts";
+import {
+	clearMissionRuntimePointers,
+	readCurrentMissionPointer,
+	readCurrentRunPointer,
+	resolveMissionByIdOrSlug,
+	writeMissionRuntimePointers,
+} from "../missions/runtime-context.ts";
+import { createMissionStore } from "../missions/store.ts";
 import { missionHandoff, missionResume } from "../missions/workstream-control.ts";
 
 export { missionRefreshBriefsCommand } from "../missions/brief-refresh.ts";
@@ -349,6 +349,75 @@ export function createMissionCommand(): Command {
 			const overstoryDir = join(config.project.root, ".overstory");
 			const format = (opts.format ?? "text") as "text" | "mermaid" | "json";
 			await missionGraph(overstoryDir, opts.json ?? false, format);
+		});
+
+	cmd
+		.command("holdout")
+		.description("Run holdout validation checks against a mission")
+		.option("--mission-id <id>", "Target a specific mission (default: active)")
+		.option("--level <level>", "Maximum check level to run (1, 2, or 3)", "2")
+		.option("--json", "Output as JSON")
+		.action(async (opts: { missionId?: string; level?: string; json?: boolean }) => {
+			const cwd = process.cwd();
+			const config = await loadConfig(cwd);
+			const overstoryDir = join(config.project.root, ".overstory");
+			const dbPath = join(overstoryDir, "sessions.db");
+
+			const { createMissionStore } = await import("../missions/store.ts");
+			const missionStore = createMissionStore(dbPath);
+			try {
+				let mission: import("../types.ts").Mission | null | undefined;
+				if (opts.missionId) {
+					mission = missionStore.getById(opts.missionId) ?? missionStore.getBySlug(opts.missionId);
+				} else {
+					mission = missionStore.getActive();
+				}
+				if (!mission) {
+					console.error(
+						opts.missionId ? `Mission not found: ${opts.missionId}` : "No active mission",
+					);
+					process.exitCode = 1;
+					return;
+				}
+
+				const { runMissionHoldout } = await import("../missions/holdout.ts");
+				const maxLevel = Number(opts.level ?? "2") as 1 | 2 | 3;
+				const result = await runMissionHoldout({
+					overstoryDir,
+					projectRoot: config.project.root,
+					missionId: mission.id,
+					maxLevel,
+				});
+
+				if (opts.json) {
+					console.log(JSON.stringify(result, null, 2));
+				} else {
+					console.log(`Holdout validation: ${result.passed ? "PASSED" : "FAILED"}`);
+					console.log(`Duration: ${result.duration}ms`);
+					console.log("");
+					for (const check of result.checks) {
+						const icon =
+							check.status === "pass"
+								? "v"
+								: check.status === "fail"
+									? "x"
+									: check.status === "warn"
+										? "!"
+										: "o";
+						console.log(`  ${icon} [L${check.level}] ${check.name}: ${check.message}`);
+						if (check.details && check.status === "fail") {
+							for (const d of check.details) {
+								console.log(`      ${d}`);
+							}
+						}
+					}
+				}
+				if (!result.passed) {
+					process.exitCode = 1;
+				}
+			} finally {
+				missionStore.close();
+			}
 		});
 
 	return cmd;
