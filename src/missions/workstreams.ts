@@ -221,7 +221,10 @@ export function validateWorkstreamsFile(raw: unknown): ValidationResult {
 		}
 	}
 
-	// Non-overlapping fileScope check
+	// Non-overlapping fileScope check (exact string match only).
+	// Glob patterns (e.g. "src/auth/**") are compared literally — overlap with
+	// exact paths (e.g. "src/auth/login.ts") is NOT detected. Workstream authors
+	// must ensure non-overlapping scopes when using globs.
 	const fileToWorkstream = new Map<string, string>();
 	for (const ws of parsed) {
 		for (const file of ws.fileScope) {

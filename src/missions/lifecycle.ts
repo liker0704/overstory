@@ -393,7 +393,9 @@ async function terminalizeMission(opts: {
 								} finally {
 									killStore.close();
 								}
-							} catch { /* best effort */ }
+							} catch {
+								/* best effort */
+							}
 							break;
 						}
 					} catch {
@@ -1118,7 +1120,6 @@ export async function missionAnswer(
 			client.close();
 		}
 
-		adviseGraphTransition(overstoryDir, missionStore, mission, mission.phase, "active");
 		missionStore.unfreeze(missionId);
 		recordMissionEvent({
 			overstoryDir,
