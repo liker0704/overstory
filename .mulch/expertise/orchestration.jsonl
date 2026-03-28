@@ -1,0 +1,1 @@
+{"type":"pattern","name":"parallel-mission-pointer-conflict","description":"When multiple missions are active, current-mission.txt points to only one. Freeze/answer/handoff operations default to the wrong mission. Workaround: manually advance phase and set first_freeze_at via sqlite3.","classification":"tactical","recorded_at":"2026-03-28T00:45:52.184Z","id":"mx-e45237"}
