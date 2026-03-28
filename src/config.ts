@@ -282,13 +282,10 @@ function validateConfig(config: OverstoryConfig): void {
 			);
 		}
 		if (adp.maxWorkers > config.agents.maxConcurrent) {
-			throw new ValidationError(
-				"agents.adaptive.maxWorkers must be <= agents.maxConcurrent",
-				{
-					field: "agents.adaptive.maxWorkers",
-					value: adp.maxWorkers,
-				},
-			);
+			throw new ValidationError("agents.adaptive.maxWorkers must be <= agents.maxConcurrent", {
+				field: "agents.adaptive.maxWorkers",
+				value: adp.maxWorkers,
+			});
 		}
 		if (adp.evaluationIntervalMs <= 0) {
 			throw new ValidationError("agents.adaptive.evaluationIntervalMs must be positive", {
@@ -303,13 +300,10 @@ function validateConfig(config: OverstoryConfig): void {
 			});
 		}
 		if (adp.hysteresisPercent < 0 || adp.hysteresisPercent > 50) {
-			throw new ValidationError(
-				"agents.adaptive.hysteresisPercent must be between 0 and 50",
-				{
-					field: "agents.adaptive.hysteresisPercent",
-					value: adp.hysteresisPercent,
-				},
-			);
+			throw new ValidationError("agents.adaptive.hysteresisPercent must be between 0 and 50", {
+				field: "agents.adaptive.hysteresisPercent",
+				value: adp.hysteresisPercent,
+			});
 		}
 	}
 
