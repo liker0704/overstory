@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { openSessionStore } from "../sessions/compat.ts";
 import type { AgentSession, OverstoryConfig } from "../types.ts";
 import { listWorktrees } from "../worktree/manager.ts";
-import { isProcessAlive, listSessions } from "../worktree/tmux.ts";
+import { isProcessAlive, listSessions, sanitizeTmuxName } from "../worktree/tmux.ts";
 import type { DoctorCheck } from "./types.ts";
 
 /**
@@ -130,7 +130,7 @@ export async function checkConsistency(
 
 	// 5. Check for orphaned tmux sessions (tmux session exists but no SessionStore entry)
 	const projectName = config.project.name;
-	const overstoryTmuxPrefix = `overstory-${projectName}-`;
+	const overstoryTmuxPrefix = `overstory-${sanitizeTmuxName(projectName)}-`;
 	const overstoryTmuxSessions = tmuxSessions.filter((s) => s.name.startsWith(overstoryTmuxPrefix));
 	const storeTmuxNames = new Set(storeSessions.map((s) => s.tmuxSession));
 

@@ -147,7 +147,24 @@ async function runCommand(
  * input or pane capture, regardless of tmux base-index settings.
  */
 function primaryPaneTarget(name: string): string {
-	return `${name}:^.{top-left}`;
+	return `=${name}:^.{top-left}`;
+}
+
+/**
+ * Exact-match target for session-level tmux commands (has-session, kill-session, etc.).
+ * The `=` prefix prevents tmux from interpreting dots/colons in the session name
+ * as target syntax separators (session:window.pane).
+ */
+function exactTarget(name: string): string {
+	return `=${name}`;
+}
+
+/**
+ * Sanitize a project name for use in tmux session names.
+ * Replaces dots and colons (tmux target separators) with underscores.
+ */
+export function sanitizeTmuxName(projectName: string): string {
+	return projectName.replace(/[.:]/g, "_");
 }
 
 /**
@@ -483,7 +500,7 @@ export async function killSession(name: string): Promise<void> {
 	}
 
 	// Step 3: Kill the tmux session itself
-	const { exitCode, stderr } = await runCommand(["tmux", "kill-session", "-t", name]);
+	const { exitCode, stderr } = await runCommand(["tmux", "kill-session", "-t", exactTarget(name)]);
 
 	if (exitCode !== 0) {
 		// If the session is already gone (e.g., died during process cleanup), that's fine
@@ -527,7 +544,7 @@ export async function getCurrentSessionName(): Promise<string | null> {
  * @returns true if the session exists, false otherwise
  */
 export async function isSessionAlive(name: string): Promise<boolean> {
-	const { exitCode } = await runCommand(["tmux", "has-session", "-t", name]);
+	const { exitCode } = await runCommand(["tmux", "has-session", "-t", exactTarget(name)]);
 	return exitCode === 0;
 }
 
@@ -556,7 +573,7 @@ export type SessionState = "alive" | "dead" | "no_server";
  * @returns The session state
  */
 export async function checkSessionState(name: string): Promise<SessionState> {
-	const { exitCode, stderr } = await runCommand(["tmux", "has-session", "-t", name]);
+	const { exitCode, stderr } = await runCommand(["tmux", "has-session", "-t", exactTarget(name)]);
 	if (exitCode === 0) return "alive";
 	if (
 		stderr.includes("no server running") ||
@@ -739,11 +756,11 @@ export async function waitForTuiReady(
  */
 export function attachOrSwitch(name: string): void {
 	if (process.env.TMUX) {
-		Bun.spawnSync(["tmux", "switch-client", "-t", name], {
+		Bun.spawnSync(["tmux", "switch-client", "-t", exactTarget(name)], {
 			stdio: ["inherit", "inherit", "inherit"],
 		});
 	} else {
-		Bun.spawnSync(["tmux", "attach-session", "-t", name], {
+		Bun.spawnSync(["tmux", "attach-session", "-t", exactTarget(name)], {
 			stdio: ["inherit", "inherit", "inherit"],
 		});
 	}

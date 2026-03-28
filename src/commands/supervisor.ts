@@ -29,6 +29,7 @@ import {
 	createSession,
 	isSessionAlive,
 	killSession,
+	sanitizeTmuxName,
 	sendKeys,
 	waitForTuiReady,
 } from "../worktree/tmux.ts";
@@ -170,7 +171,7 @@ async function startSupervisor(opts: {
 		// Spawn tmux session at project root with Claude Code (interactive mode).
 		// Inject the supervisor base definition via --append-system-prompt.
 		// Pass file path (not content) to avoid tmux "command too long" (overstory#45).
-		const tmuxSession = `overstory-${config.project.name}-supervisor-${opts.name}`;
+		const tmuxSession = `overstory-${sanitizeTmuxName(config.project.name)}-supervisor-${opts.name}`;
 		const agentDefPath = join(projectRoot, ".overstory", "agent-defs", "supervisor.md");
 		const agentDefFile = Bun.file(agentDefPath);
 		let appendSystemPromptFile: string | undefined;

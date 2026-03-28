@@ -50,6 +50,8 @@ mission:
   maxConcurrent: 3
   planReview:
     enabled: true
+  cleanup:
+    purgeSessionTranscripts: true
 coordinator:
   exitTriggers:
     allAgentsDone: false

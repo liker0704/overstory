@@ -110,6 +110,9 @@ export const DEFAULT_CONFIG: OverstoryConfig = {
 			tier: "full" as const,
 			maxRounds: 3,
 		},
+		cleanup: {
+			purgeSessionTranscripts: true,
+		},
 	},
 	coordinator: {
 		autoPull: false,

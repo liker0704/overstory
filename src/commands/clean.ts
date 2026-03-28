@@ -21,6 +21,7 @@
 
 import { existsSync } from "node:fs";
 import { readdir, rm, unlink } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../config.ts";
 import { AgentError, ValidationError } from "../errors.ts";
@@ -38,6 +39,7 @@ import {
 	killSession,
 	listSessions,
 	removeAgentEnvFile,
+	sanitizeTmuxName,
 } from "../worktree/tmux.ts";
 
 export interface CleanOptions {
@@ -53,6 +55,7 @@ export interface CleanOptions {
 	specs?: boolean;
 	headroom?: boolean;
 	resilience?: boolean;
+	transcripts?: boolean;
 	json?: boolean;
 }
 
@@ -80,6 +83,50 @@ function loadActiveSessions(overstoryDir: string): AgentSession[] {
 	} catch {
 		return [];
 	}
+}
+
+/**
+ * Delete Claude session transcript directories for all sessions in sessions.db.
+ * Returns count of purged directories.
+ */
+async function purgeAllTranscriptDirs(overstoryDir: string): Promise<number> {
+	let purged = 0;
+	try {
+		const dbPath = join(overstoryDir, "sessions.db");
+		const jsonPath = join(overstoryDir, "sessions.json");
+		if (!existsSync(dbPath) && !existsSync(jsonPath)) return 0;
+
+		const { store } = openSessionStore(overstoryDir);
+		try {
+			const allSessions = store.getAll();
+			const home = homedir();
+			const claudeProjectsDir = join(home, ".claude", "projects");
+			const dirsToRemove = new Set<string>();
+
+			for (const session of allSessions) {
+				if (!session.worktreePath) continue;
+				const encodedDir = session.worktreePath.replace(/[/.]/g, "-");
+				const transcriptDir = join(claudeProjectsDir, encodedDir);
+				if (existsSync(transcriptDir)) {
+					dirsToRemove.add(transcriptDir);
+				}
+			}
+
+			for (const dir of dirsToRemove) {
+				try {
+					await rm(dir, { recursive: true, force: true });
+					purged++;
+				} catch {
+					// Best effort
+				}
+			}
+		} finally {
+			store.close();
+		}
+	} catch {
+		// Best effort
+	}
+	return purged;
 }
 
 /**
@@ -139,6 +186,7 @@ interface CleanResult {
 	resilienceWiped: boolean;
 	nudgeStateCleared: boolean;
 	currentRunCleared: boolean;
+	transcriptsPurged: number;
 	mulchHealth: {
 		checked: boolean;
 		domainsNearLimit: Array<{ domain: string; recordCount: number; warnThreshold: number }>;
@@ -160,7 +208,7 @@ interface CleanResult {
  */
 async function killAllTmuxSessions(overstoryDir: string, projectName: string): Promise<number> {
 	let killed = 0;
-	const projectPrefix = `overstory-${projectName}-`;
+	const projectPrefix = `overstory-${sanitizeTmuxName(projectName)}-`;
 	try {
 		const tmuxSessions = await listSessions();
 		const overStorySessions = tmuxSessions.filter((s) => s.name.startsWith(projectPrefix));
@@ -592,6 +640,7 @@ export async function cleanCommand(opts: CleanOptions): Promise<void> {
 	const doSpecs = all || (opts.specs ?? false);
 	const doHeadroom = all || (opts.headroom ?? false);
 	const doResilience = all || (opts.resilience ?? false);
+	const doTranscripts = all || (opts.transcripts ?? false);
 
 	const anySelected =
 		agentName ||
@@ -604,7 +653,8 @@ export async function cleanCommand(opts: CleanOptions): Promise<void> {
 		doAgents ||
 		doSpecs ||
 		doHeadroom ||
-		doResilience;
+		doResilience ||
+		doTranscripts;
 
 	if (!anySelected) {
 		throw new ValidationError(
@@ -651,6 +701,7 @@ export async function cleanCommand(opts: CleanOptions): Promise<void> {
 		resilienceWiped: false,
 		nudgeStateCleared: false,
 		currentRunCleared: false,
+		transcriptsPurged: 0,
 		mulchHealth: null,
 	};
 
@@ -705,7 +756,12 @@ export async function cleanCommand(opts: CleanOptions): Promise<void> {
 		result.resilienceWiped = await wipeSqliteDb(join(overstoryDir, "resilience.db"));
 	}
 
-	// 6. Wipe sessions.db + legacy sessions.json
+	// 6. Purge Claude session transcripts (must run BEFORE sessions.db wipe)
+	if (doTranscripts) {
+		result.transcriptsPurged = await purgeAllTranscriptDirs(overstoryDir);
+	}
+
+	// 7. Wipe sessions.db + legacy sessions.json
 	if (doSessions) {
 		result.sessionsCleared = await wipeSqliteDb(join(overstoryDir, "sessions.db"));
 		// Also clean legacy sessions.json if it still exists
@@ -767,6 +823,11 @@ export async function cleanCommand(opts: CleanOptions): Promise<void> {
 	if (result.logsCleared) lines.push("Cleared logs/");
 	if (result.agentsCleared) lines.push("Cleared agents/");
 	if (result.specsCleared) lines.push("Cleared specs/");
+	if (result.transcriptsPurged > 0) {
+		lines.push(
+			`Purged ${result.transcriptsPurged} transcript director${result.transcriptsPurged === 1 ? "y" : "ies"}`,
+		);
+	}
 	if (result.nudgeStateCleared) lines.push("Cleared nudge-state.json");
 	if (result.currentRunCleared) lines.push("Cleared current-run.txt");
 

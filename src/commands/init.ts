@@ -433,6 +433,39 @@ export function buildHooksJson(): string {
 }
 
 /**
+ * Bootstrap all SQLite databases with their full schema.
+ * Each factory function creates the DB file and applies all migrations
+ * if it doesn't exist yet. If it already exists, migrations run idempotently.
+ */
+async function bootstrapDatabases(overstoryPath: string): Promise<void> {
+	const { createMailStore } = await import("../mail/store.ts");
+	const { createSessionStore } = await import("../sessions/store.ts");
+	const { createMetricsStore } = await import("../metrics/store.ts");
+	const { createMergeQueue } = await import("../merge/queue.ts");
+	const { createEventStore } = await import("../events/store.ts");
+
+	const stores = [
+		{ name: "mail.db", create: () => createMailStore(join(overstoryPath, "mail.db")) },
+		{ name: "sessions.db", create: () => createSessionStore(join(overstoryPath, "sessions.db")) },
+		{ name: "metrics.db", create: () => createMetricsStore(join(overstoryPath, "metrics.db")) },
+		{
+			name: "merge-queue.db",
+			create: () => createMergeQueue(join(overstoryPath, "merge-queue.db")),
+		},
+		{ name: "events.db", create: () => createEventStore(join(overstoryPath, "events.db")) },
+	];
+
+	for (const { name, create } of stores) {
+		try {
+			const store = create();
+			store.close();
+		} catch {
+			printWarning(`Failed to bootstrap ${name} — will be created on first use`);
+		}
+	}
+}
+
+/**
  * Migrate existing SQLite databases on --force reinit.
  *
  * Opens each DB, enables WAL mode, and re-runs CREATE TABLE/INDEX IF NOT EXISTS
@@ -691,7 +724,10 @@ export async function initCommand(opts: InitOptions): Promise<void> {
 	await writeOverstoryReadme(overstoryPath);
 	printCreated(`${OVERSTORY_DIR}/README.md`);
 
-	// 8. Migrate existing SQLite databases on --force reinit
+	// 8. Bootstrap SQLite databases (create with schema if they don't exist)
+	await bootstrapDatabases(overstoryPath);
+
+	// 9. Migrate existing SQLite databases on --force reinit
 	if (force || yes) {
 		const migrated = await migrateExistingDatabases(overstoryPath);
 		for (const dbName of migrated) {

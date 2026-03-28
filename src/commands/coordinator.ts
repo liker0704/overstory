@@ -41,6 +41,7 @@ import {
 	ensureTmuxAvailable,
 	isSessionAlive,
 	killSession,
+	sanitizeTmuxName,
 	sendKeys,
 	waitForTuiReady,
 } from "../worktree/tmux.ts";
@@ -61,7 +62,7 @@ const ASK_DEFAULT_TIMEOUT_S = 120;
  * Includes the project name to prevent cross-project collisions (overstory-pcef).
  */
 function coordinatorTmuxSession(projectName: string): string {
-	return `overstory-${projectName}-${COORDINATOR_NAME}`;
+	return `overstory-${sanitizeTmuxName(projectName)}-${COORDINATOR_NAME}`;
 }
 
 /** Dependency injection for testing. Uses real implementations when omitted. */

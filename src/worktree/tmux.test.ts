@@ -144,7 +144,7 @@ describe("createSession", () => {
 			"display-message",
 			"-p",
 			"-t",
-			"test-agent:^.{top-left}",
+			"=test-agent:^.{top-left}",
 			"#{pane_pid}",
 		]);
 	});
@@ -412,7 +412,7 @@ describe("getPanePid", () => {
 			"display-message",
 			"-p",
 			"-t",
-			"overstory-auth:^.{top-left}",
+			"=overstory-auth:^.{top-left}",
 			"#{pane_pid}",
 		]);
 	});
@@ -760,12 +760,12 @@ describe("killSession", () => {
 			"display-message",
 			"-p",
 			"-t",
-			"overstory-auth:^.{top-left}",
+			"=overstory-auth:^.{top-left}",
 			"#{pane_pid}",
 		]);
 		expect(cmds[1]).toEqual(["pgrep", "-P", "500"]);
 		const lastCmd = cmds[cmds.length - 1];
-		expect(lastCmd).toEqual(["tmux", "kill-session", "-t", "overstory-auth"]);
+		expect(lastCmd).toEqual(["tmux", "kill-session", "-t", "=overstory-auth"]);
 
 		// Should have sent SIGTERM to root PID 500
 		expect(killSpy).toHaveBeenCalledWith(500, "SIGTERM");
@@ -893,7 +893,7 @@ describe("isSessionAlive", () => {
 		expect(spawnSpy).toHaveBeenCalledTimes(1);
 		const callArgs = spawnSpy.mock.calls[0] as unknown[];
 		const cmd = callArgs[0] as string[];
-		expect(cmd).toEqual(["tmux", "has-session", "-t", "my-agent"]);
+		expect(cmd).toEqual(["tmux", "has-session", "-t", "=my-agent"]);
 	});
 });
 
@@ -968,7 +968,7 @@ describe("sendKeys", () => {
 			"tmux",
 			"send-keys",
 			"-t",
-			"overstory-auth:^.{top-left}",
+			"=overstory-auth:^.{top-left}",
 			"echo hello world",
 			"Enter",
 		]);
@@ -986,7 +986,7 @@ describe("sendKeys", () => {
 			"tmux",
 			"send-keys",
 			"-t",
-			"overstory-agent:^.{top-left}",
+			"=overstory-agent:^.{top-left}",
 			"line1 line2 line3",
 			"Enter",
 		]);
@@ -1020,7 +1020,7 @@ describe("sendKeys", () => {
 		expect(spawnSpy).toHaveBeenCalledTimes(1);
 		const callArgs = spawnSpy.mock.calls[0] as unknown[];
 		const cmd = callArgs[0] as string[];
-		expect(cmd).toEqual(["tmux", "send-keys", "-t", "overstory-agent:^.{top-left}", "", "Enter"]);
+		expect(cmd).toEqual(["tmux", "send-keys", "-t", "=overstory-agent:^.{top-left}", "", "Enter"]);
 	});
 
 	test("throws descriptive error when tmux server is not running", async () => {
@@ -1107,7 +1107,7 @@ describe("capturePaneContent", () => {
 			"tmux",
 			"capture-pane",
 			"-t",
-			"my-session:^.{top-left}",
+			"=my-session:^.{top-left}",
 			"-p",
 			"-S",
 			"-100",
@@ -1370,7 +1370,7 @@ describe("waitForTuiReady", () => {
 			"tmux",
 			"send-keys",
 			"-t",
-			"overstory-agent:^.{top-left}",
+			"=overstory-agent:^.{top-left}",
 			"",
 			"Enter",
 		]);
@@ -1407,14 +1407,14 @@ describe("waitForTuiReady", () => {
 			"tmux",
 			"send-keys",
 			"-t",
-			"overstory-agent:^.{top-left}",
+			"=overstory-agent:^.{top-left}",
 			"2",
 		]);
 		expect(sendKeysCalls[1]).toEqual([
 			"tmux",
 			"send-keys",
 			"-t",
-			"overstory-agent:^.{top-left}",
+			"=overstory-agent:^.{top-left}",
 			"",
 			"Enter",
 		]);
@@ -1451,14 +1451,14 @@ describe("waitForTuiReady", () => {
 			"tmux",
 			"send-keys",
 			"-t",
-			"overstory-agent:^.{top-left}",
+			"=overstory-agent:^.{top-left}",
 			"2",
 		]);
 		expect(sendKeysCalls[1]).toEqual([
 			"tmux",
 			"send-keys",
 			"-t",
-			"overstory-agent:^.{top-left}",
+			"=overstory-agent:^.{top-left}",
 			"",
 			"Enter",
 		]);
@@ -1466,14 +1466,14 @@ describe("waitForTuiReady", () => {
 			"tmux",
 			"send-keys",
 			"-t",
-			"overstory-agent:^.{top-left}",
+			"=overstory-agent:^.{top-left}",
 			"2",
 		]);
 		expect(sendKeysCalls[3]).toEqual([
 			"tmux",
 			"send-keys",
 			"-t",
-			"overstory-agent:^.{top-left}",
+			"=overstory-agent:^.{top-left}",
 			"",
 			"Enter",
 		]);
@@ -1660,7 +1660,7 @@ describe("getPaneWidth", () => {
 			"tmux",
 			"display-message",
 			"-t",
-			"my-session:^.{top-left}",
+			"=my-session:^.{top-left}",
 			"-p",
 			"#{pane_width}",
 		]);
@@ -1706,7 +1706,7 @@ describe("getPaneActivity", () => {
 			"tmux",
 			"display-message",
 			"-t",
-			"my-session:^.{top-left}",
+			"=my-session:^.{top-left}",
 			"-p",
 			"#{window_activity}",
 		]);

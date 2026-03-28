@@ -210,6 +210,10 @@ export interface OverstoryConfig {
 			enabled?: boolean;
 			level3Enabled?: boolean;
 		};
+		cleanup?: {
+			/** Delete Claude session transcript JSONL files after mission completion. Default: false. */
+			purgeSessionTranscripts?: boolean;
+		};
 	};
 	mail?: {
 		reliability?: {

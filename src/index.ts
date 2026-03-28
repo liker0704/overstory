@@ -395,6 +395,7 @@ program
 	.option("--specs", "Remove task spec files")
 	.option("--headroom", "Delete headroom.db")
 	.option("--resilience", "Clear resilience circuit breaker state")
+	.option("--transcripts", "Delete Claude session transcript files (~/.claude/projects/)")
 	.option("--json", "Output as JSON")
 	.action(async (opts) => {
 		await cleanCommand(opts);

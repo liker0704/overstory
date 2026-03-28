@@ -6,7 +6,9 @@
  * to separate domain logic from CLI command registration.
  */
 
+import { existsSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { nudgeAgent } from "../commands/nudge.ts";
 import { resumeAgent } from "../commands/resume.ts";
@@ -34,6 +36,7 @@ import {
 	killProcessTree,
 	killSession,
 	listSessions,
+	removeAgentEnvFile,
 } from "../worktree/tmux.ts";
 import {
 	buildMissionRoleBeacon,
@@ -286,6 +289,45 @@ export async function suspendMission(opts: {
 	}
 }
 
+/**
+ * Delete Claude session transcript directories for a mission's agent sessions.
+ * Best-effort: errors are caught and never fail mission completion.
+ */
+async function purgeSessionTranscripts(overstoryDir: string, runId: string): Promise<number> {
+	let purged = 0;
+	const { store } = openSessionStore(overstoryDir);
+	try {
+		const sessions = store.getByRun(runId);
+		const home = homedir();
+		const claudeProjectsDir = join(home, ".claude", "projects");
+		const dirsToRemove = new Set<string>();
+
+		for (const session of sessions) {
+			if (!session.worktreePath) continue;
+			const encodedDir = session.worktreePath.replace(/[/.]/g, "-");
+			const transcriptDir = join(claudeProjectsDir, encodedDir);
+			if (existsSync(transcriptDir)) {
+				dirsToRemove.add(transcriptDir);
+			}
+			if (session.runtimeSessionId) {
+				removeAgentEnvFile(session.worktreePath, session.runtimeSessionId);
+			}
+		}
+
+		for (const dir of dirsToRemove) {
+			try {
+				await rm(dir, { recursive: true, force: true });
+				purged++;
+			} catch {
+				// Best effort
+			}
+		}
+	} finally {
+		store.close();
+	}
+	return purged;
+}
+
 async function terminalizeMission(opts: {
 	overstoryDir: string;
 	projectRoot: string;
@@ -534,6 +576,24 @@ async function terminalizeMission(opts: {
 				}
 			} finally {
 				verifyStore.close();
+			}
+		}
+
+		// Purge Claude session transcripts (config-gated, best-effort)
+		if (mission.runId) {
+			try {
+				const cleanupConfig = await loadConfig(projectRoot);
+				if (cleanupConfig.mission?.cleanup?.purgeSessionTranscripts) {
+					const purgedCount = await purgeSessionTranscripts(overstoryDir, mission.runId);
+					if (!json && purgedCount > 0) {
+						printSuccess(
+							"Session transcripts purged",
+							`${purgedCount} director${purgedCount === 1 ? "y" : "ies"}`,
+						);
+					}
+				}
+			} catch {
+				// Best effort — never fail mission completion
 			}
 		}
 

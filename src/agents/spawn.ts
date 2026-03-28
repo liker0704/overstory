@@ -45,6 +45,7 @@ import type { TrackerClient } from "../tracker/types.ts";
 import type { AgentSession, OverlayConfig, TddMode } from "../types.ts";
 import { createWorktree, rollbackWorktree } from "../worktree/manager.ts";
 import { spawnHeadlessAgent } from "../worktree/process.ts";
+import { sanitizeTmuxName } from "../worktree/tmux.ts";
 import { createIdentity, loadIdentity } from "./identity.ts";
 import type { ManifestLoader } from "./manifest.ts";
 import { resolveModel } from "./manifest.ts";
@@ -591,7 +592,7 @@ async function spawnInteractive(
 	await tmux.ensureTmuxAvailable();
 
 	// 12. Create tmux session running agent in interactive mode
-	const tmuxSessionName = `overstory-${config.project.name}-${name}`;
+	const tmuxSessionName = `overstory-${sanitizeTmuxName(config.project.name)}-${name}`;
 	const sessionId = crypto.randomUUID();
 	const spawnTimestamp = Date.now();
 	const spawnCmd = runtime.buildSpawnCommand({
