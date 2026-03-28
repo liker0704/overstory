@@ -400,6 +400,143 @@ describe("createMergeQueue", () => {
 		});
 	});
 
+	describe("missionId", () => {
+		test("enqueue with missionId stores and returns it", () => {
+			const queue = createMergeQueue(queuePath);
+			const entry = queue.enqueue({ ...makeInput(), missionId: "mission-abc" });
+			expect(entry.missionId).toBe("mission-abc");
+		});
+
+		test("enqueue without missionId returns null missionId", () => {
+			const queue = createMergeQueue(queuePath);
+			const entry = queue.enqueue(makeInput());
+			expect(entry.missionId).toBeNull();
+		});
+
+		test("enqueue with explicit null missionId returns null", () => {
+			const queue = createMergeQueue(queuePath);
+			const entry = queue.enqueue({ ...makeInput(), missionId: null });
+			expect(entry.missionId).toBeNull();
+		});
+	});
+
+	describe("listByMission", () => {
+		test("returns only entries for the given missionId", () => {
+			const queue = createMergeQueue(queuePath);
+			queue.enqueue({ ...makeInput({ branchName: "branch-a" }), missionId: "mission-1" });
+			queue.enqueue({ ...makeInput({ branchName: "branch-b" }), missionId: "mission-2" });
+			queue.enqueue({ ...makeInput({ branchName: "branch-c" }), missionId: "mission-1" });
+
+			const results = queue.listByMission("mission-1");
+			expect(results).toHaveLength(2);
+			expect(results[0]?.branchName).toBe("branch-a");
+			expect(results[1]?.branchName).toBe("branch-c");
+		});
+
+		test("returns empty array when no entries match", () => {
+			const queue = createMergeQueue(queuePath);
+			queue.enqueue({ ...makeInput({ branchName: "branch-a" }), missionId: "mission-1" });
+
+			const results = queue.listByMission("mission-999");
+			expect(results).toEqual([]);
+		});
+
+		test("returns entries regardless of status", () => {
+			const queue = createMergeQueue(queuePath);
+			queue.enqueue({ ...makeInput({ branchName: "branch-a" }), missionId: "mission-1" });
+			queue.enqueue({ ...makeInput({ branchName: "branch-b" }), missionId: "mission-1" });
+			queue.updateStatus("branch-a", "merged", "clean-merge");
+
+			const results = queue.listByMission("mission-1");
+			expect(results).toHaveLength(2);
+		});
+	});
+
+	describe("dequeueByMission", () => {
+		test("removes and returns first pending entry for the mission", () => {
+			const queue = createMergeQueue(queuePath);
+			queue.enqueue({ ...makeInput({ branchName: "branch-a" }), missionId: "mission-1" });
+			queue.enqueue({ ...makeInput({ branchName: "branch-b" }), missionId: "mission-1" });
+
+			const dequeued = queue.dequeueByMission("mission-1");
+			expect(dequeued?.branchName).toBe("branch-a");
+
+			const remaining = queue.listByMission("mission-1");
+			expect(remaining).toHaveLength(1);
+			expect(remaining[0]?.branchName).toBe("branch-b");
+		});
+
+		test("returns null when no pending entries for the mission", () => {
+			const queue = createMergeQueue(queuePath);
+			queue.enqueue({ ...makeInput({ branchName: "branch-a" }), missionId: "mission-2" });
+
+			const result = queue.dequeueByMission("mission-1");
+			expect(result).toBeNull();
+		});
+
+		test("does not dequeue entries from other missions", () => {
+			const queue = createMergeQueue(queuePath);
+			queue.enqueue({ ...makeInput({ branchName: "branch-a" }), missionId: "mission-1" });
+			queue.enqueue({ ...makeInput({ branchName: "branch-b" }), missionId: "mission-2" });
+
+			queue.dequeueByMission("mission-1");
+
+			const remaining = queue.list();
+			expect(remaining).toHaveLength(1);
+			expect(remaining[0]?.branchName).toBe("branch-b");
+		});
+
+		test("skips non-pending entries for the mission", () => {
+			const queue = createMergeQueue(queuePath);
+			queue.enqueue({ ...makeInput({ branchName: "branch-a" }), missionId: "mission-1" });
+			queue.enqueue({ ...makeInput({ branchName: "branch-b" }), missionId: "mission-1" });
+			queue.updateStatus("branch-a", "merging");
+
+			const dequeued = queue.dequeueByMission("mission-1");
+			expect(dequeued?.branchName).toBe("branch-b");
+		});
+	});
+
+	describe("migration compat (v2: mission_id column)", () => {
+		test("existing database without mission_id migrates transparently", () => {
+			// Create a database with the v1 schema (no mission_id)
+			const db = new Database(queuePath);
+			db.exec("PRAGMA journal_mode = WAL");
+			db.exec(`
+				CREATE TABLE merge_queue (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					branch_name TEXT NOT NULL,
+					task_id TEXT NOT NULL,
+					agent_name TEXT NOT NULL,
+					files_modified TEXT NOT NULL DEFAULT '[]',
+					enqueued_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now')),
+					status TEXT NOT NULL DEFAULT 'pending'
+						CHECK(status IN ('pending','merging','merged','conflict','failed','compat_failed')),
+					resolved_tier TEXT
+						CHECK(resolved_tier IS NULL OR resolved_tier IN ('clean-merge','auto-resolve','ai-resolve','reimagine')),
+					compat_report_path TEXT
+				)
+			`);
+			db.exec(
+				"INSERT INTO merge_queue (branch_name, task_id, agent_name, files_modified, status, enqueued_at) VALUES ('branch-legacy', 'task-1', 'agent', '[\"src/a.ts\"]', 'pending', '2026-01-01T00:00:00.000')",
+			);
+			db.close();
+
+			const queue = createMergeQueue(queuePath);
+			const entries = queue.list();
+			expect(entries).toHaveLength(1);
+			expect(entries[0]?.missionId).toBeNull();
+
+			// New entries with missionId should work
+			const newEntry = queue.enqueue({
+				...makeInput({ branchName: "branch-new" }),
+				missionId: "mission-xyz",
+			});
+			expect(newEntry.missionId).toBe("mission-xyz");
+			queue.close();
+		});
+	});
+
 	describe("close", () => {
 		test("closes the database connection", () => {
 			const queue = createMergeQueue(queuePath);

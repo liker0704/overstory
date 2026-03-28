@@ -13,6 +13,7 @@ import { join } from "node:path";
 import type { TrackerClient, TrackerIssue } from "../tracker/types.ts";
 import {
 	bridgeWorkstreamsToTasks,
+	detectCrossMissionScopeConflicts,
 	type ExecutionHandoff,
 	ensureCanonicalWorkstreamTasks,
 	loadWorkstreamsFile,
@@ -490,5 +491,97 @@ describe("slingArgsFromHandoff", () => {
 		const withBrief = { ...handoff, briefPath: "auth-brief.md" };
 		const args = slingArgsFromHandoff(withBrief, { parentAgent: "exec-director", depth: 1 });
 		expect(args).not.toContain("--spec");
+	});
+});
+
+// === detectCrossMissionScopeConflicts ===
+
+describe("detectCrossMissionScopeConflicts", () => {
+	test("returns empty array when no conflicts", () => {
+		const proposed = [
+			makeWorkstream({ id: "ws-new", taskId: "task-new", fileScope: ["src/new.ts"] }),
+		];
+		const active = [
+			{
+				id: "mission-1",
+				slug: "mission-one",
+				workstreams: [
+					makeWorkstream({ id: "ws-old", taskId: "task-old", fileScope: ["src/old.ts"] }),
+				],
+			},
+		];
+		const conflicts = detectCrossMissionScopeConflicts(proposed, active);
+		expect(conflicts).toEqual([]);
+	});
+
+	test("detects conflict when proposed file matches active mission file", () => {
+		const proposed = [
+			makeWorkstream({ id: "ws-new", taskId: "task-new", fileScope: ["src/shared.ts"] }),
+		];
+		const active = [
+			{
+				id: "mission-1",
+				slug: "mission-one",
+				workstreams: [
+					makeWorkstream({ id: "ws-old", taskId: "task-old", fileScope: ["src/shared.ts"] }),
+				],
+			},
+		];
+		const conflicts = detectCrossMissionScopeConflicts(proposed, active);
+		expect(conflicts).toHaveLength(1);
+		expect(conflicts[0]?.file).toBe("src/shared.ts");
+		expect(conflicts[0]?.proposedWorkstream).toBe("ws-new");
+		expect(conflicts[0]?.conflictMission).toBe("mission-one");
+		expect(conflicts[0]?.conflictWorkstream).toBe("ws-old");
+	});
+
+	test("returns empty array when proposed and active are both empty", () => {
+		const conflicts = detectCrossMissionScopeConflicts([], []);
+		expect(conflicts).toEqual([]);
+	});
+
+	test("returns empty array when proposed is empty", () => {
+		const active = [
+			{
+				id: "mission-1",
+				slug: "mission-one",
+				workstreams: [
+					makeWorkstream({ id: "ws-old", taskId: "task-old", fileScope: ["src/old.ts"] }),
+				],
+			},
+		];
+		const conflicts = detectCrossMissionScopeConflicts([], active);
+		expect(conflicts).toEqual([]);
+	});
+
+	test("returns empty array when active missions have no workstreams", () => {
+		const proposed = [
+			makeWorkstream({ id: "ws-new", taskId: "task-new", fileScope: ["src/shared.ts"] }),
+		];
+		const active = [{ id: "mission-1", slug: "mission-one", workstreams: [] }];
+		const conflicts = detectCrossMissionScopeConflicts(proposed, active);
+		expect(conflicts).toEqual([]);
+	});
+
+	test("detects multiple conflicts across multiple files", () => {
+		const proposed = [
+			makeWorkstream({
+				id: "ws-new",
+				taskId: "task-new",
+				fileScope: ["src/a.ts", "src/b.ts", "src/c.ts"],
+			}),
+		];
+		const active = [
+			{
+				id: "mission-1",
+				slug: "mission-one",
+				workstreams: [
+					makeWorkstream({ id: "ws-old", taskId: "task-old", fileScope: ["src/a.ts", "src/b.ts"] }),
+				],
+			},
+		];
+		const conflicts = detectCrossMissionScopeConflicts(proposed, active);
+		expect(conflicts).toHaveLength(2);
+		expect(conflicts.map((c) => c.file)).toEqual(["src/a.ts", "src/b.ts"]);
 	});
 });

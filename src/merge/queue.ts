@@ -21,10 +21,7 @@ import type { MergeEntry, ResolutionTier } from "../types.ts";
 export interface MergeQueue {
 	/** Add a new entry to the end of the queue with pending status. */
 	enqueue(
-		entry: Omit<
-			MergeEntry,
-			"enqueuedAt" | "status" | "resolvedTier" | "compatReportPath"
-		>,
+		entry: Omit<MergeEntry, "enqueuedAt" | "status" | "resolvedTier" | "compatReportPath">,
 	): MergeEntry;
 
 	/** Remove and return the first pending entry, or null if none. */
@@ -36,12 +33,14 @@ export interface MergeQueue {
 	/** List entries, optionally filtered by status. */
 	list(status?: MergeEntry["status"]): MergeEntry[];
 
+	/** List all entries for a specific mission. */
+	listByMission(missionId: string): MergeEntry[];
+
+	/** Remove and return the first pending entry for a specific mission, or null if none. */
+	dequeueByMission(missionId: string): MergeEntry | null;
+
 	/** Update the status (and optional resolution tier) of an entry by branch name. */
-	updateStatus(
-		branchName: string,
-		status: MergeEntry["status"],
-		tier?: ResolutionTier,
-	): void;
+	updateStatus(branchName: string, status: MergeEntry["status"], tier?: ResolutionTier): void;
 
 	/** Update the compat report path for an entry by branch name. */
 	updateCompatReportPath(branchName: string, reportPath: string): void;
@@ -55,6 +54,7 @@ interface MergeQueueRow {
 	id: number;
 	branch_name: string;
 	task_id: string;
+	mission_id: string | null;
 	agent_name: string;
 	files_modified: string; // JSON array stored as text
 	enqueued_at: string;
@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS merge_queue (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   branch_name TEXT NOT NULL,
   task_id TEXT NOT NULL,
+  mission_id TEXT,
   agent_name TEXT NOT NULL,
   files_modified TEXT NOT NULL DEFAULT '[]',
   enqueued_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now')),
@@ -111,11 +112,25 @@ const MIGRATIONS: Migration[] = [
 		},
 		detect: (_db, columns) => columns.has("compat_report_path"),
 	},
+	{
+		version: 2,
+		description: "add mission_id column for multi-mission scoping",
+		up: (db) => {
+			if (!hasColumn(db, "merge_queue", "mission_id")) {
+				db.exec("ALTER TABLE merge_queue ADD COLUMN mission_id TEXT");
+			}
+		},
+		detect: (_db, columns) => columns.has("mission_id"),
+	},
 ];
 
 const CREATE_INDEXES = `
 CREATE INDEX IF NOT EXISTS idx_merge_queue_status ON merge_queue(status);
 CREATE INDEX IF NOT EXISTS idx_merge_queue_branch ON merge_queue(branch_name)`;
+
+// Created after migration v2 adds mission_id column
+const CREATE_MISSION_INDEX =
+	"CREATE INDEX IF NOT EXISTS idx_merge_queue_mission ON merge_queue(mission_id)";
 
 /** Convert a database row (snake_case) to a MergeEntry object (camelCase). */
 function rowToEntry(row: MergeQueueRow): MergeEntry {
@@ -132,6 +147,7 @@ function rowToEntry(row: MergeQueueRow): MergeEntry {
 	return {
 		branchName: row.branch_name,
 		taskId: row.task_id,
+		missionId: row.mission_id,
 		agentName: row.agent_name,
 		filesModified,
 		enqueuedAt: row.enqueued_at,
@@ -176,9 +192,12 @@ export function createMergeQueue(dbPath: string): MergeQueue {
 	// Migrate: rename bead_id → task_id on existing tables (legacy migration)
 	migrateBeadIdToTaskId(db);
 
-	// Apply versioned migrations (compat_failed status + compat_report_path column)
+	// Apply versioned migrations (compat_failed status + compat_report_path column + mission_id)
 	bootstrapSchemaVersion(db, "merge_queue", MIGRATIONS);
 	applyMigrations(db, MIGRATIONS);
+
+	// Create mission index after migration v2 ensures the column exists
+	db.exec(CREATE_MISSION_INDEX);
 
 	// Prepare statements for frequent operations
 	const insertStmt = db.prepare<
@@ -186,13 +205,14 @@ export function createMergeQueue(dbPath: string): MergeQueue {
 		{
 			$branch_name: string;
 			$task_id: string;
+			$mission_id: string | null;
 			$agent_name: string;
 			$files_modified: string;
 			$enqueued_at: string;
 		}
 	>(`
-		INSERT INTO merge_queue (branch_name, task_id, agent_name, files_modified, enqueued_at)
-		VALUES ($branch_name, $task_id, $agent_name, $files_modified, $enqueued_at)
+		INSERT INTO merge_queue (branch_name, task_id, mission_id, agent_name, files_modified, enqueued_at)
+		VALUES ($branch_name, $task_id, $mission_id, $agent_name, $files_modified, $enqueued_at)
 		RETURNING *
 	`);
 
@@ -241,6 +261,14 @@ export function createMergeQueue(dbPath: string): MergeQueue {
 		WHERE branch_name = $branch_name
 	`);
 
+	const listByMissionStmt = db.prepare<MergeQueueRow, { $mission_id: string }>(`
+		SELECT * FROM merge_queue WHERE mission_id = $mission_id ORDER BY id ASC
+	`);
+
+	const getFirstPendingByMissionStmt = db.prepare<MergeQueueRow, { $mission_id: string }>(`
+		SELECT * FROM merge_queue WHERE status = 'pending' AND mission_id = $mission_id ORDER BY id ASC LIMIT 1
+	`);
+
 	return {
 		enqueue(input): MergeEntry {
 			const filesModifiedJson = JSON.stringify(input.filesModified);
@@ -249,6 +277,7 @@ export function createMergeQueue(dbPath: string): MergeQueue {
 			const row = insertStmt.get({
 				$branch_name: input.branchName,
 				$task_id: input.taskId,
+				$mission_id: input.missionId ?? null,
 				$agent_name: input.agentName,
 				$files_modified: filesModifiedJson,
 				$enqueued_at: enqueuedAt,
@@ -294,6 +323,22 @@ export function createMergeQueue(dbPath: string): MergeQueue {
 			}
 
 			return rows.map(rowToEntry);
+		},
+
+		listByMission(missionId): MergeEntry[] {
+			return listByMissionStmt.all({ $mission_id: missionId }).map(rowToEntry);
+		},
+
+		dequeueByMission(missionId): MergeEntry | null {
+			const row = getFirstPendingByMissionStmt.get({ $mission_id: missionId });
+
+			if (row === null || row === undefined) {
+				return null;
+			}
+
+			deleteByIdStmt.run({ $id: row.id });
+
+			return rowToEntry(row);
 		},
 
 		updateStatus(branchName, status, tier?): void {
