@@ -186,6 +186,9 @@ interface CleanResult {
 	resilienceWiped: boolean;
 	nudgeStateCleared: boolean;
 	currentRunCleared: boolean;
+	currentMissionCleared: boolean;
+	eventsWiped: boolean;
+	reviewsWiped: boolean;
 	transcriptsPurged: number;
 	mulchHealth: {
 		checked: boolean;
@@ -701,6 +704,9 @@ export async function cleanCommand(opts: CleanOptions): Promise<void> {
 		resilienceWiped: false,
 		nudgeStateCleared: false,
 		currentRunCleared: false,
+		currentMissionCleared: false,
+		eventsWiped: false,
+		reviewsWiped: false,
 		transcriptsPurged: 0,
 		mulchHealth: null,
 	};
@@ -769,6 +775,8 @@ export async function cleanCommand(opts: CleanOptions): Promise<void> {
 	}
 	if (all) {
 		result.mergeQueueCleared = await wipeSqliteDb(join(overstoryDir, "merge-queue.db"));
+		result.eventsWiped = await wipeSqliteDb(join(overstoryDir, "events.db"));
+		result.reviewsWiped = await wipeSqliteDb(join(overstoryDir, "reviews.db"));
 	}
 
 	// 7. Clear directories
@@ -787,6 +795,7 @@ export async function cleanCommand(opts: CleanOptions): Promise<void> {
 		result.nudgeStateCleared = await deleteFile(join(overstoryDir, "nudge-state.json"));
 		await clearDirectory(join(overstoryDir, "pending-nudges"));
 		result.currentRunCleared = await deleteFile(join(overstoryDir, "current-run.txt"));
+		result.currentMissionCleared = await deleteFile(join(overstoryDir, "current-mission.txt"));
 	}
 
 	// Output
@@ -828,8 +837,11 @@ export async function cleanCommand(opts: CleanOptions): Promise<void> {
 			`Purged ${result.transcriptsPurged} transcript director${result.transcriptsPurged === 1 ? "y" : "ies"}`,
 		);
 	}
+	if (result.eventsWiped) lines.push("Wiped events.db");
+	if (result.reviewsWiped) lines.push("Wiped reviews.db");
 	if (result.nudgeStateCleared) lines.push("Cleared nudge-state.json");
 	if (result.currentRunCleared) lines.push("Cleared current-run.txt");
+	if (result.currentMissionCleared) lines.push("Cleared current-mission.txt");
 
 	// Mulch health diagnostics (shown before cleanup results)
 	if (result.mulchHealth?.checked) {

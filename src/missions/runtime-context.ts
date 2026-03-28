@@ -63,7 +63,7 @@ export async function removeActiveMission(overstoryDir: string, missionId: strin
 
 export async function readCurrentMissionPointer(overstoryDir: string): Promise<string | null> {
 	const ids = await listActiveMissions(overstoryDir);
-	return ids.length > 0 ? (ids[0] ?? null) : null;
+	return ids.length > 0 ? (ids[ids.length - 1] ?? null) : null;
 }
 
 export async function readMissionRunPointer(

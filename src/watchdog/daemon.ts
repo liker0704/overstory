@@ -831,6 +831,62 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 		}
 
 		for (const session of sessions) {
+			// Done agents: if the agent sent worker_done but session isn't completed,
+			// mark it completed so the watchdog stops nudging it (fixes crash loop).
+			// Skip zombies — they have their own reconciliation logic below.
+			if (
+				session.state !== "completed" &&
+				session.state !== "zombie" &&
+				hasRecentCompletionSignal(eventStore, session.agentName)
+			) {
+				store.updateState(session.agentName, "completed");
+				session.state = "completed";
+				recordEvent(eventStore, {
+					runId,
+					agentName: session.agentName,
+					eventType: "custom",
+					level: "info",
+					data: { type: "completion_signal_reconciled" },
+				});
+			}
+
+			// Booting sessions with dead tmux: spawn failed silently.
+			// Mark as zombie and notify parent so it doesn't wait forever.
+			if (
+				session.state === "booting" &&
+				session.tmuxSession &&
+				session.tmuxSession !== ""
+			) {
+				const bootAlive = await tmux.isSessionAlive(session.tmuxSession);
+				if (!bootAlive) {
+					store.updateState(session.agentName, "zombie");
+					session.state = "zombie";
+					recordEvent(eventStore, {
+						runId,
+						agentName: session.agentName,
+						eventType: "custom",
+						level: "error",
+						data: { type: "boot_failure_detected", tmuxSession: session.tmuxSession },
+					});
+					if (mailStore) {
+						try {
+							const mc = createMailClient(mailStore);
+							mc.send({
+								from: "watchdog",
+								to: session.parentAgent ?? "orchestrator",
+								subject: `Agent ${session.agentName} failed to start`,
+								body: `Agent ${session.agentName} (task: ${session.taskId}) has a dead tmux session in booting state. Spawn likely failed.`,
+								type: "error",
+								priority: "high",
+							});
+						} catch {
+							// Non-fatal
+						}
+					}
+					continue;
+				}
+			}
+
 			// Completed sessions: kill lingering tmux/process, then skip.
 			// The session-end hook marks agents completed but can't kill its own
 			// tmux session (it runs inside it). The watchdog cleans up on next tick.
@@ -1096,6 +1152,7 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 					if (
 						rateLimitConfig.behavior === "wait" &&
 						session.state !== "completed" &&
+						!hasRecentCompletionSignal(eventStore, session.agentName) &&
 						lastPaneContent
 					) {
 						try {
@@ -1129,7 +1186,15 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 			}
 
 			// TUI reconciliation: unread-mail wakeups and held session-end completion.
-			if (mailStore && tmuxAlive && session.tmuxSession !== "" && session.state !== "completed") {
+			// Skip if agent already sent a completion signal (worker_done/merge_ready).
+			const agentDone = hasRecentCompletionSignal(eventStore, session.agentName);
+			if (
+				mailStore &&
+				tmuxAlive &&
+				session.tmuxSession !== "" &&
+				session.state !== "completed" &&
+				!agentDone
+			) {
 				try {
 					const unread = mailStore.getUnread(session.agentName);
 					const paneContent = lastPaneContent ?? (await capturePane(session.tmuxSession));

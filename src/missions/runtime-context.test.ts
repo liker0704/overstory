@@ -213,11 +213,11 @@ describe("readCurrentMissionPointer", () => {
 		expect(id).toBeNull();
 	});
 
-	test("returns the first ID when multiple are present", async () => {
+	test("returns the last (newest) ID when multiple are present", async () => {
 		await addActiveMission(tempDir, "mission-first");
 		await addActiveMission(tempDir, "mission-second");
 		const id = await readCurrentMissionPointer(tempDir);
-		expect(id).toBe("mission-first");
+		expect(id).toBe("mission-second");
 	});
 });
 
