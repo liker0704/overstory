@@ -10,8 +10,47 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentError } from "../errors.ts";
+import type { EventStore, InsertEvent, StoredEvent, ToolStats } from "../events/types.ts";
+import type { InstrumentContext } from "../observability/instrument.ts";
 import { cleanupTempDir } from "../test-helpers.ts";
 import { createMulchClient } from "./client.ts";
+
+function createMockStore(): EventStore & { events: InsertEvent[] } {
+	const events: InsertEvent[] = [];
+	return {
+		events,
+		insert(event: InsertEvent): number {
+			events.push(event);
+			return events.length;
+		},
+		correlateToolEnd() {
+			return null;
+		},
+		getByAgent(): StoredEvent[] {
+			return [];
+		},
+		getByRun(): StoredEvent[] {
+			return [];
+		},
+		getErrors(): StoredEvent[] {
+			return [];
+		},
+		getTimeline(): StoredEvent[] {
+			return [];
+		},
+		getToolStats(): ToolStats[] {
+			return [];
+		},
+		purge(): number {
+			return 0;
+		},
+		close(): void {},
+	};
+}
+
+function makeInstrumentCtx(store: EventStore): InstrumentContext {
+	return { eventStore: store, agentName: "test", runId: null, sessionId: null };
+}
 
 // Check if mulch is available
 let hasMulch = false;
@@ -828,5 +867,31 @@ describe("createMulchClient", () => {
 			expect(result).toHaveProperty("domains");
 			expect(result.domains).toEqual([]);
 		});
+	});
+
+	describe("instrumentation", () => {
+		test("accepts instrumentCtx parameter (backward compat: undefined still works)", () => {
+			const client = createMulchClient(tempDir);
+			expect(client).toBeDefined();
+			expect(typeof client.prime).toBe("function");
+		});
+
+		test.skipIf(!hasMulch)(
+			"emits tool_start and tool_end events when instrumentCtx is provided",
+			async () => {
+				await initMulch();
+				const store = createMockStore();
+				const ctx = makeInstrumentCtx(store);
+				const client = createMulchClient(tempDir, undefined, ctx);
+
+				await client.status();
+
+				expect(store.events.length).toBe(2);
+				expect(store.events[0]?.eventType).toBe("tool_start");
+				expect(store.events[1]?.eventType).toBe("tool_end");
+				expect(store.events[0]?.toolName).toBe("mulch:status");
+				expect(store.events[1]?.toolName).toBe("mulch:status");
+			},
+		);
 	});
 });

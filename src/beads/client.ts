@@ -7,6 +7,8 @@
  */
 
 import { AgentError } from "../errors.ts";
+import type { InstrumentContext } from "../observability/instrument.js";
+import { withEcosystemSpan } from "../observability/instrument.js";
 
 /**
  * A beads issue as returned by the bd CLI.
@@ -124,7 +126,7 @@ function normalizeIssue(raw: RawBeadIssue): BeadIssue {
  * @param cwd - Working directory where bd commands should run
  * @returns A BeadsClient instance wrapping the bd CLI
  */
-export function createBeadsClient(cwd: string): BeadsClient {
+export function createBeadsClient(cwd: string, instrumentCtx?: InstrumentContext): BeadsClient {
 	async function runBd(
 		args: string[],
 		context: string,
@@ -138,65 +140,77 @@ export function createBeadsClient(cwd: string): BeadsClient {
 
 	return {
 		async ready(options) {
-			const args = ["ready", "--json"];
-			if (options?.mol) {
-				args.push("--mol", options.mol);
-			}
-			const { stdout } = await runBd(args, "ready");
-			const raw = parseJsonOutput<RawBeadIssue[]>(stdout, "ready");
-			return raw.map(normalizeIssue);
+			return withEcosystemSpan(instrumentCtx, "beads", "ready", "ready", async () => {
+				const args = ["ready", "--json"];
+				if (options?.mol) {
+					args.push("--mol", options.mol);
+				}
+				const { stdout } = await runBd(args, "ready");
+				const raw = parseJsonOutput<RawBeadIssue[]>(stdout, "ready");
+				return raw.map(normalizeIssue);
+			});
 		},
 
 		async show(id) {
-			const { stdout } = await runBd(["show", id, "--json"], `show ${id}`);
-			// bd show --json returns an array with a single element
-			const raw = parseJsonOutput<RawBeadIssue[]>(stdout, `show ${id}`);
-			const first = raw[0];
-			if (!first) {
-				throw new AgentError(`bd show ${id} returned empty array`);
-			}
-			return normalizeIssue(first);
+			return withEcosystemSpan(instrumentCtx, "beads", "show", id, async () => {
+				const { stdout } = await runBd(["show", id, "--json"], `show ${id}`);
+				// bd show --json returns an array with a single element
+				const raw = parseJsonOutput<RawBeadIssue[]>(stdout, `show ${id}`);
+				const first = raw[0];
+				if (!first) {
+					throw new AgentError(`bd show ${id} returned empty array`);
+				}
+				return normalizeIssue(first);
+			});
 		},
 
 		async create(title, options) {
-			const args = ["create", title, "--json"];
-			if (options?.type) {
-				args.push("--type", options.type);
-			}
-			if (options?.priority !== undefined) {
-				args.push("--priority", String(options.priority));
-			}
-			if (options?.description) {
-				args.push("--description", options.description);
-			}
-			const { stdout } = await runBd(args, "create");
-			const result = parseJsonOutput<{ id: string }>(stdout, "create");
-			return result.id;
+			return withEcosystemSpan(instrumentCtx, "beads", "create", title, async () => {
+				const args = ["create", title, "--json"];
+				if (options?.type) {
+					args.push("--type", options.type);
+				}
+				if (options?.priority !== undefined) {
+					args.push("--priority", String(options.priority));
+				}
+				if (options?.description) {
+					args.push("--description", options.description);
+				}
+				const { stdout } = await runBd(args, "create");
+				const result = parseJsonOutput<{ id: string }>(stdout, "create");
+				return result.id;
+			});
 		},
 
 		async claim(id) {
-			await runBd(["update", id, "--status", "in_progress"], `claim ${id}`);
+			return withEcosystemSpan(instrumentCtx, "beads", "claim", id, async () => {
+				await runBd(["update", id, "--status", "in_progress"], `claim ${id}`);
+			});
 		},
 
 		async close(id, reason) {
-			const args = ["close", id];
-			if (reason) {
-				args.push("--reason", reason);
-			}
-			await runBd(args, `close ${id}`);
+			return withEcosystemSpan(instrumentCtx, "beads", "close", id, async () => {
+				const args = ["close", id];
+				if (reason) {
+					args.push("--reason", reason);
+				}
+				await runBd(args, `close ${id}`);
+			});
 		},
 
 		async list(options) {
-			const args = ["list", "--json"];
-			if (options?.status) {
-				args.push("--status", options.status);
-			}
-			if (options?.limit !== undefined) {
-				args.push("--limit", String(options.limit));
-			}
-			const { stdout } = await runBd(args, "list");
-			const raw = parseJsonOutput<RawBeadIssue[]>(stdout, "list");
-			return raw.map(normalizeIssue);
+			return withEcosystemSpan(instrumentCtx, "beads", "list", "list", async () => {
+				const args = ["list", "--json"];
+				if (options?.status) {
+					args.push("--status", options.status);
+				}
+				if (options?.limit !== undefined) {
+					args.push("--limit", String(options.limit));
+				}
+				const { stdout } = await runBd(args, "list");
+				const raw = parseJsonOutput<RawBeadIssue[]>(stdout, "list");
+				return raw.map(normalizeIssue);
+			});
 		},
 	};
 }

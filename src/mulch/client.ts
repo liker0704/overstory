@@ -11,6 +11,8 @@
 
 import { join } from "node:path";
 import { AgentError } from "../errors.ts";
+import type { InstrumentContext } from "../observability/instrument.js";
+import { withEcosystemSpan } from "../observability/instrument.js";
 import type {
 	MulchCompactResult,
 	MulchDiffResult,
@@ -462,7 +464,11 @@ function formatRecordText(record: MulchExpertiseRecord): string {
  * @param semanticConfig - Optional semantic search configuration
  * @returns A MulchClient instance wrapping the mulch CLI
  */
-export function createMulchClient(cwd: string, semanticConfig?: SemanticConfig): MulchClient {
+export function createMulchClient(
+	cwd: string,
+	semanticConfig?: SemanticConfig,
+	instrumentCtx?: InstrumentContext,
+): MulchClient {
 	async function runMulch(
 		args: string[],
 		context: string,
@@ -476,270 +482,310 @@ export function createMulchClient(cwd: string, semanticConfig?: SemanticConfig):
 
 	return {
 		async prime(domains, format, options) {
-			const args = ["prime"];
-			if (domains && domains.length > 0) {
-				args.push(...domains);
-			}
-			if (format) {
-				args.push("--format", format);
-			}
-			if (options?.files && options.files.length > 0) {
-				args.push("--files", ...options.files);
-			}
-			if (options?.excludeDomain && options.excludeDomain.length > 0) {
-				args.push("--exclude-domain", ...options.excludeDomain);
-			}
-			if (options?.sortByScore) {
-				args.push("--sort-by-score");
-			}
-			if (options?.audience) {
-				args.push("--audience", options.audience);
-			}
-			const { stdout } = await runMulch(args, "prime");
-			return stdout;
+			const argsSummary = ["prime", ...(domains ?? [])].join(" ");
+			return withEcosystemSpan(instrumentCtx, "mulch", "prime", argsSummary, async () => {
+				const args = ["prime"];
+				if (domains && domains.length > 0) {
+					args.push(...domains);
+				}
+				if (format) {
+					args.push("--format", format);
+				}
+				if (options?.files && options.files.length > 0) {
+					args.push("--files", ...options.files);
+				}
+				if (options?.excludeDomain && options.excludeDomain.length > 0) {
+					args.push("--exclude-domain", ...options.excludeDomain);
+				}
+				if (options?.sortByScore) {
+					args.push("--sort-by-score");
+				}
+				if (options?.audience) {
+					args.push("--audience", options.audience);
+				}
+				const { stdout } = await runMulch(args, "prime");
+				return stdout;
+			});
 		},
 
 		async status() {
-			const { stdout } = await runMulch(["status", "--json"], "status");
-			const trimmed = stdout.trim();
-			if (trimmed === "") {
-				return { domains: [] };
-			}
-			try {
-				return JSON.parse(trimmed) as MulchStatus;
-			} catch {
-				throw new AgentError(
-					`Failed to parse JSON output from mulch status: ${trimmed.slice(0, 200)}`,
-				);
-			}
+			return withEcosystemSpan(instrumentCtx, "mulch", "status", "status", async () => {
+				const { stdout } = await runMulch(["status", "--json"], "status");
+				const trimmed = stdout.trim();
+				if (trimmed === "") {
+					return { domains: [] };
+				}
+				try {
+					return JSON.parse(trimmed) as MulchStatus;
+				} catch {
+					throw new AgentError(
+						`Failed to parse JSON output from mulch status: ${trimmed.slice(0, 200)}`,
+					);
+				}
+			});
 		},
 
 		async record(domain, options) {
-			// stdin mode: no programmatic API equivalent, fall back to CLI
-			if (options.stdin) {
-				const args = ["record", domain, "--type", options.type];
-				if (options.description) args.push("--description", options.description);
-				args.push("--stdin");
-				await runMulch(args, `record ${domain}`);
-				return;
-			}
+			return withEcosystemSpan(
+				instrumentCtx,
+				"mulch",
+				"record",
+				`record ${domain} --type ${options.type}`,
+				async () => {
+					// stdin mode: no programmatic API equivalent, fall back to CLI
+					if (options.stdin) {
+						const args = ["record", domain, "--type", options.type];
+						if (options.description) args.push("--description", options.description);
+						args.push("--stdin");
+						await runMulch(args, `record ${domain}`);
+						return;
+					}
 
-			const expertiseRecord = buildExpertiseRecord(options);
-			const api = await loadMulchApi();
-			try {
-				await api.recordExpertise(domain, expertiseRecord, { cwd });
-			} catch (error) {
-				if (error instanceof Error && error.message.includes("not found in config")) {
-					// Auto-create domain (matching mulch CLI 0.6.1+ behavior)
-					await runMulch(["add", domain], `add ${domain}`);
-					await api.recordExpertise(domain, expertiseRecord, { cwd });
-				} else {
-					throw new AgentError(
-						`mulch record ${domain} failed: ${error instanceof Error ? error.message : String(error)}`,
-					);
-				}
-			}
+					const expertiseRecord = buildExpertiseRecord(options);
+					const api = await loadMulchApi();
+					try {
+						await api.recordExpertise(domain, expertiseRecord, { cwd });
+					} catch (error) {
+						if (error instanceof Error && error.message.includes("not found in config")) {
+							// Auto-create domain (matching mulch CLI 0.6.1+ behavior)
+							await runMulch(["add", domain], `add ${domain}`);
+							await api.recordExpertise(domain, expertiseRecord, { cwd });
+						} else {
+							throw new AgentError(
+								`mulch record ${domain} failed: ${error instanceof Error ? error.message : String(error)}`,
+							);
+						}
+					}
+				},
+			);
 		},
 
 		async query(domain) {
-			if (!domain) {
-				throw new AgentError("mulch query failed (exit 1): domain argument required");
-			}
-			try {
-				const api = await loadMulchApi();
-				const records = await api.queryDomain(domain, { cwd });
-				return formatSearchResults([{ domain, records }]);
-			} catch (error) {
-				throw new AgentError(
-					`mulch query failed: ${error instanceof Error ? error.message : String(error)}`,
-				);
-			}
+			return withEcosystemSpan(instrumentCtx, "mulch", "query", domain ?? "", async () => {
+				if (!domain) {
+					throw new AgentError("mulch query failed (exit 1): domain argument required");
+				}
+				try {
+					const api = await loadMulchApi();
+					const records = await api.queryDomain(domain, { cwd });
+					return formatSearchResults([{ domain, records }]);
+				} catch (error) {
+					throw new AgentError(
+						`mulch query failed: ${error instanceof Error ? error.message : String(error)}`,
+					);
+				}
+			});
 		},
 
 		async search(query, options) {
-			try {
-				const api = await loadMulchApi();
-				const results = await api.searchExpertise(query, {
-					file: options?.file,
-					classification: options?.classification,
-					outcomeStatus: options?.outcomeStatus,
-					sortByScore: options?.sortByScore,
-					cwd,
-				});
-				return formatSearchResults(results);
-			} catch (error) {
-				throw new AgentError(
-					`mulch search failed: ${error instanceof Error ? error.message : String(error)}`,
-				);
-			}
+			return withEcosystemSpan(instrumentCtx, "mulch", "search", query, async () => {
+				try {
+					const api = await loadMulchApi();
+					const results = await api.searchExpertise(query, {
+						file: options?.file,
+						classification: options?.classification,
+						outcomeStatus: options?.outcomeStatus,
+						sortByScore: options?.sortByScore,
+						cwd,
+					});
+					return formatSearchResults(results);
+				} catch (error) {
+					throw new AgentError(
+						`mulch search failed: ${error instanceof Error ? error.message : String(error)}`,
+					);
+				}
+			});
 		},
 
 		async diff(options) {
-			const args = ["diff", "--json"];
-			if (options?.since) {
-				args.push("--since", options.since);
-			}
-			const { stdout } = await runMulch(args, "diff");
-			const trimmed = stdout.trim();
-			try {
-				return JSON.parse(trimmed) as MulchDiffResult;
-			} catch {
-				throw new AgentError(`Failed to parse JSON from mulch diff: ${trimmed.slice(0, 200)}`);
-			}
+			return withEcosystemSpan(instrumentCtx, "mulch", "diff", "diff", async () => {
+				const args = ["diff", "--json"];
+				if (options?.since) {
+					args.push("--since", options.since);
+				}
+				const { stdout } = await runMulch(args, "diff");
+				const trimmed = stdout.trim();
+				try {
+					return JSON.parse(trimmed) as MulchDiffResult;
+				} catch {
+					throw new AgentError(`Failed to parse JSON from mulch diff: ${trimmed.slice(0, 200)}`);
+				}
+			});
 		},
 
 		async learn(options) {
-			const args = ["learn", "--json"];
-			if (options?.since) {
-				args.push("--since", options.since);
-			}
-			const { stdout } = await runMulch(args, "learn");
-			const trimmed = stdout.trim();
-			try {
-				return JSON.parse(trimmed) as MulchLearnResult;
-			} catch {
-				throw new AgentError(`Failed to parse JSON from mulch learn: ${trimmed.slice(0, 200)}`);
-			}
+			return withEcosystemSpan(instrumentCtx, "mulch", "learn", "learn", async () => {
+				const args = ["learn", "--json"];
+				if (options?.since) {
+					args.push("--since", options.since);
+				}
+				const { stdout } = await runMulch(args, "learn");
+				const trimmed = stdout.trim();
+				try {
+					return JSON.parse(trimmed) as MulchLearnResult;
+				} catch {
+					throw new AgentError(`Failed to parse JSON from mulch learn: ${trimmed.slice(0, 200)}`);
+				}
+			});
 		},
 
 		async prune(options) {
-			const args = ["prune", "--json"];
-			if (options?.dryRun) {
-				args.push("--dry-run");
-			}
-			const { stdout } = await runMulch(args, "prune");
-			const trimmed = stdout.trim();
-			try {
-				return JSON.parse(trimmed) as MulchPruneResult;
-			} catch {
-				throw new AgentError(`Failed to parse JSON from mulch prune: ${trimmed.slice(0, 200)}`);
-			}
+			return withEcosystemSpan(instrumentCtx, "mulch", "prune", "prune", async () => {
+				const args = ["prune", "--json"];
+				if (options?.dryRun) {
+					args.push("--dry-run");
+				}
+				const { stdout } = await runMulch(args, "prune");
+				const trimmed = stdout.trim();
+				try {
+					return JSON.parse(trimmed) as MulchPruneResult;
+				} catch {
+					throw new AgentError(`Failed to parse JSON from mulch prune: ${trimmed.slice(0, 200)}`);
+				}
+			});
 		},
 
 		async doctor(options) {
-			const args = ["doctor", "--json"];
-			if (options?.fix) {
-				args.push("--fix");
-			}
-			const { stdout } = await runMulch(args, "doctor");
-			const trimmed = stdout.trim();
-			try {
-				return JSON.parse(trimmed) as MulchDoctorResult;
-			} catch {
-				throw new AgentError(`Failed to parse JSON from mulch doctor: ${trimmed.slice(0, 200)}`);
-			}
+			return withEcosystemSpan(instrumentCtx, "mulch", "doctor", "doctor", async () => {
+				const args = ["doctor", "--json"];
+				if (options?.fix) {
+					args.push("--fix");
+				}
+				const { stdout } = await runMulch(args, "doctor");
+				const trimmed = stdout.trim();
+				try {
+					return JSON.parse(trimmed) as MulchDoctorResult;
+				} catch {
+					throw new AgentError(`Failed to parse JSON from mulch doctor: ${trimmed.slice(0, 200)}`);
+				}
+			});
 		},
 
 		async ready(options) {
-			const args = ["ready", "--json"];
-			if (options?.limit !== undefined) {
-				args.push("--limit", String(options.limit));
-			}
-			if (options?.domain) {
-				args.push("--domain", options.domain);
-			}
-			if (options?.since) {
-				args.push("--since", options.since);
-			}
-			const { stdout } = await runMulch(args, "ready");
-			const trimmed = stdout.trim();
-			try {
-				return JSON.parse(trimmed) as MulchReadyResult;
-			} catch {
-				throw new AgentError(`Failed to parse JSON from mulch ready: ${trimmed.slice(0, 200)}`);
-			}
+			return withEcosystemSpan(instrumentCtx, "mulch", "ready", "ready", async () => {
+				const args = ["ready", "--json"];
+				if (options?.limit !== undefined) {
+					args.push("--limit", String(options.limit));
+				}
+				if (options?.domain) {
+					args.push("--domain", options.domain);
+				}
+				if (options?.since) {
+					args.push("--since", options.since);
+				}
+				const { stdout } = await runMulch(args, "ready");
+				const trimmed = stdout.trim();
+				try {
+					return JSON.parse(trimmed) as MulchReadyResult;
+				} catch {
+					throw new AgentError(`Failed to parse JSON from mulch ready: ${trimmed.slice(0, 200)}`);
+				}
+			});
 		},
 
 		async compact(domain, options) {
-			const args = ["compact", "--json"];
-			if (domain) {
-				args.push(domain);
-			}
-			if (options?.analyze) {
-				args.push("--analyze");
-			}
-			if (options?.apply) {
-				args.push("--apply");
-			}
-			if (options?.auto) {
-				args.push("--auto");
-			}
-			if (options?.dryRun) {
-				args.push("--dry-run");
-			}
-			if (options?.minGroup !== undefined) {
-				args.push("--min-group", String(options.minGroup));
-			}
-			if (options?.maxRecords !== undefined) {
-				args.push("--max-records", String(options.maxRecords));
-			}
-			if (options?.yes) {
-				args.push("--yes");
-			}
-			if (options?.records && options.records.length > 0) {
-				args.push("--records", options.records.join(","));
-			}
-			const { stdout } = await runMulch(args, domain ? `compact ${domain}` : "compact");
-			const trimmed = stdout.trim();
-			try {
-				return JSON.parse(trimmed) as MulchCompactResult;
-			} catch {
-				throw new AgentError(`Failed to parse JSON from mulch compact: ${trimmed.slice(0, 200)}`);
-			}
+			const argsSummary = domain ? `compact ${domain}` : "compact";
+			return withEcosystemSpan(instrumentCtx, "mulch", "compact", argsSummary, async () => {
+				const args = ["compact", "--json"];
+				if (domain) {
+					args.push(domain);
+				}
+				if (options?.analyze) {
+					args.push("--analyze");
+				}
+				if (options?.apply) {
+					args.push("--apply");
+				}
+				if (options?.auto) {
+					args.push("--auto");
+				}
+				if (options?.dryRun) {
+					args.push("--dry-run");
+				}
+				if (options?.minGroup !== undefined) {
+					args.push("--min-group", String(options.minGroup));
+				}
+				if (options?.maxRecords !== undefined) {
+					args.push("--max-records", String(options.maxRecords));
+				}
+				if (options?.yes) {
+					args.push("--yes");
+				}
+				if (options?.records && options.records.length > 0) {
+					args.push("--records", options.records.join(","));
+				}
+				const { stdout } = await runMulch(args, domain ? `compact ${domain}` : "compact");
+				const trimmed = stdout.trim();
+				try {
+					return JSON.parse(trimmed) as MulchCompactResult;
+				} catch {
+					throw new AgentError(`Failed to parse JSON from mulch compact: ${trimmed.slice(0, 200)}`);
+				}
+			});
 		},
 
 		async appendOutcome(domain, id, outcome) {
-			const api = await loadMulchApi();
-			try {
-				await api.appendOutcome(
-					domain,
-					id,
-					{ ...outcome, recorded_at: new Date().toISOString() },
-					{ cwd },
-				);
-			} catch (error) {
-				throw new AgentError(
-					`mulch appendOutcome ${domain}/${id} failed: ${error instanceof Error ? error.message : String(error)}`,
-				);
-			}
+			return withEcosystemSpan(
+				instrumentCtx,
+				"mulch",
+				"appendOutcome",
+				`${domain}/${id}`,
+				async () => {
+					const api = await loadMulchApi();
+					try {
+						await api.appendOutcome(
+							domain,
+							id,
+							{ ...outcome, recorded_at: new Date().toISOString() },
+							{ cwd },
+						);
+					} catch (error) {
+						throw new AgentError(
+							`mulch appendOutcome ${domain}/${id} failed: ${error instanceof Error ? error.message : String(error)}`,
+						);
+					}
+				},
+			);
 		},
 
 		async semanticSearch(query, options) {
-			const cfg = semanticConfig;
-			if (!cfg?.enabled) {
-				// Semantic disabled — no results (caller falls back to keyword search)
-				return [];
-			}
+			return withEcosystemSpan(instrumentCtx, "mulch", "semanticSearch", query, async () => {
+				const cfg = semanticConfig;
+				if (!cfg?.enabled) {
+					// Semantic disabled — no results (caller falls back to keyword search)
+					return [];
+				}
 
-			const embeddingsDir = join(cwd, ".overstory", "embeddings");
+				const embeddingsDir = join(cwd, ".overstory", "embeddings");
 
-			// Fetch records via programmatic API
-			let records: Array<{ id?: string; domain: string; [key: string]: unknown }> = [];
-			try {
-				const api = await loadMulchApi();
-				const searchResults = await api.searchExpertise(query, {
-					domain: options?.domain,
-					sortByScore: true,
-					cwd,
-				});
-				records = searchResults.flatMap((r) =>
-					r.records.map((rec) => ({ ...(rec as Record<string, unknown>), domain: r.domain })),
+				// Fetch records via programmatic API
+				let records: Array<{ id?: string; domain: string; [key: string]: unknown }> = [];
+				try {
+					const api = await loadMulchApi();
+					const searchResults = await api.searchExpertise(query, {
+						domain: options?.domain,
+						sortByScore: true,
+						cwd,
+					});
+					records = searchResults.flatMap((r) =>
+						r.records.map((rec) => ({ ...(rec as Record<string, unknown>), domain: r.domain })),
+					);
+				} catch {
+					return [];
+				}
+
+				if (records.length === 0) return [];
+
+				const results = await semanticSearchFn(
+					query,
+					records,
+					embeddingsDir,
+					cfg.provider,
+					cfg.model,
+					options,
 				);
-			} catch {
-				return [];
-			}
-
-			if (records.length === 0) return [];
-
-			const results = await semanticSearchFn(
-				query,
-				records,
-				embeddingsDir,
-				cfg.provider,
-				cfg.model,
-				options,
-			);
-			return results;
+				return results;
+			});
 		},
 	};
 }
