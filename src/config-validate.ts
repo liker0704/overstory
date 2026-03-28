@@ -109,6 +109,12 @@ export function validateUnknownFields(raw: Record<string, unknown>): void {
 		if (isObj(raw.mission.planReview)) {
 			assertKnownKeys(raw.mission.planReview, KNOWN_FIELDS.missionPlanReview, "mission.planReview");
 		}
+		if (isObj(raw.mission.holdout)) {
+			assertKnownKeys(raw.mission.holdout, KNOWN_FIELDS.missionHoldout, "mission.holdout");
+		}
+		if (isObj(raw.mission.cleanup)) {
+			assertKnownKeys(raw.mission.cleanup, KNOWN_FIELDS.missionCleanup, "mission.cleanup");
+		}
 	}
 
 	if (isObj(raw.mail)) {
@@ -164,6 +170,10 @@ export function validateUnknownFields(raw: Record<string, unknown>): void {
 
 	// models: Record<string, ModelRef> — dynamic keys, scalar values, no nested check needed.
 	// runtime.capabilities: Record<string, string> — dynamic keys, no nested check needed.
+
+	if (isObj(raw.context)) {
+		assertKnownKeys(raw.context, KNOWN_FIELDS.context, "context");
+	}
 
 	if (isObj(raw.healthPolicy)) {
 		assertKnownKeys(raw.healthPolicy, KNOWN_FIELDS.healthPolicy, "healthPolicy");
