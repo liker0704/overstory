@@ -5,8 +5,11 @@ import type { HealthRecommendation, HealthScore, RecommendationSource } from "..
 import { createMailStore } from "../mail/store.ts";
 import { createMetricsStore } from "../metrics/store.ts";
 import { completionTrendPolicy } from "./completion-trend.ts";
+import { confirmationTrendPolicy } from "./confirmation-trend.ts";
+import { domainCoveragePolicy } from "./domain-coverage.ts";
 import { errorRecurrencePolicy } from "./error-recurrence.ts";
 import { escalationResponseRatePolicy } from "./escalation-response-rate.ts";
+import { expertiseDecayPolicy } from "./expertise-decay.ts";
 import { mergeConflictsPolicy } from "./merge-conflicts.ts";
 import { collectTemporalSignals } from "./signals.ts";
 import { staleEscalationsPolicy } from "./stale-escalations.ts";
@@ -18,6 +21,9 @@ const ALL_POLICIES: ReminderPolicy[] = [
 	errorRecurrencePolicy,
 	staleEscalationsPolicy,
 	escalationResponseRatePolicy,
+	expertiseDecayPolicy,
+	confirmationTrendPolicy,
+	domainCoveragePolicy,
 ];
 
 export function createReminderSource(
