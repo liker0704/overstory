@@ -741,6 +741,151 @@ describe("subgraph execution", () => {
 		expect(executed).toEqual(["sub", "parent"]);
 	});
 
+	test("subgraph checkpoints are isolated from parent via prefixed key", async () => {
+		const checkpointStore = createMockCheckpointStore();
+
+		// Pre-seed a parent checkpoint at node "parent"
+		checkpointStore.saveCheckpoint("mission-1", "parent", { parentData: true });
+
+		const subgraph: MissionGraph = {
+			version: 1,
+			nodes: [
+				{
+					kind: "lifecycle",
+					id: "sub-start",
+					phase: "understand",
+					state: "active",
+					handler: "subHandler",
+				},
+				{ kind: "lifecycle", id: "sub-end", phase: "done", state: "completed", terminal: true },
+			],
+			edges: [{ from: "sub-start", to: "sub-end", trigger: "sub-next" }],
+		};
+
+		const graph: MissionGraph = {
+			version: 1,
+			nodes: [
+				{
+					kind: "lifecycle",
+					id: "parent",
+					phase: "understand",
+					state: "active",
+					subgraph,
+				},
+				{ kind: "lifecycle", id: "final", phase: "done", state: "completed", terminal: true },
+			],
+			edges: [{ from: "parent", to: "final", trigger: "done" }],
+		};
+
+		const handlers: HandlerRegistry = {
+			subHandler: async () => ({ trigger: "sub-next" }),
+		};
+
+		const engine = createGraphEngine(makeOpts(graph, handlers, { checkpointStore }));
+		await engine.run();
+
+		// Parent checkpoint should still have original data
+		const parentCp = checkpointStore.getCheckpoint("mission-1", "parent");
+		expect(parentCp?.data).toEqual({ parentData: true });
+
+		// Subgraph checkpoints stored under prefixed key "parent:mission-1", not "mission-1"
+		const subCpUnprefixed = checkpointStore.getCheckpoint("mission-1", "sub-start");
+		expect(subCpUnprefixed).toBeNull();
+
+		// getLatestCheckpoint for prefixed key should find the subgraph's checkpoint
+		const subLatest = checkpointStore.getLatestCheckpoint("parent:mission-1");
+		expect(subLatest).not.toBeNull();
+		expect(subLatest?.nodeId).toBe("sub-end");
+	});
+
+	test("propagates subgraph error with status error and error message", async () => {
+		const subgraph: MissionGraph = {
+			version: 1,
+			nodes: [
+				{
+					kind: "lifecycle",
+					id: "sub-fail",
+					phase: "understand",
+					state: "active",
+					handler: "failHandler",
+				},
+				{ kind: "lifecycle", id: "sub-end", phase: "done", state: "completed", terminal: true },
+			],
+			edges: [{ from: "sub-fail", to: "sub-end", trigger: "next" }],
+		};
+
+		const graph: MissionGraph = {
+			version: 1,
+			nodes: [
+				{
+					kind: "lifecycle",
+					id: "parent",
+					phase: "understand",
+					state: "active",
+					subgraph,
+				},
+				{ kind: "lifecycle", id: "final", phase: "done", state: "completed", terminal: true },
+			],
+			edges: [{ from: "parent", to: "final", trigger: "done" }],
+		};
+
+		const handlers: HandlerRegistry = {
+			failHandler: async () => {
+				throw new Error("subgraph crash");
+			},
+		};
+
+		const engine = createGraphEngine(makeOpts(graph, handlers));
+		const result = await engine.step();
+
+		expect(result.status).toBe("error");
+		expect(result.error).toContain("subgraph crash");
+	});
+
+	test("subgraph error does not become gate", async () => {
+		const subgraph: MissionGraph = {
+			version: 1,
+			nodes: [
+				{
+					kind: "lifecycle",
+					id: "sub-fail",
+					phase: "understand",
+					state: "active",
+					handler: "failHandler",
+				},
+				{ kind: "lifecycle", id: "sub-end", phase: "done", state: "completed", terminal: true },
+			],
+			edges: [{ from: "sub-fail", to: "sub-end", trigger: "next" }],
+		};
+
+		const graph: MissionGraph = {
+			version: 1,
+			nodes: [
+				{
+					kind: "lifecycle",
+					id: "parent",
+					phase: "understand",
+					state: "active",
+					subgraph,
+				},
+				{ kind: "lifecycle", id: "final", phase: "done", state: "completed", terminal: true },
+			],
+			edges: [{ from: "parent", to: "final", trigger: "done" }],
+		};
+
+		const handlers: HandlerRegistry = {
+			failHandler: async () => {
+				throw new Error("subgraph crash");
+			},
+		};
+
+		const engine = createGraphEngine(makeOpts(graph, handlers));
+		const result = await engine.step();
+
+		expect(result.status).not.toBe("gate");
+		expect(result.status).toBe("error");
+	});
+
 	test("gates when subgraph is gated", async () => {
 		const subgraph: MissionGraph = {
 			version: 1,
