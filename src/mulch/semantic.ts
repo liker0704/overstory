@@ -8,15 +8,25 @@
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { computeHeadroomPercent } from "../headroom/throttle.ts";
+import type { HeadroomSnapshot, HeadroomStore } from "../headroom/types.ts";
 
 // === Types (exported for use in client.ts and prime.ts) ===
 
 export type EmbeddingProvider = "sentence-transformers" | "openai" | "ollama";
 
+export interface EmbedOptions {
+	headroomStore?: HeadroomStore;
+	warnThresholdPercent?: number;
+	onThrottleFallback?: (from: EmbeddingProvider, to: EmbeddingProvider, reason: string) => void;
+}
+
 export interface SemanticSearchOptions {
 	domain?: string;
 	topK?: number;
 	hybrid?: boolean;
+	headroomStore?: HeadroomStore;
+	warnThresholdPercent?: number;
 }
 
 export interface SemanticSearchResult {
@@ -75,24 +85,67 @@ except Exception as e:
 // === Embedding Adapters ===
 
 /**
- * Generate embeddings for a batch of texts using the specified provider.
- * Returns null if the provider is unavailable or the request fails.
+ * Generate embeddings for a batch of texts using the specified provider(s).
+ * If an array is given, providers are tried in order; the first success wins.
+ * Returns null if all providers fail or are unavailable.
  */
 export async function embedTexts(
 	texts: string[],
-	provider: EmbeddingProvider,
+	provider: EmbeddingProvider | EmbeddingProvider[],
 	model: string,
+	options?: EmbedOptions,
 ): Promise<Float32Array[] | null> {
 	if (texts.length === 0) return [];
 
-	switch (provider) {
-		case "sentence-transformers":
-			return embedViaSentenceTransformers(texts, model);
-		case "openai":
-			return embedViaOpenAI(texts, model);
-		case "ollama":
-			return embedViaOllama(texts, model);
+	const providers = Array.isArray(provider) ? provider : [provider];
+	const warnThreshold = options?.warnThresholdPercent ?? 20;
+
+	for (let i = 0; i < providers.length; i++) {
+		const p = providers[i];
+		if (p === undefined) continue;
+
+		// Pre-flight headroom check (OpenAI only)
+		if (p === "openai" && options?.headroomStore) {
+			const snapshot = options.headroomStore.get("openai-embeddings");
+			if (snapshot !== null) {
+				const pct = computeHeadroomPercent(snapshot);
+				if (pct !== null && pct < warnThreshold) {
+					const nextProvider = providers[i + 1];
+					process.stderr.write(
+						`[headroom] OpenAI embedding quota low (${Math.round(pct)}%), falling back to ${nextProvider ?? "none"}\n`,
+					);
+					if (nextProvider !== undefined && options.onThrottleFallback) {
+						options.onThrottleFallback(
+							p,
+							nextProvider,
+							`OpenAI embedding quota at ${Math.round(pct)}%`,
+						);
+					}
+					continue;
+				}
+			}
+		}
+
+		let result: Float32Array[] | null = null;
+
+		if (p === "openai") {
+			const onHeaders =
+				options?.headroomStore !== undefined
+					? (snapshot: HeadroomSnapshot) => {
+							options.headroomStore?.upsert(snapshot);
+						}
+					: undefined;
+			result = await embedViaOpenAI(texts, model, onHeaders);
+		} else if (p === "sentence-transformers") {
+			result = await embedViaSentenceTransformers(texts, model);
+		} else if (p === "ollama") {
+			result = await embedViaOllama(texts, model);
+		}
+
+		if (result !== null) return result;
 	}
+
+	return null;
 }
 
 async function embedViaSentenceTransformers(
@@ -125,7 +178,11 @@ async function embedViaSentenceTransformers(
 	}
 }
 
-async function embedViaOpenAI(texts: string[], model: string): Promise<Float32Array[] | null> {
+async function embedViaOpenAI(
+	texts: string[],
+	model: string,
+	onHeaders?: (snapshot: HeadroomSnapshot) => void,
+): Promise<Float32Array[] | null> {
 	const apiKey = process.env.OPENAI_API_KEY;
 	if (!apiKey) return null;
 
@@ -154,6 +211,44 @@ async function embedViaOpenAI(texts: string[], model: string): Promise<Float32Ar
 
 		if (!response.ok) {
 			return null;
+		}
+
+		// Parse rate-limit headers and invoke callback if provided
+		if (onHeaders) {
+			const parseIntHeader = (name: string): number | null => {
+				const val = response.headers.get(name);
+				if (val === null) return null;
+				const n = parseInt(val, 10);
+				return Number.isNaN(n) ? null : n;
+			};
+
+			const requestsRemaining = parseIntHeader("x-ratelimit-remaining-requests");
+			const requestsLimit = parseIntHeader("x-ratelimit-limit-requests");
+			const tokensRemaining = parseIntHeader("x-ratelimit-remaining-tokens");
+			const tokensLimit = parseIntHeader("x-ratelimit-limit-tokens");
+			const windowResetsAt = response.headers.get("x-ratelimit-reset-requests");
+
+			const pctNum =
+				requestsRemaining !== null && requestsLimit !== null && requestsLimit > 0
+					? Math.round((requestsRemaining / requestsLimit) * 100)
+					: null;
+			const message =
+				pctNum !== null
+					? `${pctNum}% of request quota remaining`
+					: "OpenAI embedding headroom: quota unknown";
+
+			const snapshot: HeadroomSnapshot = {
+				runtime: "openai-embeddings",
+				state: "exact",
+				capturedAt: new Date().toISOString(),
+				requestsRemaining,
+				requestsLimit,
+				tokensRemaining,
+				tokensLimit,
+				windowResetsAt,
+				message,
+			};
+			onHeaders(snapshot);
 		}
 
 		const data = (await response.json()) as {
@@ -392,7 +487,11 @@ export async function semanticSearch(
 	const domainFilter = options?.domain;
 
 	// 1. Embed query
-	const queryVecs = await embedTexts([query], provider, model);
+	const embedOptions: EmbedOptions | undefined =
+		options?.headroomStore !== undefined
+			? { headroomStore: options.headroomStore, warnThresholdPercent: options.warnThresholdPercent }
+			: undefined;
+	const queryVecs = await embedTexts([query], provider, model, embedOptions);
 	if (!queryVecs || queryVecs.length === 0) return [];
 	const queryVec = queryVecs[0];
 	if (!queryVec) return [];
@@ -468,8 +567,9 @@ export async function semanticSearch(
 export async function embedAllRecords(
 	records: Array<{ id?: string; domain: string; [key: string]: unknown }>,
 	embeddingsDir: string,
-	provider: EmbeddingProvider,
+	provider: EmbeddingProvider | EmbeddingProvider[],
 	model: string,
+	options?: EmbedOptions,
 ): Promise<EmbedStatus> {
 	const byDomain = new Map<string, typeof records>();
 	for (const rec of records) {
@@ -523,7 +623,7 @@ export async function embedAllRecords(
 			continue;
 		}
 
-		const vecs = await embedTexts(textsToEmbed, provider, model);
+		const vecs = await embedTexts(textsToEmbed, provider, model, options);
 		if (!vecs || vecs.length !== textsToEmbed.length) {
 			domainStats.push({
 				name: domain,
