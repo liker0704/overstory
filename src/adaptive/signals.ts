@@ -11,6 +11,8 @@ export interface CollectParallelismParams {
 	headroomStore: HeadroomStore;
 	mergeQueue: MergeQueue;
 	evaluationIntervalMs: number;
+	readyTaskCount?: number | null;
+	inProgressCount?: number | null;
 }
 
 /**
@@ -85,6 +87,8 @@ export function collectParallelismContext(params: CollectParallelismParams): Par
 		mergeQueueDepth,
 		activeWorkers,
 		stalledWorkers,
+		readyTaskCount: params.readyTaskCount ?? null,
+		inProgressCount: params.inProgressCount ?? null,
 		collectedAt,
 	};
 }

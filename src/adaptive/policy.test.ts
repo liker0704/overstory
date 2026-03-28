@@ -10,6 +10,8 @@ function makeContext(overrides: Partial<ParallelismContext> = {}): ParallelismCo
 		mergeQueueDepth: 2,
 		activeWorkers: 8,
 		stalledWorkers: 0,
+		readyTaskCount: 10,
+		inProgressCount: 5,
 		collectedAt: new Date().toISOString(),
 		...overrides,
 	};
@@ -92,16 +94,18 @@ test("hold: mixed signals that cancel out produce no change", () => {
 
 // Test 4: Hysteresis - marginal signals within dead zone
 test("hysteresis: marginal signals within dead zone force hold", () => {
-	// health=90 (up 0.35), headroom=15 (down 0.30), merge=1 (up 0.20), util=3/10=30% (down 0.15)
-	// weightedSum = 0.35 - 0.30 + 0.20 - 0.15 = 0.10
-	// normalized = 0.10/1.0 = 0.10
-	// hysteresis=20% -> threshold=0.20, |0.10| < 0.20 -> hold
+	// health=90 (up 0.30), headroom=15 (down 0.25), merge=1 (up 0.20), util=3/10=30% (down 0.10)
+	// backlog=3 ready, activeWorkers=3 -> 3 in [1.5, 6] -> hold (0.15)
+	// weightedSum = 0.30 - 0.25 + 0.20 - 0.10 + 0 = 0.15
+	// normalized = 0.15/1.0 = 0.15
+	// hysteresis=20% -> threshold=0.20, |0.15| < 0.20 -> hold
 	const context = makeContext({
 		healthScore: 90,
 		healthGrade: "A",
 		headroomPercent: 15,
 		mergeQueueDepth: 1,
 		activeWorkers: 3,
+		readyTaskCount: 3,
 	});
 	const config = makeConfig({ hysteresisPercent: 20 });
 	const prev = makePreviousDecision({ effectiveMaxConcurrent: 10 });
@@ -110,14 +114,12 @@ test("hysteresis: marginal signals within dead zone force hold", () => {
 });
 
 // Test 5: Hysteresis with reduced weight (headroom=null)
-test("hysteresis with null headroom: totalWeight=0.85, threshold remains proportional", () => {
-	// health=90 (up 0.35), headroom=null (hold 0.15), merge=1 (up 0.20), util=9/10=90% (up 0.15)
-	// weightedSum = 0.35 + 0 + 0.20 + 0.15 = 0.70, totalWeight=0.85
-	// normalized = 0.70/0.85 ≈ 0.824 -> clearly up, so this won't test hysteresis well
-	// Let's get a marginal case: health=40 (down 0.35), headroom=null (hold 0.15), merge=1 (up 0.20), util=50% (hold 0.15)
-	// weightedSum = -0.35 + 0 + 0.20 + 0 = -0.15, totalWeight=0.85
-	// normalized = -0.15/0.85 ≈ -0.176
-	// hysteresis=20% -> threshold=0.20, |-0.176| < 0.20 -> hold
+test("hysteresis with null headroom: totalWeight=0.88, threshold remains proportional", () => {
+	// health=40 (down 0.30), headroom=null (hold 0.13), merge=1 (up 0.20), util=5/10=50% (hold 0.10)
+	// backlog=10 ready, activeWorkers=5 -> 10 == 5*2 (not >) -> hold (0.15)
+	// weightedSum = -0.30 + 0 + 0.20 + 0 + 0 = -0.10, totalWeight=0.88
+	// normalized = -0.10/0.88 ≈ -0.1136
+	// hysteresis=20% -> threshold=0.20, |-0.1136| < 0.20 -> hold
 	const context = makeContext({
 		healthScore: 40,
 		healthGrade: "F",
@@ -128,9 +130,9 @@ test("hysteresis with null headroom: totalWeight=0.85, threshold remains proport
 	const config = makeConfig({ hysteresisPercent: 20 });
 	const prev = makePreviousDecision({ effectiveMaxConcurrent: 10 });
 	const result = evaluateAdaptivePolicy({ context, config, previousDecision: prev });
-	// headroom weight should be 0.15 (not 0.30)
+	// headroom weight should be 0.13 (not 0.25, reduced because unavailable)
 	const headroomFactor = result.factors.find((f) => f.signal === "headroom");
-	expect(headroomFactor?.weight).toBe(0.15);
+	expect(headroomFactor?.weight).toBe(0.13);
 	expect(result.direction).toBe("hold");
 });
 
@@ -202,12 +204,12 @@ test("first evaluation: null previousDecision uses config.maxWorkers as currentM
 	expect(result.effectiveMaxConcurrent).toBe(15);
 });
 
-// Test 10: Explainability - all 4 factors present with non-empty detail strings
-test("explainability: all 4 factors have non-empty detail strings", () => {
+// Test 10: Explainability - all 5 factors present with non-empty detail strings
+test("explainability: all 5 factors have non-empty detail strings", () => {
 	const context = makeContext();
 	const config = makeConfig();
 	const result = evaluateAdaptivePolicy({ context, config, previousDecision: null });
-	expect(result.factors).toHaveLength(4);
+	expect(result.factors).toHaveLength(5);
 	for (const factor of result.factors) {
 		expect(factor.detail.length).toBeGreaterThan(0);
 		expect(factor.signal.length).toBeGreaterThan(0);
@@ -217,6 +219,7 @@ test("explainability: all 4 factors have non-empty detail strings", () => {
 	expect(signals).toContain("headroom");
 	expect(signals).toContain("merge_pressure");
 	expect(signals).toContain("utilization");
+	expect(signals).toContain("backlog_pressure");
 });
 
 // Test 11: Utilization uses previousDecision.effectiveMaxConcurrent, not config.maxWorkers
@@ -236,4 +239,63 @@ test("utilization uses previousDecision.effectiveMaxConcurrent not config.maxWor
 	// 10/25 = 40% < 50% -> down
 	expect(utilizationFactor?.effect).toBe("down");
 	expect(utilizationFactor?.detail).toContain("40%");
+});
+
+// Test 12: backlog pressure - large backlog scales up
+test("backlog pressure: large backlog scales up", () => {
+	// readyTaskCount=20, activeWorkers=5 -> 20 > 5*2=10 -> up, weight=0.15
+	const context = makeContext({
+		readyTaskCount: 20,
+		activeWorkers: 5,
+	});
+	const config = makeConfig();
+	const prev = makePreviousDecision();
+	const result = evaluateAdaptivePolicy({ context, config, previousDecision: prev });
+	const backlogFactor = result.factors.find((f) => f.signal === "backlog_pressure");
+	expect(backlogFactor?.effect).toBe("up");
+	expect(backlogFactor?.weight).toBe(0.15);
+	expect(backlogFactor?.detail).toContain("20");
+});
+
+// Test 13: backlog pressure - balanced backlog holds
+test("backlog pressure: balanced backlog holds", () => {
+	// readyTaskCount=8, activeWorkers=8 -> 8 not > 16, 8 not < 4 -> hold, weight=0.15
+	const context = makeContext({
+		readyTaskCount: 8,
+		activeWorkers: 8,
+	});
+	const config = makeConfig();
+	const prev = makePreviousDecision();
+	const result = evaluateAdaptivePolicy({ context, config, previousDecision: prev });
+	const backlogFactor = result.factors.find((f) => f.signal === "backlog_pressure");
+	expect(backlogFactor?.effect).toBe("hold");
+	expect(backlogFactor?.weight).toBe(0.15);
+});
+
+// Test 14: backlog pressure - empty backlog scales down
+test("backlog pressure: empty backlog scales down", () => {
+	// readyTaskCount=1, activeWorkers=8 -> 1 < 8*0.5=4 -> down, weight=0.15
+	const context = makeContext({
+		readyTaskCount: 1,
+		activeWorkers: 8,
+	});
+	const config = makeConfig();
+	const prev = makePreviousDecision();
+	const result = evaluateAdaptivePolicy({ context, config, previousDecision: prev });
+	const backlogFactor = result.factors.find((f) => f.signal === "backlog_pressure");
+	expect(backlogFactor?.effect).toBe("down");
+	expect(backlogFactor?.weight).toBe(0.15);
+	expect(backlogFactor?.detail).toContain("1");
+});
+
+// Test 15: backlog unavailable - null readyTaskCount reduces weight
+test("backlog unavailable: null readyTaskCount reduces weight to 0.08", () => {
+	const context = makeContext({ readyTaskCount: null });
+	const config = makeConfig();
+	const prev = makePreviousDecision();
+	const result = evaluateAdaptivePolicy({ context, config, previousDecision: prev });
+	const backlogFactor = result.factors.find((f) => f.signal === "backlog_pressure");
+	expect(backlogFactor?.effect).toBe("hold");
+	expect(backlogFactor?.weight).toBe(0.08);
+	expect(backlogFactor?.detail).toContain("unavailable");
 });

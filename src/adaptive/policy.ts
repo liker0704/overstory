@@ -24,15 +24,43 @@ function headroomSignal(headroomPercent: number | null): {
 	detail: string;
 } {
 	if (headroomPercent === null) {
-		return { effect: "hold", weight: 0.15, detail: "headroom unavailable, reduced weight" };
+		return { effect: "hold", weight: 0.13, detail: "headroom unavailable, reduced weight" };
 	}
 	if (headroomPercent >= 50) {
-		return { effect: "up", weight: 0.3, detail: `headroom ${headroomPercent}% >= 50%` };
+		return { effect: "up", weight: 0.25, detail: `headroom ${headroomPercent}% >= 50%` };
 	}
 	if (headroomPercent >= 20) {
-		return { effect: "hold", weight: 0.3, detail: `headroom ${headroomPercent}% in [20%, 50%)` };
+		return { effect: "hold", weight: 0.25, detail: `headroom ${headroomPercent}% in [20%, 50%)` };
 	}
-	return { effect: "down", weight: 0.3, detail: `headroom ${headroomPercent}% < 20%` };
+	return { effect: "down", weight: 0.25, detail: `headroom ${headroomPercent}% < 20%` };
+}
+
+function backlogSignal(
+	readyTaskCount: number | null,
+	activeWorkers: number,
+): { effect: ScalingDirection; weight: number; detail: string } {
+	if (readyTaskCount === null) {
+		return { effect: "hold", weight: 0.08, detail: "backlog unavailable, reduced weight" };
+	}
+	if (readyTaskCount > activeWorkers * 2) {
+		return {
+			effect: "up",
+			weight: 0.15,
+			detail: `backlog ${readyTaskCount} ready tasks > ${activeWorkers * 2} (activeWorkers=${activeWorkers})`,
+		};
+	}
+	if (readyTaskCount < activeWorkers * 0.5) {
+		return {
+			effect: "down",
+			weight: 0.15,
+			detail: `backlog ${readyTaskCount} ready tasks < ${activeWorkers * 0.5} (activeWorkers=${activeWorkers})`,
+		};
+	}
+	return {
+		effect: "hold",
+		weight: 0.15,
+		detail: `backlog ${readyTaskCount} ready tasks in range (activeWorkers=${activeWorkers})`,
+	};
 }
 
 function mergeSignal(depth: number): { effect: ScalingDirection; detail: string } {
@@ -69,13 +97,14 @@ export function evaluateAdaptivePolicy(params: PolicyEvalParams): ScalingDecisio
 	const headroom = headroomSignal(context.headroomPercent);
 	const merge = mergeSignal(context.mergeQueueDepth);
 	const utilization = utilizationSignal(context.activeWorkers, currentMax);
+	const backlog = backlogSignal(context.readyTaskCount, context.activeWorkers);
 
 	const factors: ScalingFactor[] = [
 		{
 			signal: "health",
 			value: context.healthScore,
 			effect: health.effect,
-			weight: 0.35,
+			weight: 0.3,
 			detail: health.detail,
 		},
 		{
@@ -96,8 +125,15 @@ export function evaluateAdaptivePolicy(params: PolicyEvalParams): ScalingDecisio
 			signal: "utilization",
 			value: context.activeWorkers,
 			effect: utilization.effect,
-			weight: 0.15,
+			weight: 0.1,
 			detail: utilization.detail,
+		},
+		{
+			signal: "backlog_pressure",
+			value: context.readyTaskCount ?? -1,
+			effect: backlog.effect,
+			weight: backlog.weight,
+			detail: backlog.detail,
 		},
 	];
 

@@ -7,6 +7,8 @@ export interface ParallelismContext {
 	mergeQueueDepth: number;
 	activeWorkers: number;
 	stalledWorkers: number;
+	readyTaskCount: number | null;
+	inProgressCount: number | null;
 	collectedAt: string;
 }
 

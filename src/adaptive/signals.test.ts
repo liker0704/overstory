@@ -135,6 +135,8 @@ describe("collectParallelismContext", () => {
 			headroomStore,
 			mergeQueue,
 			evaluationIntervalMs: 60_000,
+			readyTaskCount: 5,
+			inProgressCount: 2,
 		});
 
 		expect(result.healthScore).toBe(85);
@@ -143,6 +145,8 @@ describe("collectParallelismContext", () => {
 		expect(result.mergeQueueDepth).toBe(1);
 		expect(result.activeWorkers).toBe(2);
 		expect(result.stalledWorkers).toBe(1);
+		expect(result.readyTaskCount).toBe(5);
+		expect(result.inProgressCount).toBe(2);
 		expect(result.collectedAt).toBeString();
 	});
 
@@ -247,5 +251,20 @@ describe("collectParallelismContext", () => {
 		expect(result.mergeQueueDepth).toBe(0);
 		expect(result.activeWorkers).toBe(0);
 		expect(result.stalledWorkers).toBe(0);
+		expect(result.readyTaskCount).toBeNull();
+		expect(result.inProgressCount).toBeNull();
+	});
+
+	test("missing beads data: readyTaskCount and inProgressCount default to null", () => {
+		const result = collectParallelismContext({
+			sessionStore,
+			healthScore: makeHealthScore(),
+			headroomStore,
+			mergeQueue,
+			evaluationIntervalMs: 60_000,
+		});
+
+		expect(result.readyTaskCount).toBeNull();
+		expect(result.inProgressCount).toBeNull();
 	});
 });
