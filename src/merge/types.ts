@@ -1,24 +1,15 @@
 // === Merge Queue ===
 
-export type ResolutionTier =
-	| "clean-merge"
-	| "auto-resolve"
-	| "ai-resolve"
-	| "reimagine";
+export type ResolutionTier = "clean-merge" | "auto-resolve" | "ai-resolve" | "reimagine";
 
 export interface MergeEntry {
 	branchName: string;
 	taskId: string;
+	missionId?: string | null;
 	agentName: string;
 	filesModified: string[];
 	enqueuedAt: string;
-	status:
-		| "pending"
-		| "merging"
-		| "merged"
-		| "conflict"
-		| "failed"
-		| "compat_failed";
+	status: "pending" | "merging" | "merged" | "conflict" | "failed" | "compat_failed";
 	resolvedTier: ResolutionTier | null;
 	compatReportPath?: string | null;
 }

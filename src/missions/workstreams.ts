@@ -374,6 +374,64 @@ export async function persistWorkstreamsFile(
 	);
 }
 
+// === Cross-Mission Scope Detection ===
+
+export interface ScopeConflict {
+	file: string;
+	proposedWorkstream: string;
+	conflictMission: string;
+	conflictWorkstream: string;
+}
+
+/**
+ * Detect file scope conflicts between proposed workstreams and active missions.
+ *
+ * Uses exact string match only — glob patterns (e.g. "src/auth/**") are compared
+ * literally and will NOT be detected as overlapping with exact paths like
+ * "src/auth/login.ts". Workstream authors must ensure non-overlapping scopes
+ * when using globs.
+ *
+ * Pure function — no store access.
+ */
+export function detectCrossMissionScopeConflicts(
+	proposedWorkstreams: Workstream[],
+	activeMissions: Array<{ id: string; slug: string; workstreams: Workstream[] }>,
+): ScopeConflict[] {
+	// Build map of file → { missionId, missionSlug, workstreamId } from all active missions
+	const activeFileMap = new Map<
+		string,
+		{ missionId: string; missionSlug: string; workstreamId: string }
+	>();
+	for (const mission of activeMissions) {
+		for (const ws of mission.workstreams) {
+			for (const file of ws.fileScope) {
+				activeFileMap.set(file, {
+					missionId: mission.id,
+					missionSlug: mission.slug,
+					workstreamId: ws.id,
+				});
+			}
+		}
+	}
+
+	const conflicts: ScopeConflict[] = [];
+	for (const ws of proposedWorkstreams) {
+		for (const file of ws.fileScope) {
+			const existing = activeFileMap.get(file);
+			if (existing !== undefined) {
+				conflicts.push({
+					file,
+					proposedWorkstream: ws.id,
+					conflictMission: existing.missionSlug,
+					conflictWorkstream: existing.workstreamId,
+				});
+			}
+		}
+	}
+
+	return conflicts;
+}
+
 export async function ensureCanonicalWorkstreamTasks(
 	filePath: string,
 	tracker: TrackerClient,
