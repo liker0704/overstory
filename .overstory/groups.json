@@ -1631,5 +1631,16 @@
 		"status": "active",
 		"createdAt": "2026-03-27T21:05:10.079Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-4880a902",
+		"name": "quickstart-guardrails-batch-1",
+		"memberIssueIds": [
+			"overstory-7670",
+			"overstory-e9b9"
+		],
+		"status": "active",
+		"createdAt": "2026-03-28T01:10:37.736Z",
+		"completedAt": null
 	}
 ]
