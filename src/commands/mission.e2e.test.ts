@@ -11,8 +11,6 @@ import {
 	toMermaid,
 	validateTransition,
 } from "../missions/graph.ts";
-import { readSpecMeta } from "../missions/spec-meta.ts";
-import { createMissionStore } from "../missions/store.ts";
 import {
 	clearMissionRuntimePointers,
 	readCurrentMissionPointer,
@@ -20,6 +18,8 @@ import {
 	resolveMissionByIdOrSlug,
 	writeMissionRuntimePointers,
 } from "../missions/runtime-context.ts";
+import { readSpecMeta } from "../missions/spec-meta.ts";
+import { createMissionStore } from "../missions/store.ts";
 import { loadWorkstreamsFile } from "../missions/workstreams.ts";
 import { createRunStore, createSessionStore } from "../sessions/store.ts";
 import { cleanupTempDir, createTempGitRepo } from "../test-helpers.ts";
@@ -1008,13 +1008,12 @@ describe("--mission flag", () => {
 		}
 	});
 
-	test("resolveActiveMissionContext errors on ambiguity", async () => {
+	test("resolveActiveMissionContext returns first mission on ambiguity", async () => {
 		const store = createMissionStore(join(overstoryDir, "sessions.db"));
 		let m1: ReturnType<typeof store.create>;
-		let m2: ReturnType<typeof store.create>;
 		try {
 			m1 = store.create({ id: "ambig-1", slug: "ambig-slug-1", objective: "mission 1" });
-			m2 = store.create({ id: "ambig-2", slug: "ambig-slug-2", objective: "mission 2" });
+			store.create({ id: "ambig-2", slug: "ambig-slug-2", objective: "mission 2" });
 			store.start("ambig-1");
 			store.start("ambig-2");
 		} finally {
@@ -1024,11 +1023,9 @@ describe("--mission flag", () => {
 		// Clear pointer so resolveActiveMissionContext falls back to getActiveList
 		await clearMissionRuntimePointers(overstoryDir);
 
-		await expect(resolveActiveMissionContext(overstoryDir)).rejects.toThrow(
-			"Multiple active missions found",
-		);
-		await expect(resolveActiveMissionContext(overstoryDir)).rejects.toThrow(m1.id);
-		await expect(resolveActiveMissionContext(overstoryDir)).rejects.toThrow(m2.id);
+		const ctx = await resolveActiveMissionContext(overstoryDir);
+		expect(ctx).not.toBeNull();
+		expect(ctx?.missionId).toBe(m1.id);
 	});
 
 	test("resolveActiveMissionContext works with single active mission", async () => {

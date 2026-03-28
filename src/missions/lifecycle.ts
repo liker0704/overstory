@@ -61,8 +61,8 @@ import {
 	stopMissionRunDescendants,
 } from "./roles.ts";
 import {
-	clearMissionRuntimePointers,
 	resolveMissionRoleStates as deriveMissionRoleStates,
+	removeActiveMission,
 	resolveActiveMissionContext,
 	writeMissionRuntimePointers,
 } from "./runtime-context.ts";
@@ -537,7 +537,7 @@ async function terminalizeMission(opts: {
 			}
 		}
 
-		await clearMissionRuntimePointers(overstoryDir);
+		await removeActiveMission(overstoryDir, mission.id);
 
 		let bundlePath: string | null = null;
 		const refreshedMission = missionStore.getById(mission.id) ?? mission;
@@ -964,7 +964,9 @@ export async function missionStart(
 		} catch {
 			// Best-effort cleanup.
 		}
-		await clearMissionRuntimePointers(overstoryDir);
+		if (missionCreated) {
+			await removeActiveMission(overstoryDir, missionId);
+		}
 		await rm(artifactRoot, { recursive: true, force: true });
 
 		const message = err instanceof Error ? err.message : String(err);

@@ -251,6 +251,7 @@ describe("SQL schema consistency", () => {
 				"enqueued_at",
 				"files_modified",
 				"id",
+				"mission_id",
 				"resolved_tier",
 				"status",
 				"task_id",
