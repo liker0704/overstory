@@ -369,7 +369,12 @@ async function executePostWorktreeSteps(
 	await writeOverlay(worktreePath, overlayConfig, config.project.root, runtime.instructionPath);
 
 	// 9. Resolve runtime + model (needed for deployConfig, spawn, and beacon)
-	const resolvedModel = resolveModel(config, deps.manifest, capability, agentDef.model);
+	const resolvedModel = resolveModel(
+		config,
+		deps.manifest,
+		opts.resolvedCapability,
+		agentDef.model,
+	);
 
 	// 9a. Deploy hooks config (capability-specific guards)
 	await runtime.deployConfig(worktreePath, undefined, {

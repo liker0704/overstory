@@ -55,7 +55,7 @@ function serializeIdentityYaml(identity: AgentIdentity): string {
 function quoteIfNeeded(value: string): string {
 	if (
 		value === "" ||
-		value.includes(": ") ||
+		value.includes(":") ||
 		value.includes("#") ||
 		value.startsWith(" ") ||
 		value.endsWith(" ") ||

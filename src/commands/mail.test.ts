@@ -1522,8 +1522,8 @@ describe("shouldAutoNudge", () => {
 		expect(shouldAutoNudge("status", "normal")).toBe(false);
 	});
 
-	test("returns false for question type at low priority", () => {
-		expect(shouldAutoNudge("question", "low")).toBe(false);
+	test("returns true for question type at low priority", () => {
+		expect(shouldAutoNudge("question", "low")).toBe(true);
 	});
 });
 
@@ -1552,9 +1552,9 @@ describe("AUTO_NUDGE_TYPES", () => {
 		expect(AUTO_NUDGE_TYPES.has("error")).toBe(true);
 	});
 
-	test("does not contain regular semantic types", () => {
+	test("does not contain status type", () => {
 		expect(AUTO_NUDGE_TYPES.has("status")).toBe(false);
-		expect(AUTO_NUDGE_TYPES.has("question")).toBe(false);
-		expect(AUTO_NUDGE_TYPES.has("result")).toBe(false);
+		expect(AUTO_NUDGE_TYPES.has("question")).toBe(true);
+		expect(AUTO_NUDGE_TYPES.has("result")).toBe(true);
 	});
 });
