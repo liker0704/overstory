@@ -110,6 +110,28 @@ describe("validateGraph", () => {
 		expect(result.valid).toBe(false);
 		expect(result.errors.some((e) => e.includes("orphan:active"))).toBe(true);
 	});
+
+	test("detects duplicate node IDs", () => {
+		const dupNode = DEFAULT_MISSION_GRAPH.nodes[0]!;
+		const graph = {
+			...DEFAULT_MISSION_GRAPH,
+			nodes: [...DEFAULT_MISSION_GRAPH.nodes, dupNode],
+		};
+		const result = validateGraph(graph);
+		expect(result.valid).toBe(false);
+		expect(result.errors.some((e) => e.includes("Duplicate node ID"))).toBe(true);
+	});
+
+	test("detects duplicate edge tuples", () => {
+		const dupEdge = DEFAULT_MISSION_GRAPH.edges[0]!;
+		const graph = {
+			...DEFAULT_MISSION_GRAPH,
+			edges: [...DEFAULT_MISSION_GRAPH.edges, dupEdge],
+		};
+		const result = validateGraph(graph);
+		expect(result.valid).toBe(false);
+		expect(result.errors.some((e) => e.includes("Duplicate edge"))).toBe(true);
+	});
 });
 
 describe("validateTransition", () => {

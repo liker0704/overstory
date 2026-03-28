@@ -252,7 +252,22 @@ export function validateGraph(
 	opts?: { startNodeId?: string },
 ): { valid: boolean; errors: string[] } {
 	const errors: string[] = [];
-	const nodeIds = new Set(graph.nodes.map((n) => n.id));
+	const nodeIds = new Set<string>();
+	for (const node of graph.nodes) {
+		if (nodeIds.has(node.id)) {
+			errors.push(`Duplicate node ID '${node.id}'`);
+		}
+		nodeIds.add(node.id);
+	}
+
+	const edgeKeys = new Set<string>();
+	for (const edge of graph.edges) {
+		const key = `${edge.from}|${edge.to}|${edge.trigger}`;
+		if (edgeKeys.has(key)) {
+			errors.push(`Duplicate edge (${edge.from} -> ${edge.to} via '${edge.trigger}')`);
+		}
+		edgeKeys.add(key);
+	}
 
 	// Check all edge sources/targets reference existing nodes
 	for (const edge of graph.edges) {
