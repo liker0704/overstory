@@ -31,6 +31,8 @@ export interface GraphEngineOpts {
 	missionStore?: MissionStore;
 	/** Send mail injected into HandlerContext. */
 	sendMail?: (to: string, subject: string, body: string, type: string) => Promise<void>;
+	/** Optional prefix to namespace checkpoint keys (used by subgraph engines to avoid parent collisions). */
+	checkpointKeyPrefix?: string;
 }
 
 export interface StepResult {
@@ -77,6 +79,11 @@ export interface GraphEngine {
 // === Factory ===
 
 export function createGraphEngine(opts: GraphEngineOpts): GraphEngine {
+	// Compute effective checkpoint key — prefixed for subgraph isolation
+	const effectiveKey = opts.checkpointKeyPrefix
+		? `${opts.checkpointKeyPrefix}:${opts.missionId}`
+		: opts.missionId;
+
 	// Index nodes and edges with Maps for O(1) lookup
 	const nodeMap = new Map<string, MissionGraphNode>();
 	const edgeMap = new Map<string, MissionGraphEdge[]>();
@@ -96,7 +103,7 @@ export function createGraphEngine(opts: GraphEngineOpts): GraphEngine {
 	// Resolve starting node: explicit override → checkpoint resume → graph start
 	const resolveStartNodeId = (): string => {
 		if (opts.startNodeId) return opts.startNodeId;
-		const latest = opts.checkpointStore.getLatestCheckpoint(opts.missionId);
+		const latest = opts.checkpointStore.getLatestCheckpoint(effectiveKey);
 		if (latest) return latest.nodeId;
 		const first = opts.graph.nodes[0];
 		if (!first) throw new Error("Graph has no nodes");
@@ -120,7 +127,7 @@ export function createGraphEngine(opts: GraphEngineOpts): GraphEngine {
 			return { status: "error", fromNodeId, toNodeId: fromNodeId, trigger, error: err };
 		}
 
-		opts.checkpointStore.saveStepResult(opts.missionId, fromNodeId, edge.to, trigger, null);
+		opts.checkpointStore.saveStepResult(effectiveKey, fromNodeId, edge.to, trigger, null);
 		opts.missionStore?.updateCurrentNode(opts.missionId, edge.to);
 		state.currentNodeId = edge.to;
 
@@ -148,12 +155,21 @@ export function createGraphEngine(opts: GraphEngineOpts): GraphEngine {
 				handlers: opts.handlers,
 				checkpointStore: opts.checkpointStore,
 				missionId: opts.missionId,
+				checkpointKeyPrefix: nodeId,
 				missionStore: opts.missionStore,
 				sendMail: opts.sendMail,
 			});
 			const subResult = await subEngine.run();
+			if (subResult.status === "error") {
+				return {
+					status: "error",
+					fromNodeId: nodeId,
+					toNodeId: nodeId,
+					trigger: null,
+					error: subResult.error,
+				};
+			}
 			if (subResult.status !== "completed") {
-				// Subgraph gated or errored — propagate as gate
 				return { status: "gate", fromNodeId: nodeId, toNodeId: nodeId, trigger: null };
 			}
 		}
@@ -170,9 +186,9 @@ export function createGraphEngine(opts: GraphEngineOpts): GraphEngine {
 			const ctx: HandlerContext = {
 				missionId: opts.missionId,
 				nodeId,
-				checkpoint: opts.checkpointStore.getCheckpoint(opts.missionId, nodeId)?.data ?? null,
+				checkpoint: opts.checkpointStore.getCheckpoint(effectiveKey, nodeId)?.data ?? null,
 				saveCheckpoint: async (data: unknown) => {
-					opts.checkpointStore.saveCheckpoint(opts.missionId, nodeId, data);
+					opts.checkpointStore.saveCheckpoint(effectiveKey, nodeId, data);
 				},
 				sendMail: opts.sendMail ?? (async () => {}),
 				getMission: () => opts.missionStore?.getById(opts.missionId) ?? null,
