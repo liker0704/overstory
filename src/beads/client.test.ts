@@ -1,8 +1,47 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { realpathSync } from "node:fs";
 import { AgentError } from "../errors.ts";
+import type { EventStore, InsertEvent, StoredEvent, ToolStats } from "../events/types.ts";
+import type { InstrumentContext } from "../observability/instrument.ts";
 import { cleanupTempDir, createTempGitRepo } from "../test-helpers.ts";
 import { type BeadsClient, createBeadsClient } from "./client.ts";
+
+function createMockStore(): EventStore & { events: InsertEvent[] } {
+	const events: InsertEvent[] = [];
+	return {
+		events,
+		insert(event: InsertEvent): number {
+			events.push(event);
+			return events.length;
+		},
+		correlateToolEnd() {
+			return null;
+		},
+		getByAgent(): StoredEvent[] {
+			return [];
+		},
+		getByRun(): StoredEvent[] {
+			return [];
+		},
+		getErrors(): StoredEvent[] {
+			return [];
+		},
+		getTimeline(): StoredEvent[] {
+			return [];
+		},
+		getToolStats(): ToolStats[] {
+			return [];
+		},
+		purge(): number {
+			return 0;
+		},
+		close(): void {},
+	};
+}
+
+function makeInstrumentCtx(store: EventStore): InstrumentContext {
+	return { eventStore: store, agentName: "test", runId: null, sessionId: null };
+}
 
 /**
  * Check if the bd CLI is available on this machine (synchronous).
@@ -211,6 +250,33 @@ describe("createBeadsClient (integration)", () => {
 				} finally {
 					await cleanupTempDir(bareDir);
 				}
+			},
+		);
+	});
+
+	describe("instrumentation", () => {
+		test("accepts instrumentCtx parameter (backward compat: undefined still works)", () => {
+			if (!bdAvailable) return;
+			const c = createBeadsClient(tempDir);
+			expect(c).toBeDefined();
+			expect(typeof c.show).toBe("function");
+		});
+
+		test.skipIf(!bdAvailable)(
+			"emits tool_start and tool_end events for show when instrumentCtx provided",
+			async () => {
+				const store = createMockStore();
+				const ctx = makeInstrumentCtx(store);
+				const instrumentedClient = createBeadsClient(tempDir, ctx);
+
+				const id = await client.create("Span test issue");
+				await instrumentedClient.show(id);
+
+				expect(store.events.length).toBe(2);
+				expect(store.events[0]?.eventType).toBe("tool_start");
+				expect(store.events[1]?.eventType).toBe("tool_end");
+				expect(store.events[0]?.toolName).toBe("beads:show");
+				expect(store.events[1]?.toolName).toBe("beads:show");
 			},
 		);
 	});

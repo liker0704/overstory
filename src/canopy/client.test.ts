@@ -8,7 +8,46 @@
 
 import { describe, expect, test } from "bun:test";
 import { AgentError } from "../errors.ts";
+import type { EventStore, InsertEvent, StoredEvent, ToolStats } from "../events/types.ts";
+import type { InstrumentContext } from "../observability/instrument.ts";
 import { createCanopyClient } from "./client.ts";
+
+function createMockStore(): EventStore & { events: InsertEvent[] } {
+	const events: InsertEvent[] = [];
+	return {
+		events,
+		insert(event: InsertEvent): number {
+			events.push(event);
+			return events.length;
+		},
+		correlateToolEnd() {
+			return null;
+		},
+		getByAgent(): StoredEvent[] {
+			return [];
+		},
+		getByRun(): StoredEvent[] {
+			return [];
+		},
+		getErrors(): StoredEvent[] {
+			return [];
+		},
+		getTimeline(): StoredEvent[] {
+			return [];
+		},
+		getToolStats(): ToolStats[] {
+			return [];
+		},
+		purge(): number {
+			return 0;
+		},
+		close(): void {},
+	};
+}
+
+function makeInstrumentCtx(store: EventStore): InstrumentContext {
+	return { eventStore: store, agentName: "test", runId: null, sessionId: null };
+}
 
 // Check if canopy CLI is available
 let hasCanopy = false;
@@ -104,4 +143,29 @@ describe("CanopyClient.validate()", () => {
 		expect(typeof result.success).toBe("boolean");
 		expect(Array.isArray(result.errors)).toBe(true);
 	});
+});
+
+describe("CanopyClient instrumentation", () => {
+	test("accepts instrumentCtx parameter (backward compat: undefined still works)", () => {
+		const c = createCanopyClient(cwd);
+		expect(c).toBeDefined();
+		expect(typeof c.list).toBe("function");
+	});
+
+	test.skipIf(!hasCanopy)(
+		"emits tool_start and tool_end events for list when instrumentCtx provided",
+		async () => {
+			const store = createMockStore();
+			const ctx = makeInstrumentCtx(store);
+			const instrumentedClient = createCanopyClient(cwd, ctx);
+
+			await instrumentedClient.list();
+
+			expect(store.events.length).toBe(2);
+			expect(store.events[0]?.eventType).toBe("tool_start");
+			expect(store.events[1]?.eventType).toBe("tool_end");
+			expect(store.events[0]?.toolName).toBe("canopy:list");
+			expect(store.events[1]?.toolName).toBe("canopy:list");
+		},
+	);
 });

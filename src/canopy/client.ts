@@ -6,6 +6,8 @@
  */
 
 import { AgentError } from "../errors.ts";
+import type { InstrumentContext } from "../observability/instrument.js";
+import { withEcosystemSpan } from "../observability/instrument.js";
 import type {
 	CanopyListResult,
 	CanopyRenderResult,
@@ -56,7 +58,7 @@ async function runCommand(
  * @param cwd - Working directory where cn commands should run
  * @returns A CanopyClient instance wrapping the cn CLI
  */
-export function createCanopyClient(cwd: string): CanopyClient {
+export function createCanopyClient(cwd: string, instrumentCtx?: InstrumentContext): CanopyClient {
 	async function runCanopy(
 		args: string[],
 		context: string,
@@ -70,110 +72,120 @@ export function createCanopyClient(cwd: string): CanopyClient {
 
 	return {
 		async render(name, _options) {
-			// Always use --json for structured output; format param reserved for future use
-			const { stdout } = await runCanopy(["render", name, "--json"], `render ${name}`);
-			const trimmed = stdout.trim();
-			try {
-				const raw = JSON.parse(trimmed) as {
-					success: boolean;
-					name: string;
-					version: number;
-					sections: Array<{ name: string; body: string }>;
-				};
-				return {
-					success: raw.success,
-					name: raw.name,
-					version: raw.version,
-					sections: raw.sections,
-				};
-			} catch {
-				throw new AgentError(
-					`Failed to parse JSON from cn render ${name}: ${trimmed.slice(0, 200)}`,
-				);
-			}
-		},
-
-		async validate(name, options) {
-			const args = ["validate"];
-			if (options?.all) {
-				args.push("--all");
-			} else if (name) {
-				args.push(name);
-			}
-			// cn validate does not support --json; parse exit code and stdout/stderr
-			const { stdout, stderr, exitCode } = await runCommand(["cn", ...args], cwd);
-			const output = (stdout + stderr).trim();
-			const errors: string[] = [];
-			if (exitCode !== 0) {
-				// Extract error lines from output (lines containing "error:")
-				for (const line of output.split("\n")) {
-					const trimmedLine = line.trim();
-					if (trimmedLine.includes("error:")) {
-						errors.push(trimmedLine);
-					}
-				}
-				if (errors.length === 0 && output) {
-					errors.push(output);
-				}
-			}
-			return { success: exitCode === 0, errors };
-		},
-
-		async list(options) {
-			const args = ["list", "--json"];
-			if (options?.tag) {
-				args.push("--tag", options.tag);
-			}
-			if (options?.status) {
-				args.push("--status", options.status);
-			}
-			if (options?.extends) {
-				args.push("--extends", options.extends);
-			}
-			if (options?.mixin) {
-				args.push("--mixin", options.mixin);
-			}
-			const { stdout } = await runCanopy(args, "list");
-			const trimmed = stdout.trim();
-			try {
-				const raw = JSON.parse(trimmed) as {
-					success: boolean;
-					prompts: Array<{
-						id: string;
-						name: string;
-						version: number;
-						sections: Array<{ name: string; body: string }>;
-					}>;
-				};
-				return {
-					success: raw.success,
-					prompts: raw.prompts,
-				};
-			} catch {
-				throw new AgentError(`Failed to parse JSON from cn list: ${trimmed.slice(0, 200)}`);
-			}
-		},
-
-		async show(name) {
-			const { stdout } = await runCanopy(["show", name, "--json"], `show ${name}`);
-			const trimmed = stdout.trim();
-			try {
-				const raw = JSON.parse(trimmed) as {
-					success: boolean;
-					prompt: {
-						id: string;
+			return withEcosystemSpan(instrumentCtx, "canopy", "render", name, async () => {
+				// Always use --json for structured output; format param reserved for future use
+				const { stdout } = await runCanopy(["render", name, "--json"], `render ${name}`);
+				const trimmed = stdout.trim();
+				try {
+					const raw = JSON.parse(trimmed) as {
+						success: boolean;
 						name: string;
 						version: number;
 						sections: Array<{ name: string; body: string }>;
 					};
-				};
-				return {
-					success: raw.success,
-					prompt: raw.prompt,
-				};
-			} catch {
-				throw new AgentError(`Failed to parse JSON from cn show ${name}: ${trimmed.slice(0, 200)}`);
-			}
+					return {
+						success: raw.success,
+						name: raw.name,
+						version: raw.version,
+						sections: raw.sections,
+					};
+				} catch {
+					throw new AgentError(
+						`Failed to parse JSON from cn render ${name}: ${trimmed.slice(0, 200)}`,
+					);
+				}
+			});
+		},
+
+		async validate(name, options) {
+			return withEcosystemSpan(instrumentCtx, "canopy", "validate", name ?? "--all", async () => {
+				const args = ["validate"];
+				if (options?.all) {
+					args.push("--all");
+				} else if (name) {
+					args.push(name);
+				}
+				// cn validate does not support --json; parse exit code and stdout/stderr
+				const { stdout, stderr, exitCode } = await runCommand(["cn", ...args], cwd);
+				const output = (stdout + stderr).trim();
+				const errors: string[] = [];
+				if (exitCode !== 0) {
+					// Extract error lines from output (lines containing "error:")
+					for (const line of output.split("\n")) {
+						const trimmedLine = line.trim();
+						if (trimmedLine.includes("error:")) {
+							errors.push(trimmedLine);
+						}
+					}
+					if (errors.length === 0 && output) {
+						errors.push(output);
+					}
+				}
+				return { success: exitCode === 0, errors };
+			});
+		},
+
+		async list(options) {
+			return withEcosystemSpan(instrumentCtx, "canopy", "list", "list", async () => {
+				const args = ["list", "--json"];
+				if (options?.tag) {
+					args.push("--tag", options.tag);
+				}
+				if (options?.status) {
+					args.push("--status", options.status);
+				}
+				if (options?.extends) {
+					args.push("--extends", options.extends);
+				}
+				if (options?.mixin) {
+					args.push("--mixin", options.mixin);
+				}
+				const { stdout } = await runCanopy(args, "list");
+				const trimmed = stdout.trim();
+				try {
+					const raw = JSON.parse(trimmed) as {
+						success: boolean;
+						prompts: Array<{
+							id: string;
+							name: string;
+							version: number;
+							sections: Array<{ name: string; body: string }>;
+						}>;
+					};
+					return {
+						success: raw.success,
+						prompts: raw.prompts,
+					};
+				} catch {
+					throw new AgentError(`Failed to parse JSON from cn list: ${trimmed.slice(0, 200)}`);
+				}
+			});
+		},
+
+		async show(name) {
+			return withEcosystemSpan(instrumentCtx, "canopy", "show", name, async () => {
+				const { stdout } = await runCanopy(["show", name, "--json"], `show ${name}`);
+				const trimmed = stdout.trim();
+				try {
+					const raw = JSON.parse(trimmed) as {
+						success: boolean;
+						prompt: {
+							id: string;
+							name: string;
+							version: number;
+							sections: Array<{ name: string; body: string }>;
+						};
+					};
+					return {
+						success: raw.success,
+						prompt: raw.prompt,
+					};
+				} catch {
+					throw new AgentError(
+						`Failed to parse JSON from cn show ${name}: ${trimmed.slice(0, 200)}`,
+					);
+				}
+			});
 		},
 	};
 }
