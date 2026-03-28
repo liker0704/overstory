@@ -30,11 +30,9 @@ import {
 	missionStatus,
 } from "../missions/render.ts";
 import {
-	clearMissionRuntimePointers,
-	readCurrentMissionPointer,
-	readCurrentRunPointer,
+	addActiveMission,
+	removeActiveMission,
 	resolveMissionByIdOrSlug,
-	writeMissionRuntimePointers,
 } from "../missions/runtime-context.ts";
 import { createMissionStore } from "../missions/store.ts";
 import { missionHandoff, missionResume } from "../missions/workstream-control.ts";
@@ -128,17 +126,11 @@ export function createMissionCommand(): Command {
 				if (opts.mission) {
 					const resolvedId = resolveExplicitMission(overstoryDir, opts.mission);
 					if (resolvedId) {
-						const oldPointer = await readCurrentMissionPointer(overstoryDir);
-						const oldRunPointer = await readCurrentRunPointer(overstoryDir);
-						await writeMissionRuntimePointers(overstoryDir, resolvedId, null);
+						await addActiveMission(overstoryDir, resolvedId);
 						try {
 							await missionUpdate(overstoryDir, opts);
 						} finally {
-							if (oldPointer) {
-								await writeMissionRuntimePointers(overstoryDir, oldPointer, oldRunPointer);
-							} else {
-								await clearMissionRuntimePointers(overstoryDir);
-							}
+							await removeActiveMission(overstoryDir, resolvedId);
 						}
 					}
 				} else {
