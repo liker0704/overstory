@@ -1,4 +1,4 @@
-import { unlink } from "node:fs/promises";
+import { mkdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentSession, Mission, MissionStore } from "../types.ts";
 import { createMissionStore } from "./store.ts";
@@ -22,8 +22,55 @@ export function currentRunPointerPath(overstoryDir: string): string {
 	return join(overstoryDir, "current-run.txt");
 }
 
-export async function readCurrentMissionPointer(overstoryDir: string): Promise<string | null> {
+export function missionRunPointerPath(overstoryDir: string, missionId: string): string {
+	return join(overstoryDir, "runs", `${missionId}.txt`);
+}
+
+export async function listActiveMissions(overstoryDir: string): Promise<string[]> {
 	const file = Bun.file(currentMissionPointerPath(overstoryDir));
+	if (!(await file.exists())) {
+		return [];
+	}
+	const text = await file.text();
+	return text
+		.split("\n")
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0);
+}
+
+export async function addActiveMission(overstoryDir: string, missionId: string): Promise<void> {
+	const existing = await listActiveMissions(overstoryDir);
+	if (existing.includes(missionId)) {
+		return;
+	}
+	const updated = [...existing, missionId];
+	await Bun.write(currentMissionPointerPath(overstoryDir), updated.join("\n") + "\n");
+}
+
+export async function removeActiveMission(overstoryDir: string, missionId: string): Promise<void> {
+	const existing = await listActiveMissions(overstoryDir);
+	const updated = existing.filter((id) => id !== missionId);
+	if (updated.length === 0) {
+		try {
+			await unlink(currentMissionPointerPath(overstoryDir));
+		} catch {
+			// File may already be absent.
+		}
+		return;
+	}
+	await Bun.write(currentMissionPointerPath(overstoryDir), updated.join("\n") + "\n");
+}
+
+export async function readCurrentMissionPointer(overstoryDir: string): Promise<string | null> {
+	const ids = await listActiveMissions(overstoryDir);
+	return ids.length > 0 ? (ids[0] ?? null) : null;
+}
+
+export async function readMissionRunPointer(
+	overstoryDir: string,
+	missionId: string,
+): Promise<string | null> {
+	const file = Bun.file(missionRunPointerPath(overstoryDir, missionId));
 	if (!(await file.exists())) {
 		return null;
 	}
@@ -31,7 +78,16 @@ export async function readCurrentMissionPointer(overstoryDir: string): Promise<s
 	return text.length > 0 ? text : null;
 }
 
-export async function readCurrentRunPointer(overstoryDir: string): Promise<string | null> {
+export async function readCurrentRunPointer(
+	overstoryDir: string,
+	missionId?: string,
+): Promise<string | null> {
+	if (missionId) {
+		const perMission = await readMissionRunPointer(overstoryDir, missionId);
+		if (perMission !== null) {
+			return perMission;
+		}
+	}
 	const file = Bun.file(currentRunPointerPath(overstoryDir));
 	if (!(await file.exists())) {
 		return null;
@@ -45,8 +101,11 @@ export async function writeMissionRuntimePointers(
 	missionId: string,
 	runId: string | null,
 ): Promise<void> {
-	await Bun.write(currentMissionPointerPath(overstoryDir), `${missionId}\n`);
+	await addActiveMission(overstoryDir, missionId);
 	if (runId) {
+		const runsDir = join(overstoryDir, "runs");
+		await mkdir(runsDir, { recursive: true });
+		await Bun.write(missionRunPointerPath(overstoryDir, missionId), `${runId}\n`);
 		await Bun.write(currentRunPointerPath(overstoryDir), `${runId}\n`);
 	}
 }
@@ -68,7 +127,7 @@ export async function resolveActiveMissionContext(
 	overstoryDir: string,
 ): Promise<ActiveMissionContext | null> {
 	const pointedMissionId = await readCurrentMissionPointer(overstoryDir);
-	const pointedRunId = await readCurrentRunPointer(overstoryDir);
+	const pointedRunId = await readCurrentRunPointer(overstoryDir, pointedMissionId ?? undefined);
 	const dbPath = join(overstoryDir, "sessions.db");
 	const dbFile = Bun.file(dbPath);
 	if (pointedMissionId && !(await dbFile.exists())) {
@@ -102,12 +161,6 @@ export async function resolveActiveMissionContext(
 		const activeList = missionStore.getActiveList();
 		if (activeList.length === 0) {
 			return null;
-		}
-		if (activeList.length > 1) {
-			const listing = activeList.map((m) => `  - ${m.id} (${m.slug})`).join("\n");
-			throw new Error(
-				`Multiple active missions found. Specify --mission to disambiguate:\n${listing}`,
-			);
 		}
 		const active = activeList[0]!;
 		await writeMissionRuntimePointers(overstoryDir, active.id, active.runId);
