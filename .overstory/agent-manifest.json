@@ -388,7 +388,7 @@
 				"architect",
 				"design"
 			],
-			"canSpawn": false,
+			"canSpawn": true,
 			"constraints": [
 				"no-worktree"
 			]

@@ -267,7 +267,7 @@ export function buildAgentManifest(): AgentManifest {
 			model: "opus",
 			tools: ["Read", "Glob", "Grep", "Bash", "Write"],
 			capabilities: ["architect", "design"],
-			canSpawn: false,
+			canSpawn: true,
 			constraints: ["no-worktree"],
 		},
 		tester: {

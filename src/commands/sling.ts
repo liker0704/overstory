@@ -413,6 +413,10 @@ export function allowedChildCapabilities(parentCapability: string | null): strin
 		return ["scout", "plan-review-lead"];
 	}
 
+	if (parentCapability === "architect") {
+		return ["scout"];
+	}
+
 	if (parentCapability === "lead" || parentCapability === "lead-mission") {
 		return ["scout", "builder", "reviewer", "merger", "tester"];
 	}

@@ -281,16 +281,21 @@ Goal: Monitor execution, merge completed work, handle issues.
 #### Post-Merge Architecture Review (Flash Quality TDD)
 
 When Flash Quality TDD is active and all workstream branches are merged:
-1. **Dispatch architect for Architecture Review:**
+1. **Check if architect is still running** via `ov status --json`. If the architect agent is not active, re-spawn it:
+   ```bash
+   ov sling <mission-id>-arch-review --capability architect --name architect-<mission-slug> \
+     --skip-task-check --parent $OVERSTORY_AGENT_NAME --depth 1
+   ```
+2. **Dispatch architect for Architecture Review:**
    ```bash
    ov mail send --to architect-<mission-slug> --subject "Architecture Review: post-merge reconciliation" \
-     --body "All branches merged. Review merged code against architecture.md. Issue refactor specs for significant drift." \
+     --body "All branches merged. Review merged code against architecture.md. Issue refactor specs for significant drift. Send architecture_final when complete." \
      --type dispatch --agent $OVERSTORY_AGENT_NAME
    ```
-2. **Wait for `architecture_final`** from the architect before proceeding to Done phase.
-3. If the architect issues `refactor_spec` mails, the affected leads handle the refactor builders.
-4. The Done phase cannot begin until `architecture_final` is received.
-5. **Stop the architect** after `architecture_final` is received:
+3. **Wait for `architecture_final`** from the architect before proceeding to Done phase.
+4. If the architect issues `refactor_spec` mails, the affected leads handle the refactor builders.
+5. The Done phase cannot begin until `architecture_final` is received.
+6. **Stop the architect** after `architecture_final` is received:
    ```bash
    ov stop architect-<mission-slug>
    ```

@@ -66,7 +66,7 @@ export const DEFAULT_CONFIG: OverstoryConfig = {
 		baseDir: ".overstory/agent-defs",
 		maxConcurrent: 25,
 		staggerDelayMs: 2_000,
-		maxDepth: 2,
+		maxDepth: 3,
 		maxSessionsPerRun: 0,
 		maxAgentsPerLead: 5,
 	},
