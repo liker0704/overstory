@@ -502,6 +502,7 @@ async function terminalizeMission(opts: {
 					missionId: mission.id,
 					maxLevel: holdoutConfig.mission?.holdout?.level3Enabled ? 3 : 2,
 				});
+				const blockOnFailure = holdoutConfig.mission?.holdout?.blockOnFailure !== false;
 				if (!holdoutResult.passed) {
 					if (json) {
 						console.log(JSON.stringify({ holdout: holdoutResult }, null, 2));
@@ -518,9 +519,11 @@ async function terminalizeMission(opts: {
 							}
 						}
 					}
-					process.exitCode = 1;
-					missionStore.close();
-					return { bundlePath: null, reviewId: null, deferredSelfSession: null };
+					if (blockOnFailure) {
+						process.exitCode = 1;
+						missionStore.close();
+						return { bundlePath: null, reviewId: null, deferredSelfSession: null };
+					}
 				}
 			}
 		}

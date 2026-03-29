@@ -230,7 +230,7 @@ export function buildSyncAgentContext(opts: {
 	projectRoot: string;
 }): SyncAgentContext | null {
 	const { artifactRoot, bundlePath, missionSlug } = opts;
-	const architecturePath = join(artifactRoot, "architecture.md");
+	const architecturePath = join(artifactRoot, "plan", "architecture.md");
 	const archContent = readTextSafe(architecturePath);
 	if (!archContent) return null;
 

@@ -257,6 +257,50 @@ function scoreResilience(signals: HealthSignals): HealthFactor {
 	};
 }
 
+/** Rebalanced weights when architecture_quality is active. */
+const WEIGHTS_WITH_ARCH = {
+	completion_rate: 0.18,
+	stalled_rate: 0.16,
+	zombie_count: 0.11,
+	doctor_failures: 0.16,
+	merge_quality: 0.09,
+	runtime_stability: 0.07,
+	resilience: 0.11,
+	architecture_quality: 0.12,
+} as const;
+
+/**
+ * Score the architecture quality factor.
+ * Only included when an active mission exists. Starting score = 100, deductions applied.
+ */
+function scoreArchitectureQuality(signals: HealthSignals): HealthFactor {
+	let score = 100;
+	const issues: string[] = [];
+
+	if (!signals.architectureMdExists) {
+		score -= 15;
+		issues.push("no architecture.md");
+	}
+	if (!signals.testPlanExists) {
+		score -= 15;
+		issues.push("no test-plan");
+	}
+	if (signals.holdoutChecksFailed > 0) {
+		const penalty = Math.min(30, signals.holdoutChecksFailed * 10);
+		score -= penalty;
+		issues.push(`${signals.holdoutChecksFailed} holdout checks failed`);
+	}
+
+	return {
+		name: "architecture_quality",
+		label: "Architecture Quality",
+		score: clamp100(score),
+		weight: WEIGHTS_WITH_ARCH.architecture_quality,
+		contribution: clamp100(score) * WEIGHTS_WITH_ARCH.architecture_quality,
+		details: issues.length === 0 ? "All architecture checks passing" : issues.join("; "),
+	};
+}
+
 /**
  * Compute a HealthScore from collected signals.
  *
@@ -264,14 +308,46 @@ function scoreResilience(signals: HealthSignals): HealthFactor {
  * @returns        A HealthScore with overall score, grade, and factor breakdown.
  */
 export function computeScore(signals: HealthSignals): HealthScore {
+	const hasMission = signals.activeMissionCount > 0;
+	const weights = hasMission ? WEIGHTS_WITH_ARCH : FACTOR_WEIGHTS;
+
 	const factors: HealthFactor[] = [
-		scoreCompletionRate(signals),
-		scoreStalledRate(signals),
-		scoreZombieCount(signals),
-		scoreDoctorFailures(signals),
-		scoreMergeQuality(signals),
-		scoreRuntimeStability(signals),
-		scoreResilience(signals),
+		{
+			...scoreCompletionRate(signals),
+			weight: weights.completion_rate,
+			contribution: scoreCompletionRate(signals).score * weights.completion_rate,
+		},
+		{
+			...scoreStalledRate(signals),
+			weight: weights.stalled_rate,
+			contribution: scoreStalledRate(signals).score * weights.stalled_rate,
+		},
+		{
+			...scoreZombieCount(signals),
+			weight: weights.zombie_count,
+			contribution: scoreZombieCount(signals).score * weights.zombie_count,
+		},
+		{
+			...scoreDoctorFailures(signals),
+			weight: weights.doctor_failures,
+			contribution: scoreDoctorFailures(signals).score * weights.doctor_failures,
+		},
+		{
+			...scoreMergeQuality(signals),
+			weight: weights.merge_quality,
+			contribution: scoreMergeQuality(signals).score * weights.merge_quality,
+		},
+		{
+			...scoreRuntimeStability(signals),
+			weight: weights.runtime_stability,
+			contribution: scoreRuntimeStability(signals).score * weights.runtime_stability,
+		},
+		{
+			...scoreResilience(signals),
+			weight: weights.resilience,
+			contribution: scoreResilience(signals).score * weights.resilience,
+		},
+		...(hasMission ? [scoreArchitectureQuality(signals)] : []),
 	];
 
 	const overall = clamp100(Math.round(factors.reduce((sum, f) => sum + f.contribution, 0)));

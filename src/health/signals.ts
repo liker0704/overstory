@@ -179,6 +179,31 @@ export function collectSignals(params: CollectSignalsParams): HealthSignals {
 		}
 	}
 
+	// --- Architecture quality (mission-scoped signals) ---
+	let architectureMdExists = false;
+	let testPlanExists = false;
+	const holdoutChecksFailed = 0;
+
+	if (activeMissionCount > 0 && existsSync(sessionsDb)) {
+		try {
+			const missionStore2 = createMissionStore(sessionsDb);
+			try {
+				const activeMissions = missionStore2.getActiveList();
+				const firstMission = activeMissions[0];
+				if (firstMission?.artifactRoot) {
+					architectureMdExists = existsSync(
+						join(firstMission.artifactRoot, "plan", "architecture.md"),
+					);
+					testPlanExists = existsSync(join(firstMission.artifactRoot, "plan", "test-plan.yaml"));
+				}
+			} finally {
+				missionStore2.close();
+			}
+		} catch {
+			// Non-fatal
+		}
+	}
+
 	// --- Computed rates ---
 
 	// No sessions recorded → assume healthy (no evidence of failure)
@@ -215,6 +240,9 @@ export function collectSignals(params: CollectSignalsParams): HealthSignals {
 		lowestHeadroomPercent,
 		criticalHeadroomCount,
 		activeMissionCount,
+		architectureMdExists,
+		testPlanExists,
+		holdoutChecksFailed,
 		collectedAt,
 	};
 }

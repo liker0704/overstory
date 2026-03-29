@@ -174,6 +174,35 @@ const RULES: RecommendationRule[] = [
 		}),
 	},
 
+	// --- architecture_quality ---
+	{
+		factor: "architecture_quality",
+		threshold: 50,
+		priority: "critical",
+		build: (f) => ({
+			title: "Fix architecture compliance failures",
+			whyNow: `${f.details}. Architecture quality is critically low — missing artifacts or failing holdout checks.`,
+			expectedImpact: "Restore architectural integrity and unblock mission completion.",
+			action:
+				"Run `ov mission holdout` to see specific failures. Ensure architecture.md and test-plan.yaml exist.",
+			verificationStep:
+				"Run `ov mission holdout` and confirm all Level 1+2 checks pass. Re-run `ov health`.",
+		}),
+	},
+	{
+		factor: "architecture_quality",
+		threshold: 80,
+		priority: "medium",
+		build: (f) => ({
+			title: "Improve architecture quality signals",
+			whyNow: `${f.details}. Some architecture checks are degraded.`,
+			expectedImpact: "Better mission delivery quality and artifact completeness.",
+			action:
+				"Review `ov mission holdout` output. Ensure ADR coverage for key architecture decisions.",
+			verificationStep: "Run `ov health` and confirm architecture_quality score has improved.",
+		}),
+	},
+
 	// --- resilience ---
 	{
 		factor: "resilience",

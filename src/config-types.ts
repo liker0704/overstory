@@ -209,6 +209,7 @@ export interface OverstoryConfig {
 		holdout?: {
 			enabled?: boolean;
 			level3Enabled?: boolean;
+			blockOnFailure?: boolean;
 		};
 		cleanup?: {
 			/** Delete Claude session transcript JSONL files after mission completion. Default: false. */

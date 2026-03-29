@@ -37,6 +37,9 @@ function healthySignals(overrides: Partial<HealthSignals> = {}): HealthSignals {
 		lowestHeadroomPercent: null,
 		criticalHeadroomCount: 0,
 		activeMissionCount: 0,
+		architectureMdExists: false,
+		testPlanExists: false,
+		holdoutChecksFailed: 0,
 		collectedAt: new Date().toISOString(),
 		...overrides,
 	};

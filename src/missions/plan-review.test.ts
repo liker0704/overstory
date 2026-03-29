@@ -1,6 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { PlanCriticVerdictPayload } from "../types.ts";
 import {
+	buildPlanReviewRequest,
 	computeConfidence,
 	criticsToRerun,
 	detectStuck,
@@ -199,5 +203,50 @@ describe("criticsToRerun", () => {
 			makeVerdict("second-opinion", "APPROVE"),
 		]);
 		expect(types).toEqual([]);
+	});
+});
+
+// --- buildPlanReviewRequest ---
+
+describe("buildPlanReviewRequest", () => {
+	let tempDir: string;
+
+	beforeEach(async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "plan-review-test-"));
+		const planDir = join(tempDir, "plan");
+		await Bun.write(join(planDir, "workstreams.json"), JSON.stringify({ workstreams: [] }));
+	});
+
+	afterEach(async () => {
+		await rm(tempDir, { recursive: true, force: true });
+	});
+
+	test("includes architectureMdPath when architecture.md exists", async () => {
+		await Bun.write(join(tempDir, "plan", "architecture.md"), "# Architecture");
+		const result = await buildPlanReviewRequest({
+			mission: { id: "m-1" },
+			artifactRoot: tempDir,
+			tier: "simple",
+		});
+		expect(result.architectureMdPath).toBe(join(tempDir, "plan", "architecture.md"));
+	});
+
+	test("excludes architectureMdPath when architecture.md missing", async () => {
+		const result = await buildPlanReviewRequest({
+			mission: { id: "m-1" },
+			artifactRoot: tempDir,
+			tier: "simple",
+		});
+		expect(result.architectureMdPath).toBeUndefined();
+	});
+
+	test("includes testPlanYamlPath when test-plan.yaml exists", async () => {
+		await Bun.write(join(tempDir, "plan", "test-plan.yaml"), "version: 1");
+		const result = await buildPlanReviewRequest({
+			mission: { id: "m-1" },
+			artifactRoot: tempDir,
+			tier: "simple",
+		});
+		expect(result.testPlanYamlPath).toBe(join(tempDir, "plan", "test-plan.yaml"));
 	});
 });

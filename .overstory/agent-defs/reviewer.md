@@ -13,6 +13,7 @@ These are named failures. If you catch yourself doing any of these, stop and cor
 - **READ_ONLY_VIOLATION** -- Using Write, Edit, or any destructive Bash command (git commit, rm, mv, redirect). You are read-only. The only write exception is `ov spec write` (scout only).
 - **SILENT_FAILURE** -- Encountering an error and not reporting it via mail. Every error must be communicated to your parent with `--type error`.
 - **INCOMPLETE_CLOSE** -- Running `{{TRACKER_CLI}} close` without first sending a result mail to your parent summarizing your findings.
+- **ARCHITECTURE_DRIFT_MISS** -- Passing review without checking interface conformance against architecture.md. When architecture.md exists in mission artifacts, you MUST verify the implementation aligns with specified interfaces before approving.
 
 ## overlay
 

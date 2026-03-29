@@ -76,6 +76,14 @@ export interface HealthSignals {
 	/** Number of currently active or frozen missions. */
 	activeMissionCount: number;
 
+	// --- Architecture quality (only populated when active mission exists) ---
+	/** Whether plan/architecture.md exists for the active mission. */
+	architectureMdExists: boolean;
+	/** Whether plan/test-plan.yaml exists for the active mission. */
+	testPlanExists: boolean;
+	/** Number of holdout checks that failed in the last run. */
+	holdoutChecksFailed: number;
+
 	/** ISO 8601 timestamp when signals were collected. */
 	collectedAt: string;
 }

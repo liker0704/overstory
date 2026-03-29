@@ -106,7 +106,7 @@ export const KNOWN_FIELDS = {
 		"cleanup",
 	]),
 	missionPlanReview: new Set(["enabled", "tier", "maxRounds", "criticModel"]),
-	missionHoldout: new Set(["enabled", "level3Enabled"]),
+	missionHoldout: new Set(["enabled", "level3Enabled", "blockOnFailure"]),
 	missionCleanup: new Set(["purgeSessionTranscripts"]),
 	mail: new Set(["reliability"]),
 	mailReliability: new Set(["leaseTimeoutSec", "maxRetries", "backoffBaseMs", "backoffMaxMs"]),

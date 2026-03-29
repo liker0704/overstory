@@ -208,17 +208,66 @@ async function checkL1TestIntegrity(
 		);
 	}
 
-	// Check git log for tester modifying builder-owned files
+	// Find test files authored by the tester
 	const testerBranch = testerSession.branchName;
-	const result = await run(["git", "log", "--name-only", "--format=%H", testerBranch], projectRoot);
-	if (result.exitCode !== 0) {
+	const testerResult = await run(
+		["git", "log", "--name-only", "--format=", testerBranch, "--diff-filter=A", "--", "*.test.ts"],
+		projectRoot,
+	);
+	if (testerResult.exitCode !== 0) {
 		return makeCheck(
 			"l1-test-integrity",
 			1,
 			"Test Integrity",
 			"warn",
 			"Could not inspect tester git log",
-			[result.stderr],
+			[testerResult.stderr],
+		);
+	}
+	const testerTestFiles = new Set(
+		testerResult.stdout
+			.split("\n")
+			.map((l) => l.trim())
+			.filter((l) => l.length > 0),
+	);
+	if (testerTestFiles.size === 0) {
+		return makeCheck(
+			"l1-test-integrity",
+			1,
+			"Test Integrity",
+			"pass",
+			"No test files authored by tester — nothing to verify",
+		);
+	}
+
+	// Check if any builder modified the tester's test files
+	const builderSessions = sessions.filter((s) => s.capability === "builder" && s.branchName);
+	const violations: string[] = [];
+	for (const builder of builderSessions) {
+		const builderResult = await run(
+			["git", "log", "--name-only", "--format=", builder.branchName, "--", "*.test.ts"],
+			projectRoot,
+		);
+		if (builderResult.exitCode !== 0) continue;
+		const builderFiles = builderResult.stdout
+			.split("\n")
+			.map((l) => l.trim())
+			.filter((l) => l.length > 0);
+		for (const file of builderFiles) {
+			if (testerTestFiles.has(file)) {
+				violations.push(`${builder.agentName} modified tester file: ${file}`);
+			}
+		}
+	}
+
+	if (violations.length > 0) {
+		return makeCheck(
+			"l1-test-integrity",
+			1,
+			"Test Integrity",
+			"fail",
+			`${violations.length} builder(s) modified tester-authored test files`,
+			violations,
 		);
 	}
 	return makeCheck(
@@ -226,7 +275,7 @@ async function checkL1TestIntegrity(
 		1,
 		"Test Integrity",
 		"pass",
-		"Tester branch inspection passed",
+		"No builders modified tester-authored test files",
 	);
 }
 
