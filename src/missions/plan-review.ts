@@ -65,11 +65,18 @@ export async function buildPlanReviewRequest(opts: {
 
 	const criticTypes = [...PLAN_REVIEW_TIER_CRITICS[opts.tier]];
 
+	const archPath = join(opts.artifactRoot, "plan", "architecture.md");
+	const tpPath = join(opts.artifactRoot, "plan", "test-plan.yaml");
+	const archFile = Bun.file(archPath);
+	const tpFile = Bun.file(tpPath);
+
 	return {
 		missionId: opts.mission.id,
 		artifactRoot: opts.artifactRoot,
 		workstreamsJsonPath,
 		briefPaths,
+		...((await archFile.exists()) ? { architectureMdPath: archPath } : {}),
+		...((await tpFile.exists()) ? { testPlanYamlPath: tpPath } : {}),
 		criticTypes,
 		tier: opts.tier,
 		round: opts.round ?? 1,

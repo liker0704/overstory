@@ -80,6 +80,22 @@ function utilizationSignal(
 	return { effect: "down", detail: `utilization ${pct}% < 50%` };
 }
 
+function rateLimitSignal(rateLimitedAgents: number): {
+	effect: ScalingDirection;
+	weight: number;
+	detail: string;
+} {
+	if (rateLimitedAgents === 0)
+		return { effect: "hold", weight: 0.0, detail: "no rate-limited agents" };
+	if (rateLimitedAgents <= 2)
+		return { effect: "down", weight: 0.3, detail: `${rateLimitedAgents} agent(s) rate-limited` };
+	return {
+		effect: "down",
+		weight: 0.5,
+		detail: `${rateLimitedAgents} agents rate-limited (heavy)`,
+	};
+}
+
 function effectScore(effect: ScalingDirection): number {
 	if (effect === "up") return 1;
 	if (effect === "down") return -1;
@@ -98,6 +114,7 @@ export function evaluateAdaptivePolicy(params: PolicyEvalParams): ScalingDecisio
 	const merge = mergeSignal(context.mergeQueueDepth);
 	const utilization = utilizationSignal(context.activeWorkers, currentMax);
 	const backlog = backlogSignal(context.readyTaskCount, context.activeWorkers);
+	const rateLimit = rateLimitSignal(context.rateLimitedAgents);
 
 	const factors: ScalingFactor[] = [
 		{
@@ -135,6 +152,17 @@ export function evaluateAdaptivePolicy(params: PolicyEvalParams): ScalingDecisio
 			weight: backlog.weight,
 			detail: backlog.detail,
 		},
+		...(rateLimit.weight > 0
+			? [
+					{
+						signal: "rate_limit",
+						value: context.rateLimitedAgents,
+						effect: rateLimit.effect,
+						weight: rateLimit.weight,
+						detail: rateLimit.detail,
+					},
+				]
+			: []),
 	];
 
 	// Weighted sum

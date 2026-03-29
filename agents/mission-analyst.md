@@ -267,9 +267,9 @@ ov mail send --to <coordinator-name> \
 
 ## test-plan-review
 
-When Flash Quality TDD is active and an `architect_ready` mail is received:
+When Flash Quality TDD is active and the coordinator forwards `architect_ready` or instructs you to review the test plan:
 
-1. **Read test-plan.yaml** at the path specified in the architect's mail.
+1. **Read test-plan.yaml** at the mission artifact path (`plan/test-plan.yaml` relative to mission artifact root).
 2. **Review coverage completeness:**
    - Every module boundary in architecture.md should have corresponding test cases.
    - Test case IDs (T-1, T-2, ...) should be unique and sequential.

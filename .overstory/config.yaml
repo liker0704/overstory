@@ -58,6 +58,14 @@ coordinator:
     taskTrackerEmpty: false
     onShutdownSignal: false
 models:
+  reviewer: opus
+  plan-devil-advocate: opus
+  plan-security-critic: opus
+  plan-performance-critic: opus
+  plan-second-opinion: opus
+  plan-simulator: opus
+  tester: opus
+  plan-architecture-critic: opus
 logging:
   verbose: false
   redactSecrets: true

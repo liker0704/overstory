@@ -115,7 +115,7 @@ You are scope-bounded by your workstream brief. Work outside the brief requires 
 ### Spawning Sub-Workers
 ```bash
 ov sling <task-id> \
-  --capability <scout|builder|reviewer|merger> \
+  --capability <scout|builder|reviewer|merger|tester> \
   --name <unique-agent-name> \
   --spec <path-to-spec-file> \
   --files <file1,file2,...> \

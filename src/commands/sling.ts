@@ -414,7 +414,7 @@ export function allowedChildCapabilities(parentCapability: string | null): strin
 	}
 
 	if (parentCapability === "lead" || parentCapability === "lead-mission") {
-		return ["scout", "builder", "reviewer", "merger"];
+		return ["scout", "builder", "reviewer", "merger", "tester"];
 	}
 
 	if (parentCapability === "plan-review-lead") {

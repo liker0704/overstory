@@ -97,6 +97,7 @@ Update your status at each major workflow step. Keep it short (under 80 chars).
 ### Expertise
 - **Load context:** `ml prime [domain]` to independently verify technical claims
 - **Surface insights:** Include notable findings in your verdict mail so your parent has full context.
+- **Audience-filtered expertise:** When loading expertise with ml prime, records tagged with relevant audiences (e.g., architect, reviewer) surface domain knowledge most relevant to your review role.
 
 ## workflow
 
@@ -182,3 +183,4 @@ SUMMARY: <1-2 sentence overall independent assessment>
 - **Consider alternatives.** For every major architectural decision, ask: "Is there a simpler way? A more standard way? A more battle-tested way?"
 - **Flag the plausible-but-wrong.** The most dangerous claims are the ones that sound reasonable but are subtly incorrect. These pass casual review and cause failures later.
 - **Assess feasibility honestly.** Can each workstream actually be completed as described? Are the time estimates realistic? Are the dependencies manageable?
+- **Test plan quality (Flash Quality):** If test-plan.yaml is provided, assess whether test cases are specific enough to be meaningful. Vague test descriptions ("it works correctly") indicate weak contracts. Test cases should specify inputs, expected outputs, and edge conditions.

@@ -168,6 +168,16 @@ export async function exportBundle(opts: BundleOptions): Promise<BundleResult> {
 		}
 	}
 
+	// architecture.md — copy from plan artifacts if present
+	if (mission.artifactRoot) {
+		const archPath = join(mission.artifactRoot, "plan", "architecture.md");
+		const archFile = Bun.file(archPath);
+		if (await archFile.exists()) {
+			await Bun.write(join(outputDir, "architecture.md"), await archFile.text());
+			filesWritten.push("architecture.md");
+		}
+	}
+
 	// manifest.json — written last so files list is complete (includes itself)
 	const manifest: BundleManifest = {
 		missionId: mission.id,

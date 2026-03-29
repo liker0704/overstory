@@ -9,7 +9,7 @@
 import { basename, join, relative, resolve } from "node:path";
 import { loadConfig } from "../config.ts";
 import { jsonError, jsonOutput } from "../json.ts";
-import { printError, printSuccess } from "../logging/color.ts";
+import { printError, printHint, printSuccess, printWarning } from "../logging/color.ts";
 import { createMailClient } from "../mail/client.ts";
 import { createMailStore } from "../mail/store.ts";
 import { createTrackerClient, resolveBackend } from "../tracker/factory.ts";
@@ -37,6 +37,7 @@ import { startExecutionDirector } from "./roles.ts";
 import { listSpecMeta, readSpecMeta, type SpecMeta, type SpecMetaStatus } from "./spec-meta.ts";
 import { createMissionStore, logMissionDispatch } from "./store.ts";
 import {
+	detectCrossMissionScopeConflicts,
 	ensureCanonicalWorkstreamTasks,
 	loadWorkstreamsFile,
 	packageHandoffs,
@@ -566,6 +567,50 @@ export async function missionHandoff(
 		}
 
 		let dispatchableWorkstreams = validation.workstreams.workstreams;
+
+		// Cross-mission file scope conflict detection (warn only)
+		try {
+			const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
+			try {
+				const activeMissions = missionStore.getActiveList();
+				const otherMissions = activeMissions.filter((m) => m.id !== mission.id);
+				if (otherMissions.length > 0) {
+					const activeMissionWorkstreams = await Promise.all(
+						otherMissions.map(async (m) => {
+							const wsPath = join(overstoryDir, "missions", m.id, "plan", "workstreams.json");
+							const wsResult = await loadWorkstreamsFile(wsPath);
+							return {
+								id: m.id,
+								slug: m.slug,
+								workstreams:
+									wsResult.valid && wsResult.workstreams ? wsResult.workstreams.workstreams : [],
+							};
+						}),
+					);
+					const conflicts = detectCrossMissionScopeConflicts(
+						dispatchableWorkstreams,
+						activeMissionWorkstreams,
+					);
+					if (conflicts.length > 0 && !json) {
+						printWarning(
+							`File scope overlap with ${conflicts.length} file(s) across active missions`,
+						);
+						for (const c of conflicts.slice(0, 5)) {
+							printHint(
+								`  ${c.file} → conflicts with ${c.conflictMission}/${c.conflictWorkstream}`,
+							);
+						}
+						if (conflicts.length > 5) {
+							printHint(`  ... and ${conflicts.length - 5} more`);
+						}
+					}
+				}
+			} finally {
+				missionStore.close();
+			}
+		} catch {
+			// Non-fatal: scope detection failure should not block handoff
+		}
 
 		// Flash Quality handoff gate: validate architecture + test-plan when active
 		const hasFlashQuality = dispatchableWorkstreams.some(

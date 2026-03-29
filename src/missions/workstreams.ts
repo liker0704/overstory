@@ -471,6 +471,7 @@ export interface ExecutionHandoff {
 	briefPath: string | null;
 	dependsOn: string[];
 	status: WorkstreamStatus;
+	tddMode?: TddMode;
 }
 
 export function packageHandoffs(workstreams: Workstream[]): ExecutionHandoff[] {
@@ -491,6 +492,7 @@ export function packageHandoffs(workstreams: Workstream[]): ExecutionHandoff[] {
 			briefPath: ws.briefPath,
 			dependsOn: ws.dependsOn,
 			status: ws.status,
+			tddMode: ws.tddMode,
 		}));
 }
 
@@ -516,6 +518,10 @@ export function slingArgsFromHandoff(
 
 	if (handoff.briefPath !== null && opts.specBasePath !== undefined) {
 		args.push("--spec", join(opts.specBasePath, handoff.briefPath));
+	}
+
+	if (handoff.tddMode !== undefined && handoff.tddMode !== "skip") {
+		args.push("--tdd-mode", handoff.tddMode);
 	}
 
 	return args;

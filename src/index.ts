@@ -14,6 +14,7 @@ import { createAdaptiveCommand } from "./commands/adaptive.ts";
 import { createAgentsCommand } from "./commands/agents.ts";
 import { createAttachCommand } from "./commands/attach.ts";
 import { cleanCommand } from "./commands/clean.ts";
+import { compactCommand } from "./commands/compact.ts";
 import { createCompatCommand } from "./commands/compat.ts";
 import { createCompletionsCommand } from "./commands/completions.ts";
 import { createContextCommand } from "./commands/context.ts";
@@ -326,6 +327,7 @@ program
 	.option("--dispatch-max-agents <n>", "Per-lead max agents ceiling (injected into overlay)")
 	.option("--runtime <name>", "Runtime adapter (default: config or claude)")
 	.option("--base-branch <branch>", "Base branch for worktree creation (default: current HEAD)")
+	.option("--tdd-mode <mode>", "TDD mode override: full | light | skip | refactor")
 	.option("--profile <name>", "Canopy profile to apply to agent overlay")
 	.option("--json", "Output result as JSON")
 	.action(async (taskId, opts) => {
@@ -399,6 +401,22 @@ program
 	.option("--json", "Output as JSON")
 	.action(async (opts) => {
 		await cleanCommand(opts);
+	});
+
+program
+	.command("compact")
+	.description("Compact mulch expertise records")
+	.argument("[domain]", "Domain to compact (all if omitted)")
+	.option("--analyze", "Show compaction candidates without applying")
+	.option("--apply", "Apply compaction to candidates")
+	.option("--auto", "Automatically compact using default rules")
+	.option("--dry-run", "Preview changes without writing")
+	.option("--min-group <n>", "Minimum group size for compaction", Number)
+	.option("--max-records <n>", "Maximum records per domain", Number)
+	.option("--yes", "Skip confirmation prompts")
+	.option("--json", "Output as JSON")
+	.action(async (domain, opts) => {
+		await compactCommand(domain, opts);
 	});
 
 program

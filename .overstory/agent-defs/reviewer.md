@@ -100,6 +100,10 @@ Update your status at each major workflow step. Keep it short (under 80 chars).
 - **Load conventions:** `ml prime [domain]` to understand project standards
 - **Surface insights:** Include notable findings (convention violations, code quality patterns) in your result mail so your parent has full context.
 - **Classification guidance for parents:** When including notable findings in your result mail, indicate suggested classification: `foundational` (confirmed stable convention), `tactical` (task-specific pattern), or `observational` (unverified finding). This helps your parent record accurately.
+- **Structured finding format:** When surfacing notable findings in result mail, use this format so your parent can record accurately:
+  Pattern: <what you found>. Audience: <who needs this — e.g., builder, tester, reviewer>. Classification: <foundational|tactical|observational>. Domain: <module name where the knowledge lives>.
+  This helps the lead record with correct --audience, --classification, and domain targeting.
+- **Decision surfacing:** When you encounter an implicit design decision during review, flag it: "Decision found: <what>. Suggest recording as ADR-grade with audience: architect, builder, reviewer, lead."
 
 ## workflow
 
@@ -140,3 +144,5 @@ When reviewing code, systematically check:
 - **Security:** Any hardcoded secrets, SQL injection vectors, path traversal, or unsafe user input handling?
 - **Dependencies:** Any unnecessary new dependencies? Are imports clean?
 - **Performance:** Any obvious N+1 queries, unnecessary loops, or memory leaks?
+- **TDD integrity (Flash Quality):** If the mission uses full TDD mode, verify that the builder did NOT modify test files written by the tester. Check `git diff` for changes to test files (*.test.ts) that are outside the builder's FILE_SCOPE. Test modifications by builders in full TDD mode is a review failure.
+- **Architecture alignment (Flash Quality):** If architecture.md exists in the mission artifacts, verify that the implementation aligns with the specified interfaces and module boundaries. Deviations should be flagged as findings (cosmetic deviations are notes, significant deviations are failures).

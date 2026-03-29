@@ -68,16 +68,21 @@ export function collectParallelismContext(params: CollectParallelismParams): Par
 		mergeQueueDepth = 0;
 	}
 
-	// --- Active / stalled workers ---
+	// --- Active / stalled / rate-limited workers ---
 	let activeWorkers = 0;
 	let stalledWorkers = 0;
+	let rateLimitedAgents = 0;
 	try {
 		const active = sessionStore.getActive();
 		activeWorkers = active.length;
 		stalledWorkers = active.filter((s) => s.state === "stalled").length;
+		rateLimitedAgents = active.filter(
+			(s) => "rateLimitedSince" in s && s.rateLimitedSince !== null,
+		).length;
 	} catch {
 		activeWorkers = 0;
 		stalledWorkers = 0;
+		rateLimitedAgents = 0;
 	}
 
 	return {
@@ -87,6 +92,7 @@ export function collectParallelismContext(params: CollectParallelismParams): Par
 		mergeQueueDepth,
 		activeWorkers,
 		stalledWorkers,
+		rateLimitedAgents,
 		readyTaskCount: params.readyTaskCount ?? null,
 		inProgressCount: params.inProgressCount ?? null,
 		collectedAt,

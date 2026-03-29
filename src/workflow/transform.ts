@@ -109,6 +109,7 @@ export function transformToWorkstreams(
 			dependsOn: depIds,
 			briefPath: `workstreams/${task.id}/brief.md`,
 			status: "planned",
+			...(task.tddMode !== null ? { tddMode: task.tddMode } : {}),
 		};
 	});
 

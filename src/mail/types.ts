@@ -285,6 +285,8 @@ export interface PlanReviewRequestPayload {
 	artifactRoot: string;
 	workstreamsJsonPath: string;
 	briefPaths: string[];
+	architectureMdPath?: string;
+	testPlanYamlPath?: string;
 	criticTypes: PlanCriticType[];
 	tier: PlanReviewTier;
 	round: number;

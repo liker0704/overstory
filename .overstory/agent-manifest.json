@@ -336,6 +336,139 @@
 				"read-only",
 				"no-worktree"
 			]
+		},
+		"research-lead": {
+			"file": "research-lead.md",
+			"model": "opus",
+			"tools": [
+				"Read",
+				"Write",
+				"Glob",
+				"Grep",
+				"Bash",
+				"Agent"
+			],
+			"capabilities": [
+				"research-lead"
+			],
+			"canSpawn": true,
+			"constraints": [
+				"no-worktree"
+			]
+		},
+		"researcher": {
+			"file": "researcher.md",
+			"model": "opus",
+			"tools": [
+				"Read",
+				"Glob",
+				"Grep",
+				"Bash",
+				"mcp"
+			],
+			"capabilities": [
+				"researcher"
+			],
+			"canSpawn": false,
+			"constraints": [
+				"read-only"
+			]
+		},
+		"architect": {
+			"file": "architect.md",
+			"model": "opus",
+			"tools": [
+				"Read",
+				"Glob",
+				"Grep",
+				"Bash",
+				"Write"
+			],
+			"capabilities": [
+				"architect",
+				"design"
+			],
+			"canSpawn": false,
+			"constraints": [
+				"no-worktree"
+			]
+		},
+		"tester": {
+			"file": "tester.md",
+			"model": "sonnet",
+			"tools": [
+				"Read",
+				"Glob",
+				"Grep",
+				"Bash",
+				"Write",
+				"Edit"
+			],
+			"capabilities": [
+				"tester",
+				"test-write"
+			],
+			"canSpawn": false,
+			"constraints": []
+		},
+		"architecture-review-lead": {
+			"file": "architecture-review-lead.md",
+			"model": "opus",
+			"tools": [
+				"Read",
+				"Glob",
+				"Grep",
+				"Bash"
+			],
+			"capabilities": [
+				"review",
+				"coordinate",
+				"architecture-review"
+			],
+			"canSpawn": true,
+			"constraints": [
+				"read-only",
+				"no-worktree"
+			]
+		},
+		"plan-architecture-critic": {
+			"file": "plan-architecture-critic.md",
+			"model": "sonnet",
+			"tools": [
+				"Read",
+				"Glob",
+				"Grep",
+				"Bash"
+			],
+			"capabilities": [
+				"review",
+				"plan-critic",
+				"architecture"
+			],
+			"canSpawn": false,
+			"constraints": [
+				"read-only",
+				"no-worktree"
+			]
+		},
+		"architecture-sync": {
+			"file": "architecture-sync.md",
+			"model": "sonnet",
+			"tools": [
+				"Read",
+				"Glob",
+				"Grep",
+				"Bash"
+			],
+			"capabilities": [
+				"architecture-sync",
+				"knowledge-extraction"
+			],
+			"canSpawn": false,
+			"constraints": [
+				"read-only",
+				"no-worktree"
+			]
 		}
 	},
 	"capabilityIndex": {
@@ -366,7 +499,9 @@
 			"plan-security-critic",
 			"plan-performance-critic",
 			"plan-second-opinion",
-			"plan-simulator"
+			"plan-simulator",
+			"architecture-review-lead",
+			"plan-architecture-critic"
 		],
 		"validate": [
 			"reviewer"
@@ -377,7 +512,8 @@
 			"coordinator-mission",
 			"execution-director",
 			"lead-mission",
-			"plan-review-lead"
+			"plan-review-lead",
+			"architecture-review-lead"
 		],
 		"merge": [
 			"merger"
@@ -419,7 +555,8 @@
 			"plan-security-critic",
 			"plan-performance-critic",
 			"plan-second-opinion",
-			"plan-simulator"
+			"plan-simulator",
+			"plan-architecture-critic"
 		],
 		"plan-risk": [
 			"plan-devil-advocate"
@@ -441,6 +578,36 @@
 		],
 		"patrol": [
 			"monitor"
+		],
+		"research-lead": [
+			"research-lead"
+		],
+		"researcher": [
+			"researcher"
+		],
+		"architect": [
+			"architect"
+		],
+		"design": [
+			"architect"
+		],
+		"tester": [
+			"tester"
+		],
+		"test-write": [
+			"tester"
+		],
+		"architecture-review": [
+			"architecture-review-lead"
+		],
+		"architecture": [
+			"plan-architecture-critic"
+		],
+		"architecture-sync": [
+			"architecture-sync"
+		],
+		"knowledge-extraction": [
+			"architecture-sync"
 		]
 	}
 }

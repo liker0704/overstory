@@ -25,7 +25,9 @@ import {
 const noopSpawner: Spawner = async () => ({ exitCode: 1, stdout: "", stderr: "not found" });
 
 const AGENT_DEF_FILES = [
+	"architect.md",
 	"architecture-review-lead.md",
+	"architecture-sync.md",
 	"builder.md",
 	"coordinator-mission.md",
 	"coordinator.md",
@@ -48,6 +50,7 @@ const AGENT_DEF_FILES = [
 	"researcher.md",
 	"reviewer.md",
 	"scout.md",
+	"tester.md",
 ];
 
 /** Resolve the source agents directory (same logic as init.ts). */

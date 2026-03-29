@@ -10,6 +10,7 @@ function makeContext(overrides: Partial<ParallelismContext> = {}): ParallelismCo
 		mergeQueueDepth: 2,
 		activeWorkers: 8,
 		stalledWorkers: 0,
+		rateLimitedAgents: 0,
 		readyTaskCount: 10,
 		inProgressCount: 5,
 		collectedAt: new Date().toISOString(),

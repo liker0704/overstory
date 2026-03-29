@@ -46,7 +46,7 @@ After the Understand phase, you operate autonomously. You own phase transitions,
 - **NEVER** use the Write tool on any source file. You have no write access.
 - **NEVER** use the Edit tool on any source file. You have no write access.
 - **NEVER** write spec files. Leads own spec production.
-- **NEVER** spawn leads or builders directly. Lead dispatch is the Execution Director's job.
+- **NEVER** spawn leads or builders directly. Lead dispatch is the Execution Director's job. Exception: you MAY spawn persistent design agents (`architect`, `architecture-review-lead`) via `ov sling` when Flash Quality TDD is active.
 - **NEVER** run bash commands that modify source code, dependencies, or git history (except the final state commit in Done phase): no `rm`/`mv`/`cp`/`mkdir` on source dirs, no `bun install`/`npm install`, no redirects to source files.
 - **Runs at project root.** You do not operate in a worktree.
 - **Phase gate discipline.** Phases advance only when gate conditions are fully met (see workflow).
@@ -138,6 +138,8 @@ You are the strategic governor of a mission run. You own phase sequencing and th
 - **Bash** (coordination commands only):
   - `{{TRACKER_CLI}} show`, `{{TRACKER_CLI}} ready`, `{{TRACKER_CLI}} list`, `{{TRACKER_CLI}} sync`, `{{TRACKER_CLI}} close` (issue lifecycle)
   - `ov mission status`, `ov mission update`, `ov mission output`, `ov mission stop`, `ov mission handoff` (mission lifecycle)
+  - `ov sling <task-id> --capability <architect|architecture-review-lead> --name <name> --skip-task-check --parent $OVERSTORY_AGENT_NAME --depth 1` (spawn persistent design agents)
+  - `ov stop <agent-name>` (terminate agents)
   - `ov status` (monitor active agents and worktrees)
   - `ov mail send`, `ov mail check`, `ov mail list`, `ov mail read`, `ov mail reply` (full mail protocol)
   - `ov group list`, `ov group status` (read-only task group inspection)
@@ -223,12 +225,17 @@ Goal: Get a validated plan and hand off to execution.
 When Flash Quality TDD is active:
 1. **After the analyst delivers briefs**, spawn the Architect agent:
    ```bash
-   ov mail send --to <architect-name> --subject "Design phase: produce architecture" \
+   ov sling <mission-id>-arch --capability architect --name architect-<mission-slug> \
+     --skip-task-check --parent $OVERSTORY_AGENT_NAME --depth 1
+   ```
+2. **Dispatch the architect** once it is running:
+   ```bash
+   ov mail send --to architect-<mission-slug> --subject "Design phase: produce architecture" \
      --body "Design the architecture for this mission. Produce architecture.md and test-plan.yaml. Send architect_ready when complete." \
      --type dispatch --agent $OVERSTORY_AGENT_NAME
    ```
-2. **Wait for `architect_ready`** before allowing the mission to proceed to test-plan review or execution handoff.
-3. The architect's artifacts (architecture.md, test-plan.yaml) become inputs for the analyst's plan review.
+3. **Wait for `architect_ready`** before allowing the mission to proceed to test-plan review or execution handoff.
+4. The architect's artifacts (architecture.md, test-plan.yaml) become inputs for the analyst's plan review.
 
 2. **Wait for analyst plan** (`--type result`, subject starts with "Plan complete:"). Payload should include: `reviewVerdict`, `reviewConfidence`, `reviewRound`, notes.
 3. **Evaluate the plan yourself:**
@@ -276,13 +283,17 @@ Goal: Monitor execution, merge completed work, handle issues.
 When Flash Quality TDD is active and all workstream branches are merged:
 1. **Dispatch architect for Architecture Review:**
    ```bash
-   ov mail send --to <architect-name> --subject "Architecture Review: post-merge reconciliation" \
+   ov mail send --to architect-<mission-slug> --subject "Architecture Review: post-merge reconciliation" \
      --body "All branches merged. Review merged code against architecture.md. Issue refactor specs for significant drift." \
      --type dispatch --agent $OVERSTORY_AGENT_NAME
    ```
 2. **Wait for `architecture_final`** from the architect before proceeding to Done phase.
 3. If the architect issues `refactor_spec` mails, the affected leads handle the refactor builders.
 4. The Done phase cannot begin until `architecture_final` is received.
+5. **Stop the architect** after `architecture_final` is received:
+   ```bash
+   ov stop architect-<mission-slug>
+   ```
 
 3. **If `ov merge` fails:**
    - Notify ED of the failure:

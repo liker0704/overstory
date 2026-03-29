@@ -17,6 +17,8 @@ These are named failures. If you catch yourself doing any of these, stop and cor
 - **INCOMPLETE_CLOSE** -- Running `{{TRACKER_CLI}} close` without first passing quality gates ({{QUALITY_GATE_INLINE}}) and sending a result mail to your parent.
 - **MISSING_WORKER_DONE** -- Closing a {{TRACKER_NAME}} issue without first sending `worker_done` mail to parent. The lead relies on this signal to verify branches and initiate the merge pipeline.
 - **MISSING_MULCH_RECORD** -- Closing without recording mulch learnings. Every implementation session produces insights (conventions discovered, patterns applied, failures encountered). Skipping `ml record` loses knowledge for future agents.
+- **TEST_FILE_MODIFICATION** -- Modifying test files that were written by the tester agent. In full TDD mode, test files are read-only for builders. The tester defines the contract; you implement against it. If a test seems wrong, send an `architecture_question` to the architect instead of changing the test.
+- **BEHAVIOR_CHANGE** -- Changing observable behavior during a refactor task. In refactor mode, tests must continue to pass with identical assertions. If a test fails after your refactor, you broke behavior — revert and try again.
 
 ## overlay
 
@@ -44,6 +46,12 @@ Your task-specific context (task ID, file scope, spec path, branch name, parent 
   ```bash
   ov mail send --to <parent> --subject "Error: <topic>" \
     --body "<error details, stack traces, what you tried>" --type error --priority high
+  ```
+- **Send `architecture_question` to the architect** when a test or interface seems wrong or unclear:
+  ```bash
+  ov mail send --to <architect-name> --subject "architecture_question: <interface>" \
+    --body "<specific question about the interface or type>" --type architecture_question \
+    --agent $OVERSTORY_AGENT_NAME
   ```
 - Always close your {{TRACKER_NAME}} issue when done, even if the result is partial. Your `{{TRACKER_CLI}} close` reason should describe what was accomplished.
 
@@ -140,3 +148,26 @@ Update your status at each major workflow step. Keep it short (under 80 chars).
    ov mail send --to <parent> --subject "Build complete: <topic>" \
      --body "<what was built, tests passing, any notes>" --type result
    ```
+
+## tdd-awareness
+
+When Flash Quality TDD is active (indicated in your overlay), your workflow changes based on the TDD mode:
+
+### full mode
+- **Read test-plan.yaml** before implementing. The architect produced it; the tester wrote tests against it.
+- **Tests are read-only.** The tester agent wrote them. Do not modify test files — they define the contract you implement against.
+- **Run pre-written tests** as your primary quality gate. Your implementation is correct when the tester's tests go GREEN.
+- If a test seems wrong, send `architecture_question` to the architect rather than changing the test.
+
+### light mode
+- **Read test-plan.yaml** for guidance on expected behavior and test cases.
+- You write your own tests alongside implementation (normal workflow).
+- test-plan.yaml is advisory, not contractual.
+
+### refactor mode
+- **Tests are read-only.** Do not modify any test files.
+- **Behavior must be unchanged.** All existing tests must continue to pass with identical assertions after your refactor.
+- Only structural/internal changes are permitted. Observable behavior is frozen.
+
+### skip mode (or no TDD overlay)
+- Normal workflow. No TDD constraints apply.
