@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
 import {
 	formatBuilderTddOverlay,
 	formatLeadTddOverlay,
@@ -155,5 +155,77 @@ describe("formatTddOverlay", () => {
 	test("returns empty string for unknown capability like 'scout'", () => {
 		const result = formatTddOverlay("scout", "full");
 		expect(result).toBe("");
+	});
+});
+
+describe("formatTddStatusLine", () => {
+	// Dynamic import so the missing export doesn't crash existing tests above.
+	// Once the builder adds formatTddStatusLine, this will resolve normally.
+	let formatTddStatusLine: typeof import("./tdd.ts")["formatTddStatusLine"];
+
+	beforeAll(async () => {
+		const mod = await import("./tdd.ts");
+		formatTddStatusLine = (mod as Record<string, unknown>)
+			.formatTddStatusLine as typeof formatTddStatusLine;
+		if (typeof formatTddStatusLine !== "function") {
+			throw new Error(
+				"formatTddStatusLine is not exported from ./tdd.ts (RED phase: implementation missing)",
+			);
+		}
+	});
+
+	test("T-1: empty array returns 'TDD: none'", () => {
+		const result = formatTddStatusLine([]);
+		expect(result).toBe("TDD: none");
+	});
+
+	test("T-2: single workstream shows singular 'workstream'", () => {
+		const result = formatTddStatusLine([{ id: "ws-1", tddMode: "full" }]);
+		expect(result).toBe("TDD: full (1 workstream)");
+	});
+
+	test("T-3: multiple workstreams with same mode shows plural 'workstreams'", () => {
+		const result = formatTddStatusLine([
+			{ id: "ws-1", tddMode: "full" },
+			{ id: "ws-2", tddMode: "full" },
+			{ id: "ws-3", tddMode: "full" },
+		]);
+		expect(result).toBe("TDD: full (3 workstreams)");
+	});
+
+	test("T-4: mixed modes shows counts ordered full, light, skip, refactor", () => {
+		const result = formatTddStatusLine([
+			{ id: "a", tddMode: "full" },
+			{ id: "b", tddMode: "full" },
+			{ id: "c", tddMode: "light" },
+			{ id: "d", tddMode: "skip" },
+		]);
+		expect(result).toBe("TDD: 2 full, 1 light, 1 skip");
+	});
+
+	test("T-5: mixed modes omits zero-count modes", () => {
+		const result = formatTddStatusLine([
+			{ id: "a", tddMode: "light" },
+			{ id: "b", tddMode: "refactor" },
+		]);
+		expect(result).toBe("TDD: 1 light, 1 refactor");
+	});
+
+	test("T-6: all four modes present shows all counts in order", () => {
+		const result = formatTddStatusLine([
+			{ id: "a", tddMode: "full" },
+			{ id: "b", tddMode: "light" },
+			{ id: "c", tddMode: "refactor" },
+			{ id: "d", tddMode: "skip" },
+		]);
+		expect(result).toBe("TDD: 1 full, 1 light, 1 skip, 1 refactor");
+	});
+
+	test("T-7: uniform mode with two workstreams uses plural", () => {
+		const result = formatTddStatusLine([
+			{ id: "ws-1", tddMode: "skip" },
+			{ id: "ws-2", tddMode: "skip" },
+		]);
+		expect(result).toBe("TDD: skip (2 workstreams)");
 	});
 });

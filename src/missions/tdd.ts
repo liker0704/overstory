@@ -1,4 +1,28 @@
 import type { TddMode } from "./types.ts";
+import { TDD_MODES } from "./types.ts";
+
+export function formatTddStatusLine(
+	workstreams: ReadonlyArray<{ id: string; tddMode: TddMode }>,
+): string {
+	if (workstreams.length === 0) return "TDD: none";
+
+	const counts = new Map<TddMode, number>();
+	for (const ws of workstreams) {
+		counts.set(ws.tddMode, (counts.get(ws.tddMode) ?? 0) + 1);
+	}
+
+	const modes = TDD_MODES.filter((m) => (counts.get(m) ?? 0) > 0);
+
+	if (modes.length === 1) {
+		const mode = modes[0] as TddMode;
+		const count = counts.get(mode) as number;
+		const label = count === 1 ? "workstream" : "workstreams";
+		return `TDD: ${mode} (${count} ${label})`;
+	}
+
+	const parts = modes.map((m) => `${counts.get(m) as number} ${m}`);
+	return `TDD: ${parts.join(", ")}`;
+}
 
 export function formatBuilderTddOverlay(
 	tddMode: TddMode,
