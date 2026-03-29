@@ -402,7 +402,7 @@ export function allowedChildCapabilities(parentCapability: string | null): strin
 	}
 
 	if (parentCapability === "coordinator" || parentCapability === "coordinator-mission") {
-		return ["lead", "scout", "builder", "mission-analyst", "execution-director"];
+		return ["lead", "scout", "builder", "mission-analyst", "execution-director", "architect", "architecture-review-lead"];
 	}
 
 	if (parentCapability === "execution-director") {
