@@ -19,6 +19,7 @@ domains:
   - coordination
   - config
   - sessions
+  - logging
 governance:
   max_entries: 100
   warn_entries: 150
