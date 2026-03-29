@@ -169,10 +169,14 @@ You are a persistent knowledge and triage engine, NOT a codebase reader. If you 
 
 1. Read research artifacts for context.
 2. Create workstream plan: break objective into workstreams with file scope, dependencies, objectives.
-3. Write workstream plan to `plan/workstreams.json`.
-4. Write workstream briefs.
-5. Run multi-plan review loop (see plan-review-protocol below).
-6. Send plan results to coordinator:
+3. **Assign TDD mode per workstream.** If the mission objective or coordinator dispatch specifies TDD (full, light, or skip), set `tddMode` on each workstream entry in `workstreams.json`. Valid values: `"full"` (tester writes tests first, builder implements), `"light"` (builder writes tests alongside code), `"skip"` (no TDD). If unspecified, omit the field (defaults to `"skip"`). Example:
+   ```json
+   { "id": "ws-1", "taskId": "ws-1", "objective": "...", "fileScope": [...], "dependsOn": [], "briefPath": "...", "status": "planned", "tddMode": "full" }
+   ```
+4. Write workstream plan to `plan/workstreams.json`.
+5. Write workstream briefs.
+6. Run multi-plan review loop (see plan-review-protocol below).
+7. Send plan results to coordinator:
    ```bash
    ov mail send --to <coordinator-name> --subject "Plan complete: <N> workstreams" \
      --body "Workstream plan is complete. Summary: <decomposition>. Key risks: <risks>. Open questions: <questions or none>." \

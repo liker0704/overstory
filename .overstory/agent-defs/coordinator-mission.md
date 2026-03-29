@@ -217,12 +217,12 @@ Goal: Get a validated plan and hand off to execution.
 1. **Dispatch analyst for planning:**
    ```bash
    ov mail send --to <mission-analyst-name> --subject "Planning phase: create workstream plan" \
-     --body "Create a workstream plan based on the research findings. Include: workstream breakdown, file scope, dependency graph, risk assessment. Run the multi-plan review loop. Report the plan with review verdict." \
+     --body "Create a workstream plan based on the research findings. Include: workstream breakdown, file scope, dependency graph, risk assessment. If TDD is specified for the mission, set tddMode on each workstream in workstreams.json (full, light, or skip). Run the multi-plan review loop. Report the plan with review verdict." \
      --type dispatch --agent $OVERSTORY_AGENT_NAME
    ```
 #### Architect Integration (Flash Quality TDD)
 
-When Flash Quality TDD is active:
+When Flash Quality TDD is active (the mission objective specifies TDD, or the operator requested it, or `workstreams.json` has any workstream with `tddMode: "full"` or `"light"`):
 1. **After the analyst delivers briefs**, spawn the Architect agent:
    ```bash
    ov sling <mission-id>-arch --capability architect --name architect-<mission-slug> \
