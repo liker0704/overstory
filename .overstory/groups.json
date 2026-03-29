@@ -1642,5 +1642,15 @@
 		"status": "active",
 		"createdAt": "2026-03-28T01:10:37.736Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-476dec77",
+		"name": "tdd-smoke-batch-1",
+		"memberIssueIds": [
+			"overstory-71cc"
+		],
+		"status": "active",
+		"createdAt": "2026-03-29T15:50:07.835Z",
+		"completedAt": null
 	}
 ]
