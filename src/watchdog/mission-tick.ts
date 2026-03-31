@@ -240,7 +240,12 @@ async function processMission(
 	const result = await engine.step();
 
 	if (result.status === "gate") {
-		const currentNodeId = engine.currentNodeId();
+		// The engine's currentNodeId may be a parent lifecycle node with a subgraph.
+		// The actual gated node is tracked in mission.currentNode (updated by
+		// engine.updateCurrentNode on every transition, including subgraph transitions).
+		// Re-read mission to get the latest currentNode.
+		const freshMission = missionStore.getById(mission.id);
+		const currentNodeId = freshMission?.currentNode ?? engine.currentNodeId();
 
 		// Ensure gate state row exists
 		const gateState = ensureGateState(gateDb, mission.id, currentNodeId);

@@ -9,13 +9,14 @@
 
 import type { OverstoryConfig } from "../config-types.ts";
 import type { SessionStore } from "../sessions/store.ts";
-import type { CheckpointStore, Mission, MissionStore } from "../types.ts";
+import type { CheckpointStore, Mission, MissionGraph, MissionStore } from "../types.ts";
 import { architectureReviewCell } from "./cells/architecture-review.ts";
 import { donePhaseCell } from "./cells/done-phase.ts";
 import { executePhaseCell } from "./cells/execute-phase.ts";
 import { planPhaseCell } from "./cells/plan-phase.ts";
 import { planReviewCell } from "./cells/plan-review.ts";
 import type {
+	PhaseCellConfig,
 	PhaseCellDefinition,
 	ReviewCellConfig,
 	ReviewCellDefinition,
@@ -237,17 +238,44 @@ function buildLifecycleHandlers(deps: EngineDeps): HandlerRegistry {
 }
 
 /**
+ * Build an enhanced graph by attaching phase cell subgraphs to :active nodes.
+ * Clones the default graph and sets the `subgraph` property on each phase's
+ * active node to the corresponding cell's subgraph.
+ */
+function buildLifecycleGraph(mission: Mission): MissionGraph {
+	const config: PhaseCellConfig = {
+		missionId: mission.id,
+		artifactRoot: mission.artifactRoot ?? "",
+		projectRoot: "",
+	};
+
+	// Clone nodes (shallow — subgraph is the only mutation)
+	const nodes = DEFAULT_MISSION_GRAPH.nodes.map((node) => {
+		if (node.kind !== "lifecycle" || node.state !== "active") return node;
+
+		const cellType = `${node.phase}-phase`;
+		const cell = PHASE_CELL_REGISTRY[cellType];
+		if (!cell) return node;
+
+		return { ...node, subgraph: cell.buildSubgraph(config) };
+	});
+
+	return { version: 1, nodes, edges: DEFAULT_MISSION_GRAPH.edges };
+}
+
+/**
  * Create a lifecycle graph engine for a mission.
  *
- * Uses the DEFAULT_MISSION_GRAPH (which includes phase subgraphs) and merges
- * all handler registries (built-in + auto-advance + phase cell handlers).
+ * Builds an enhanced graph with phase subgraphs attached to :active nodes,
+ * merges all handler registries (built-in + auto-advance + phase cell handlers).
  * Engine is capped at maxSteps=5 for tick-based execution safety.
  */
 export function startLifecycleEngine(mission: Mission, deps: EngineDeps): GraphEngine {
 	const handlers = buildLifecycleHandlers(deps);
+	const graph = buildLifecycleGraph(mission);
 
 	return createGraphEngine({
-		graph: DEFAULT_MISSION_GRAPH,
+		graph,
 		handlers,
 		checkpointStore: deps.checkpointStore,
 		missionId: mission.id,
