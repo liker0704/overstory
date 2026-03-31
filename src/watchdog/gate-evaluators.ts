@@ -42,7 +42,11 @@ export function evaluateAwaitResearch(
 		return { met: true, trigger: "research_complete" };
 	}
 
-	return { met: false };
+	return {
+		met: false,
+		nudgeTarget: analystName,
+		nudgeMessage: "Complete research and send result mail to coordinator",
+	};
 }
 
 /** Check if coordinator has evaluated research and is ready to advance. */
