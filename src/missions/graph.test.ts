@@ -177,16 +177,28 @@ describe("validateTransition", () => {
 		expect(result.edge?.trigger).toBe("handoff");
 	});
 
-	test("legal: execute:active → done:completed (complete)", () => {
+	test("legal: execute:active → done:active (complete)", () => {
 		const result = validateTransition(
 			DEFAULT_MISSION_GRAPH,
 			"execute",
 			"active",
 			"done",
-			"completed",
+			"active",
 		);
 		expect(result.valid).toBe(true);
 		expect(result.edge?.trigger).toBe("complete");
+	});
+
+	test("legal: done:active → done:completed (phase_complete)", () => {
+		const result = validateTransition(
+			DEFAULT_MISSION_GRAPH,
+			"done",
+			"active",
+			"done",
+			"completed",
+		);
+		expect(result.valid).toBe(true);
+		expect(result.edge?.trigger).toBe("phase_complete");
 	});
 
 	test("legal: any active → stopped (stop)", () => {
@@ -244,9 +256,10 @@ describe("findCurrentNode", () => {
 		expect(node?.id).toBe("plan:active");
 	});
 
-	test("returns undefined for nonexistent", () => {
+	test("finds done:active node", () => {
 		const node = findCurrentNode(DEFAULT_MISSION_GRAPH, "done", "active");
-		expect(node).toBeUndefined();
+		expect(node).toBeDefined();
+		expect(node?.id).toBe("done:active");
 	});
 });
 

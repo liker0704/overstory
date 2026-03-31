@@ -8,20 +8,35 @@
  */
 
 import type { OverstoryConfig } from "../config-types.ts";
+import type { SessionStore } from "../sessions/store.ts";
 import type { CheckpointStore, Mission, MissionStore } from "../types.ts";
 import { architectureReviewCell } from "./cells/architecture-review.ts";
+import { donePhaseCell } from "./cells/done-phase.ts";
+import { executePhaseCell } from "./cells/execute-phase.ts";
+import { planPhaseCell } from "./cells/plan-phase.ts";
 import { planReviewCell } from "./cells/plan-review.ts";
-import type { ReviewCellConfig, ReviewCellDefinition } from "./cells/types.ts";
-import { createGraphEngine, type RunResult } from "./engine.ts";
+import type {
+	PhaseCellDefinition,
+	ReviewCellConfig,
+	ReviewCellDefinition,
+} from "./cells/types.ts";
+import { understandPhaseCell } from "./cells/understand-phase.ts";
+import { createGraphEngine, type GraphEngine, type RunResult } from "./engine.ts";
+import { DEFAULT_MISSION_GRAPH } from "./graph.ts";
+import { autoAdvanceHandlers } from "./handlers/auto-advance.ts";
+import { createHandlerRegistry } from "./handlers.ts";
+import type { HandlerRegistry } from "./types.ts";
 
 // === Types ===
 
 export type { ReviewCellConfig, ReviewCellDefinition } from "./cells/types.ts";
+export type { PhaseCellDefinition } from "./cells/types.ts";
 
 export interface EngineDeps {
 	checkpointStore: CheckpointStore;
 	missionStore: MissionStore;
 	sendMail?: (to: string, subject: string, body: string, type: string) => Promise<void>;
+	sessionStore?: SessionStore;
 }
 
 export interface EngineStatus {
@@ -30,11 +45,20 @@ export interface EngineStatus {
 	transitions: Array<{ fromNode: string; toNode: string; trigger: string; createdAt: string }>;
 }
 
-// === Cell registry ===
+// === Cell registries ===
 
+/** Review cell registry (plan-review, architecture-review). Used by startCellEngine(). */
 export const CELL_REGISTRY: Record<string, ReviewCellDefinition> = {
 	"plan-review": planReviewCell,
 	"architecture-review": architectureReviewCell,
+};
+
+/** Phase cell registry (understand, plan, execute, done). Used by startLifecycleEngine(). */
+export const PHASE_CELL_REGISTRY: Record<string, PhaseCellDefinition> = {
+	"understand-phase": understandPhaseCell,
+	"plan-phase": planPhaseCell,
+	"execute-phase": executePhaseCell,
+	"done-phase": donePhaseCell,
 };
 
 // === Bridge functions ===
@@ -45,7 +69,7 @@ export const CELL_REGISTRY: Record<string, ReviewCellDefinition> = {
 export function shouldUseEngine(mission: Mission, config: OverstoryConfig): boolean {
 	// mission param reserved for future per-mission overrides
 	void mission;
-	return config.mission?.graphExecution === true;
+	return config.mission?.graphExecution !== false;
 }
 
 /**
@@ -190,4 +214,45 @@ export function getCellEngineStatus(mission: Mission, deps: EngineDeps): EngineS
 			createdAt: t.createdAt,
 		})),
 	};
+}
+
+// === Lifecycle engine ===
+
+/**
+ * Build a merged handler registry from all phase cells + auto-advance handlers.
+ * Combines handlers from all registered phase cells into a single registry.
+ */
+function buildLifecycleHandlers(deps: EngineDeps): HandlerRegistry {
+	const phaseHandlers: HandlerRegistry = {};
+	for (const cell of Object.values(PHASE_CELL_REGISTRY)) {
+		const handlers = cell.buildHandlers({
+			mailSend: deps.sendMail ?? (async () => {}),
+			checkpointStore: deps.checkpointStore,
+			missionStore: deps.missionStore,
+			sessionStore: deps.sessionStore,
+		});
+		Object.assign(phaseHandlers, handlers);
+	}
+	return createHandlerRegistry({ ...autoAdvanceHandlers, ...phaseHandlers });
+}
+
+/**
+ * Create a lifecycle graph engine for a mission.
+ *
+ * Uses the DEFAULT_MISSION_GRAPH (which includes phase subgraphs) and merges
+ * all handler registries (built-in + auto-advance + phase cell handlers).
+ * Engine is capped at maxSteps=5 for tick-based execution safety.
+ */
+export function startLifecycleEngine(mission: Mission, deps: EngineDeps): GraphEngine {
+	const handlers = buildLifecycleHandlers(deps);
+
+	return createGraphEngine({
+		graph: DEFAULT_MISSION_GRAPH,
+		handlers,
+		checkpointStore: deps.checkpointStore,
+		missionId: mission.id,
+		missionStore: deps.missionStore,
+		sendMail: deps.sendMail,
+		maxSteps: 5,
+	});
 }

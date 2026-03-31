@@ -71,6 +71,12 @@ const EVENT_LABELS: Record<EventType, EventLabel> = {
 	progress: { compact: "PROG ", full: "PROGRESS  ", color: color.cyan },
 	result: { compact: "RSULT", full: "RESULT    ", color: color.green },
 	mission: { compact: "MISSN", full: "MISSION   ", color: color.magenta },
+	engine_gate_entered: { compact: "ENG+ ", full: "ENG GATE +", color: color.cyan },
+	engine_nudge_sent: { compact: "NUDGE", full: "ENG NUDGE ", color: color.yellow },
+	engine_agent_respawned: { compact: "RSPWN", full: "ENG RSPAWN", color: color.magenta },
+	engine_gate_advanced: { compact: "ENG>>", full: "ENG ADVNCE", color: color.green },
+	engine_ws_status_updated: { compact: "WS UP", full: "ENG WS UPD", color: color.cyan },
+	engine_mission_suspended: { compact: "SUSPM", full: "ENG SUSPND", color: color.red },
 };
 
 /** Returns the EventLabel for a given event type. */

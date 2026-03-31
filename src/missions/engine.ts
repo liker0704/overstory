@@ -33,6 +33,8 @@ export interface GraphEngineOpts {
 	sendMail?: (to: string, subject: string, body: string, type: string) => Promise<void>;
 	/** Optional prefix to namespace checkpoint keys (used by subgraph engines to avoid parent collisions). */
 	checkpointKeyPrefix?: string;
+	/** Cap iterations in run(). When exceeded, run() returns as if hitting a gate. Propagated to subgraph engines. */
+	maxSteps?: number;
 }
 
 export interface StepResult {
@@ -158,6 +160,7 @@ export function createGraphEngine(opts: GraphEngineOpts): GraphEngine {
 				checkpointKeyPrefix: nodeId,
 				missionStore: opts.missionStore,
 				sendMail: opts.sendMail,
+				maxSteps: opts.maxSteps,
 			});
 			const subResult = await subEngine.run();
 			if (subResult.status === "error") {
@@ -223,8 +226,14 @@ export function createGraphEngine(opts: GraphEngineOpts): GraphEngine {
 
 	const run = async (): Promise<RunResult> => {
 		const steps: StepResult[] = [];
+		let stepCount = 0;
 
 		while (true) {
+			if (opts.maxSteps !== undefined && stepCount >= opts.maxSteps) {
+				// Budget exhausted — yield control as if hitting a gate
+				return { status: "gate", steps, currentNodeId: state.currentNodeId };
+			}
+
 			let result: StepResult;
 			try {
 				result = await step();
@@ -234,6 +243,7 @@ export function createGraphEngine(opts: GraphEngineOpts): GraphEngine {
 			}
 
 			steps.push(result);
+			stepCount++;
 
 			if (result.status === "terminal") {
 				return { status: "completed", steps, currentNodeId: state.currentNodeId };

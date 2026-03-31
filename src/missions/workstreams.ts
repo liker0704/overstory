@@ -8,6 +8,7 @@
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { Database } from "bun:sqlite";
 import type { TrackerClient } from "../tracker/types.ts";
 import { TDD_MODES, type TddMode } from "./types.ts";
 
@@ -372,6 +373,74 @@ export async function persistWorkstreamsFile(
 		filePath,
 		`${JSON.stringify({ version: 1, workstreams } satisfies WorkstreamsFile, null, 2)}\n`,
 	);
+}
+
+// === Workstream Status (SQLite-backed) ===
+
+/**
+ * Update a workstream's status in the workstream_status table.
+ * Uses INSERT OR REPLACE for idempotent upsert.
+ */
+export function updateWorkstreamStatus(
+	db: Database,
+	missionId: string,
+	workstreamId: string,
+	status: WorkstreamStatus,
+	updatedBy: "engine" | "agent" | "operator",
+): void {
+	db.prepare(
+		`INSERT INTO workstream_status (mission_id, workstream_id, status, updated_at, updated_by)
+		 VALUES ($missionId, $wsId, $status, $now, $by)
+		 ON CONFLICT(mission_id, workstream_id) DO UPDATE SET
+		   status = $status, updated_at = $now, updated_by = $by`,
+	).run({
+		$missionId: missionId,
+		$wsId: workstreamId,
+		$status: status,
+		$now: new Date().toISOString(),
+		$by: updatedBy,
+	});
+}
+
+/**
+ * Get all workstream statuses for a mission from the workstream_status table.
+ * Returns a Map of workstreamId → status.
+ */
+export function getWorkstreamStatuses(
+	db: Database,
+	missionId: string,
+): Map<string, WorkstreamStatus> {
+	const rows = db
+		.prepare<{ workstream_id: string; status: string }, { $missionId: string }>(
+			"SELECT workstream_id, status FROM workstream_status WHERE mission_id = $missionId",
+		)
+		.all({ $missionId: missionId });
+	const map = new Map<string, WorkstreamStatus>();
+	for (const row of rows) {
+		map.set(row.workstream_id, row.status as WorkstreamStatus);
+	}
+	return map;
+}
+
+/**
+ * Load workstreams from JSON file and overlay statuses from the SQLite table.
+ * DB statuses take precedence over JSON statuses (backward compat: if no DB rows,
+ * falls back to JSON status field).
+ */
+export async function loadWorkstreamsWithStatuses(
+	filePath: string,
+	db: Database,
+	missionId: string,
+): Promise<Workstream[]> {
+	const validation = await loadWorkstreamsFile(filePath);
+	if (!validation.valid || !validation.workstreams) {
+		return [];
+	}
+	const statuses = getWorkstreamStatuses(db, missionId);
+	return validation.workstreams.workstreams.map((ws) => ({
+		...ws,
+		status: statuses.get(ws.id) ?? ws.status,
+	}));
 }
 
 // === Cross-Mission Scope Detection ===

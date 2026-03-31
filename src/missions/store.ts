@@ -380,6 +380,70 @@ const MISSION_MIGRATIONS: Migration[] = [
 			return cols.some((c) => c.name === "architect_session_id");
 		},
 	},
+	{
+		version: 5,
+		description: "add workstream_status, mission_gate_state, and mission_tick_lock tables",
+		up: (db) => {
+			db.exec(`
+				CREATE TABLE IF NOT EXISTS workstream_status (
+					mission_id TEXT NOT NULL,
+					workstream_id TEXT NOT NULL,
+					status TEXT NOT NULL DEFAULT 'planned'
+						CHECK(status IN ('planned', 'active', 'paused', 'completed')),
+					updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+					updated_by TEXT NOT NULL DEFAULT 'agent',
+					PRIMARY KEY(mission_id, workstream_id)
+				)
+			`);
+			db.exec(`
+				CREATE TABLE IF NOT EXISTS mission_gate_state (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					mission_id TEXT NOT NULL,
+					node_id TEXT NOT NULL,
+					entered_at TEXT NOT NULL,
+					nudge_count INTEGER NOT NULL DEFAULT 0,
+					last_nudge_at TEXT,
+					respawn_count INTEGER NOT NULL DEFAULT 0,
+					last_respawn_at TEXT,
+					grace_ms INTEGER NOT NULL,
+					nudge_interval_ms INTEGER NOT NULL DEFAULT 60000,
+					max_nudges INTEGER NOT NULL DEFAULT 3,
+					max_total_wait_ms INTEGER NOT NULL DEFAULT 3600000,
+					resolved_at TEXT,
+					resolved_trigger TEXT,
+					UNIQUE(mission_id, node_id)
+				)
+			`);
+			db.exec(
+				"CREATE INDEX IF NOT EXISTS idx_mgs_active ON mission_gate_state(mission_id, resolved_at)",
+			);
+			db.exec(`
+				CREATE TABLE IF NOT EXISTS mission_tick_lock (
+					mission_id TEXT PRIMARY KEY,
+					locked_at TEXT NOT NULL,
+					locked_by TEXT
+				)
+			`);
+		},
+		detect: (db) => {
+			const wsStatus = db
+				.prepare<{ name: string }, []>(
+					"SELECT name FROM sqlite_master WHERE type='table' AND name='workstream_status'",
+				)
+				.get();
+			const gateState = db
+				.prepare<{ name: string }, []>(
+					"SELECT name FROM sqlite_master WHERE type='table' AND name='mission_gate_state'",
+				)
+				.get();
+			const tickLock = db
+				.prepare<{ name: string }, []>(
+					"SELECT name FROM sqlite_master WHERE type='table' AND name='mission_tick_lock'",
+				)
+				.get();
+			return wsStatus !== null && gateState !== null && tickLock !== null;
+		},
+	},
 ];
 
 /** Convert a database row (snake_case) to a Mission object (camelCase). */

@@ -200,7 +200,7 @@ export interface OverstoryConfig {
 			/** Model override for critic agents. Default: uses manifest default. */
 			criticModel?: ModelRef;
 		};
-		/** Enable graph execution engine for sub-workflow cells. Default: false. */
+		/** Enable graph execution engine for mission lifecycle control. Default: true (set to false to disable). */
 		graphExecution?: boolean;
 		/** Maximum number of concurrently active missions. Default: 1 (backward-compatible). */
 		maxConcurrent?: number;

@@ -245,7 +245,7 @@ function makeDeps(overrides?: Partial<EngineDeps>): EngineDeps {
 // === shouldUseEngine ===
 
 describe("shouldUseEngine", () => {
-	test("returns false when flag is absent", () => {
+	test("returns true when flag is absent (enabled by default)", () => {
 		const result = shouldUseEngine(baseMission, {
 			project: { name: "", root: "", canonicalBranch: "main" },
 			agents: {
@@ -274,7 +274,7 @@ describe("shouldUseEngine", () => {
 			models: {},
 			logging: { verbose: false, redactSecrets: false },
 		});
-		expect(result).toBe(false);
+		expect(result).toBe(true);
 	});
 
 	test("returns false when flag is explicitly false", () => {

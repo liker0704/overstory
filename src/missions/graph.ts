@@ -43,6 +43,7 @@ function buildDefaultGraph(): MissionGraph {
 
 	// Build active + frozen nodes for each working phase
 	const workingPhases: MissionPhase[] = ["understand", "align", "decide", "plan", "execute"];
+	const autoAdvancePhases = new Set<MissionPhase>(["align", "decide"]);
 	for (const phase of workingPhases) {
 		nodes.push({
 			kind: "lifecycle",
@@ -50,6 +51,7 @@ function buildDefaultGraph(): MissionGraph {
 			phase,
 			state: "active",
 			label: `${phase} (active)`,
+			...(autoAdvancePhases.has(phase) ? { handler: `${phase}-auto-advance` } : {}),
 		});
 		nodes.push({
 			kind: "lifecycle",
@@ -152,6 +154,107 @@ function buildDefaultGraph(): MissionGraph {
 		});
 	}
 
+	// Done phase: active entry point (for done-phase subgraph)
+	nodes.push({
+		kind: "lifecycle",
+		id: nodeId("done", "active"),
+		phase: "done",
+		state: "active",
+		label: "done (active)",
+	});
+	// execute:active --complete--> done:active (entry into done phase)
+	edges.push({
+		from: nodeId("execute", "active"),
+		to: nodeId("done", "active"),
+		trigger: "complete",
+		weight: 10,
+	});
+	// done:active freeze/unfreeze
+	edges.push({
+		from: nodeId("done", "active"),
+		to: nodeId("done", "frozen"),
+		trigger: "freeze",
+	});
+	// done:active suspend
+	edges.push({
+		from: nodeId("done", "active"),
+		to: nodeId("done", "suspended"),
+		trigger: "suspend",
+	});
+	// done:active stop/fail
+	edges.push({
+		from: nodeId("done", "active"),
+		to: nodeId("done", "stopped"),
+		trigger: "stop",
+	});
+	edges.push({
+		from: nodeId("done", "active"),
+		to: nodeId("done", "failed"),
+		trigger: "fail",
+	});
+
+	// done:frozen
+	nodes.push({
+		kind: "lifecycle",
+		id: nodeId("done", "frozen"),
+		phase: "done",
+		state: "frozen",
+		label: "done (frozen)",
+		gate: "human",
+	});
+	edges.push({
+		from: nodeId("done", "frozen"),
+		to: nodeId("done", "active"),
+		trigger: "answer",
+	});
+	edges.push({
+		from: nodeId("done", "frozen"),
+		to: nodeId("done", "suspended"),
+		trigger: "suspend",
+	});
+	edges.push({
+		from: nodeId("done", "frozen"),
+		to: nodeId("done", "stopped"),
+		trigger: "stop",
+	});
+	edges.push({
+		from: nodeId("done", "frozen"),
+		to: nodeId("done", "failed"),
+		trigger: "fail",
+	});
+
+	// done:suspended
+	nodes.push({
+		kind: "lifecycle",
+		id: nodeId("done", "suspended"),
+		phase: "done",
+		state: "suspended",
+		label: "done (suspended)",
+	});
+	edges.push({
+		from: nodeId("done", "suspended"),
+		to: nodeId("done", "active"),
+		trigger: "resume",
+	});
+	edges.push({
+		from: nodeId("done", "suspended"),
+		to: nodeId("done", "stopped"),
+		trigger: "stop",
+	});
+	edges.push({
+		from: nodeId("done", "suspended"),
+		to: nodeId("done", "failed"),
+		trigger: "fail",
+	});
+
+	// done:active --complete--> done:completed (terminal)
+	edges.push({
+		from: nodeId("done", "active"),
+		to: nodeId("done", "completed"),
+		trigger: "phase_complete",
+		weight: 10,
+	});
+
 	// Terminal: done:completed
 	nodes.push({
 		kind: "lifecycle",
@@ -160,12 +263,6 @@ function buildDefaultGraph(): MissionGraph {
 		state: "completed",
 		label: "done",
 		terminal: true,
-	});
-	edges.push({
-		from: nodeId("execute", "active"),
-		to: nodeId("done", "completed"),
-		trigger: "complete",
-		weight: 10,
 	});
 
 	// Terminal: done:stopped

@@ -412,5 +412,21 @@ export function createMissionCommand(): Command {
 			}
 		});
 
+	// workstream-complete subcommand (uses lazy import for the command builder)
+	cmd
+		.command("workstream-complete")
+		.argument("<workstream-id>", "Workstream ID to mark as completed")
+		.option("--mission <id>", "Mission ID (defaults to active mission)")
+		.option("--json", "JSON output")
+		.description("Mark a workstream as completed (operator escape hatch)")
+		.action(async (workstreamId: string, opts: { mission?: string; json?: boolean }) => {
+			const { createWorkstreamCompleteCommand } = await import(
+				"./mission-workstream-complete.ts"
+			);
+			// Delegate to the standalone command's action
+			const cmd = createWorkstreamCompleteCommand();
+			await cmd.parseAsync([workstreamId, ...(opts.mission ? ["--mission", opts.mission] : []), ...(opts.json ? ["--json"] : [])], { from: "user" });
+		});
+
 	return cmd;
 }

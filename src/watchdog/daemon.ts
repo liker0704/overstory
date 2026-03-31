@@ -1677,6 +1677,49 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 				// Non-fatal: export pipeline errors must not crash the daemon
 			}
 		}
+
+		// === Mission lifecycle engine tick ===
+		if (options.config?.mission?.graphExecution !== false) {
+			const { createMissionStore } = await import("../missions/store.ts");
+			const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
+			try {
+				const { runMissionTick } = await import("./mission-tick.ts");
+				await runMissionTick({
+					overstoryDir,
+					projectRoot: root,
+					config: options.config ?? ({} as OverstoryConfig),
+					missionStore,
+					sessionStore: store,
+					mailStore,
+					eventStore,
+					intervalMs: options.config?.watchdog?.tier0IntervalMs ?? 30_000,
+				});
+			} catch (err) {
+				// Non-fatal: mission tick failure must not break agent health checks
+				if (eventStore) {
+					try {
+						eventStore.insert({
+							runId,
+							agentName: "engine",
+							sessionId: null,
+							eventType: "error",
+							toolName: null,
+							toolArgs: null,
+							toolDurationMs: null,
+							level: "error",
+							data: JSON.stringify({
+								kind: "mission_tick_error",
+								error: err instanceof Error ? err.message : String(err),
+							}),
+						});
+					} catch {
+						// Double-fault: event recording failed too
+					}
+				}
+			} finally {
+				missionStore.close();
+			}
+		}
 	} finally {
 		store.close();
 		// Close MailStore only if we created it (not injected)

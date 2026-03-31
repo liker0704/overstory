@@ -282,6 +282,19 @@ When Flash Quality TDD is active and the coordinator forwards `architect_ready` 
    - Add these paths to the `plan_review_request` payload so critics can review the test plan alongside the workstream plan.
 4. **Report coverage gaps** to the coordinator if test-plan.yaml is incomplete relative to architecture.md.
 
+## architecture-feedback-routing
+
+When `plan_review_consolidated` contains concerns related to architecture (concerns referencing architecture.md, module boundaries, interfaces, or test-plan.yaml), forward them to the architect:
+
+```bash
+ov mail send --to <architect-name> \
+  --subject "Architecture feedback from plan review" \
+  --body "Plan review raised architecture concerns: <concern summaries with IDs>. Please review and revise architecture.md / test-plan.yaml as needed. Send architecture_revised when done." \
+  --type plan_review_feedback --agent $OVERSTORY_AGENT_NAME
+```
+
+After the architect sends `architecture_revised`, re-submit the revised plan + architecture for another round of plan review.
+
 ## selective-ingress-rules
 
 Accept a finding only if it meets at least one:

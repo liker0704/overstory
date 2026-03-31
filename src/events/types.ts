@@ -15,7 +15,13 @@ export type EventType =
 	| "turn_end"
 	| "progress"
 	| "result"
-	| "mission";
+	| "mission"
+	| "engine_gate_entered"
+	| "engine_nudge_sent"
+	| "engine_agent_respawned"
+	| "engine_gate_advanced"
+	| "engine_ws_status_updated"
+	| "engine_mission_suspended";
 
 /** Severity levels for events. */
 export type EventLevel = "debug" | "info" | "warn" | "error";
