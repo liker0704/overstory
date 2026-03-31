@@ -264,6 +264,33 @@ export async function evaluateSummaryReady(
 	};
 }
 
+/** Check if architecture review has completed (approved or stuck). */
+export function evaluateArchReviewComplete(
+	mission: Mission,
+	mailStore: MailStore | null,
+): GateEvalResult {
+	if (!mailStore) return { met: false };
+
+	const coordinatorName = `coordinator-${mission.slug}`;
+	const msgs = mailStore.getUnread(coordinatorName);
+
+	// Check for architecture review completion signals
+	const hasApproved = msgs.some(
+		(m) =>
+			m.subject.toLowerCase().includes("architecture review") &&
+			(m.type === "result" || m.subject.toLowerCase().includes("approved")),
+	);
+	if (hasApproved) {
+		return { met: true, trigger: "approved" };
+	}
+
+	return {
+		met: false,
+		nudgeTarget: `architect-${mission.slug}`,
+		nudgeMessage: "Complete architecture review and report results",
+	};
+}
+
 /** Dispatch gate evaluator based on the current node ID. */
 export async function evaluateGate(
 	nodeId: string,
@@ -296,7 +323,7 @@ export async function evaluateGate(
 		case "arch-review-dispatch":
 			return evaluateArchReviewDispatch(mission, stores.mailStore);
 		case "arch-review":
-			return evaluateArchReviewDispatch(mission, stores.mailStore);
+			return evaluateArchReviewComplete(mission, stores.mailStore);
 		case "await-refactor":
 			return evaluateRefactorCompletion(mission, stores.mailStore);
 		case "await-arch-final":
