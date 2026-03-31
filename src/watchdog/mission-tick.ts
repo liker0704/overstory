@@ -295,9 +295,46 @@ async function processMission(
 		);
 
 		if (evalResult.met && evalResult.trigger) {
-			// Condition met — advance engine
+			// Condition met — resolve gate and advance.
+			// For subgraph gates, engine.advanceNode() doesn't work because the
+			// parent engine doesn't know about subgraph internals. Instead, we
+			// find the target node from the subgraph edges and directly update
+			// the checkpoint and mission currentNode. On the next tick, the
+			// engine will resume from the new position.
 			resolveGate(gateDb, mission.id, currentNodeId, evalResult.trigger);
-			await engine.advanceNode(evalResult.trigger);
+
+			// Find target node by matching the trigger against subgraph edges.
+			// The currentNodeId is in cellType:nodeName format. We need to find
+			// the edge with this trigger from the current node in the subgraph.
+			const cellType = currentNodeId.split(":")[0] ?? "";
+			const phaseCell = (await import("../missions/engine-wiring.ts")).PHASE_CELL_REGISTRY[
+				cellType
+			];
+			if (phaseCell) {
+				const subgraph = phaseCell.buildSubgraph({
+					missionId: mission.id,
+					artifactRoot: mission.artifactRoot ?? "",
+					projectRoot: opts.projectRoot,
+				});
+				const edge = subgraph.edges.find(
+					(e) => e.from === currentNodeId && e.trigger === evalResult.trigger,
+				);
+				if (edge) {
+					// Advance: save checkpoint at target node and update mission currentNode
+					const checkpointKey = `${freshMission?.currentNode?.split(":").slice(0, -1).join(":") ?? ""}:${mission.id}`;
+					missionStore.checkpoints.saveStepResult(
+						mission.id,
+						currentNodeId,
+						edge.to,
+						evalResult.trigger,
+						null,
+					);
+					missionStore.updateCurrentNode(mission.id, edge.to);
+				}
+			} else {
+				// Top-level gate (not in subgraph) — use engine.advanceNode
+				await engine.advanceNode(evalResult.trigger);
+			}
 
 			if (opts.eventStore) {
 				opts.eventStore.insert({
