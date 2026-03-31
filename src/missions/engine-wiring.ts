@@ -270,7 +270,11 @@ function buildLifecycleGraph(mission: Mission): MissionGraph {
  * merges all handler registries (built-in + auto-advance + phase cell handlers).
  * Engine is capped at maxSteps=5 for tick-based execution safety.
  */
-export function startLifecycleEngine(mission: Mission, deps: EngineDeps): GraphEngine {
+export function startLifecycleEngine(
+	mission: Mission,
+	deps: EngineDeps,
+	opts?: { startNodeId?: string },
+): GraphEngine {
 	const handlers = buildLifecycleHandlers(deps);
 	const graph = buildLifecycleGraph(mission);
 
@@ -282,5 +286,6 @@ export function startLifecycleEngine(mission: Mission, deps: EngineDeps): GraphE
 		missionStore: deps.missionStore,
 		sendMail: deps.sendMail,
 		maxSteps: 5,
+		startNodeId: opts?.startNodeId,
 	});
 }

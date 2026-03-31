@@ -212,29 +212,47 @@ async function processMission(
 		missionStore.checkpoints.saveCheckpoint(mission.id, startNode, { seeded: true });
 	}
 
-	// Reconstruct engine from checkpoint
+	// Reconstruct engine from checkpoint.
+	// If the current node is a subgraph node (e.g., "understand-phase:evaluate"),
+	// we need to tell the parent engine to start at the parent lifecycle node
+	// (e.g., "understand:active") so it can re-enter the subgraph properly.
 	const engineFactory =
 		opts._startEngine ?? (await import("../missions/engine-wiring.ts")).startLifecycleEngine;
 
-	const engine = engineFactory(mission, {
-		checkpointStore: missionStore.checkpoints,
-		missionStore,
-		sendMail: opts.mailStore
-			? async (to, subject, body, type) => {
-					opts.mailStore?.insert({
-						id: "",
-						from: "engine",
-						to,
-						subject,
-						body,
-						type: type as "status",
-						priority: "normal",
-						threadId: null,
-					});
-				}
-			: undefined,
-		sessionStore: opts.sessionStore,
-	});
+	// Detect subgraph node and override start to parent node
+	const currentMissionNode = missionStore.getById(mission.id)?.currentNode;
+	let startNodeOverride: string | undefined;
+	if (currentMissionNode && currentMissionNode.includes("-phase:")) {
+		// Subgraph node — extract phase and set parent node
+		const phasePart = currentMissionNode.split("-phase:")[0];
+		if (phasePart) {
+			startNodeOverride = `${phasePart}:active`;
+		}
+	}
+
+	const engine = engineFactory(
+		mission,
+		{
+			checkpointStore: missionStore.checkpoints,
+			missionStore,
+			sendMail: opts.mailStore
+				? async (to, subject, body, type) => {
+						opts.mailStore?.insert({
+							id: "",
+							from: "engine",
+							to,
+							subject,
+							body,
+							type: type as "status",
+							priority: "normal",
+							threadId: null,
+						});
+					}
+				: undefined,
+			sessionStore: opts.sessionStore,
+		},
+		startNodeOverride ? { startNodeId: startNodeOverride } : undefined,
+	);
 
 	// Execute one step
 	const result = await engine.step();
