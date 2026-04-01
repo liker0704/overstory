@@ -102,7 +102,9 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 	const engineFactory =
 		opts._startEngine ?? (await import("../missions/engine-wiring.ts")).startLifecycleEngine;
 
-	const currentMissionNode = missionStore.getById(mission.id)?.currentNode;
+	// Read mission once — reused for subgraph detection and later as freshMission
+	const latestMission = missionStore.getById(mission.id);
+	const currentMissionNode = latestMission?.currentNode;
 	let startNodeOverride: string | undefined;
 	if (currentMissionNode && currentMissionNode.includes("-phase:")) {
 		const phasePart = currentMissionNode.split("-phase:")[0];
@@ -139,8 +141,8 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 	const result = await engine.step();
 
 	if (result.status === "gate") {
-		// Re-read mission to get latest currentNode (updated by engine transitions)
-		const freshMission = missionStore.getById(mission.id);
+		// Re-read mission to get latest currentNode (engine.step may have updated it)
+		const freshMission = missionStore.getById(mission.id) ?? latestMission;
 		const currentNodeId = freshMission?.currentNode ?? engine.currentNodeId();
 		const nodeName = currentNodeId.split(":")[1] ?? "";
 

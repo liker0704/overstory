@@ -886,102 +886,113 @@ export function createMissionStore(dbPath: string): MissionStore {
 		checkpoints: createCheckpointStore(db),
 
 		// === Gate state operations (for mission engine tick) ===
+		// Prepared statements created once, matching the store's existing pattern.
 
-		acquireTickLock(missionId: string, intervalMs: number): boolean {
-			const now = new Date().toISOString();
-			const timeoutSec = (intervalMs * 2) / 1000;
-			db.prepare(
+		acquireTickLock: (() => {
+			const clearStaleStmt = db.prepare(
 				`DELETE FROM mission_tick_lock
 				 WHERE mission_id = $id
 				 AND (julianday($now) - julianday(locked_at)) * 86400 > $timeout`,
-			).run({ $id: missionId, $now: now, $timeout: timeoutSec });
-			const result = db.prepare(
+			);
+			const acquireStmt = db.prepare(
 				`INSERT OR IGNORE INTO mission_tick_lock (mission_id, locked_at, locked_by)
 				 VALUES ($id, $now, $pid)`,
-			).run({ $id: missionId, $now: now, $pid: String(process.pid) });
-			return result.changes > 0;
-		},
+			);
+			return (missionId: string, intervalMs: number): boolean => {
+				const now = new Date().toISOString();
+				const timeoutSec = (intervalMs * 2) / 1000;
+				clearStaleStmt.run({ $id: missionId, $now: now, $timeout: timeoutSec });
+				const result = acquireStmt.run({
+					$id: missionId,
+					$now: now,
+					$pid: String(process.pid),
+				});
+				return result.changes > 0;
+			};
+		})(),
 
-		releaseTickLock(missionId: string): void {
-			db.prepare("DELETE FROM mission_tick_lock WHERE mission_id = $id").run({
-				$id: missionId,
-			});
-		},
+		releaseTickLock: (() => {
+			const stmt = db.prepare(
+				"DELETE FROM mission_tick_lock WHERE mission_id = $id",
+			);
+			return (missionId: string): void => {
+				stmt.run({ $id: missionId });
+			};
+		})(),
 
-		ensureGateState(
-			missionId: string,
-			nodeId: string,
-			graceMs: number,
-			maxTotalWaitMs: number,
-		): {
-			entered_at: string;
-			nudge_count: number;
-			last_nudge_at: string | null;
-			respawn_count: number;
-			grace_ms: number;
-			nudge_interval_ms: number;
-			max_nudges: number;
-			max_total_wait_ms: number;
-		} {
-			db.prepare(
+		ensureGateState: (() => {
+			const insertStmt = db.prepare(
 				`INSERT OR IGNORE INTO mission_gate_state
 				 (mission_id, node_id, entered_at, grace_ms, max_total_wait_ms)
 				 VALUES ($missionId, $nodeId, $now, $graceMs, $maxTotalWaitMs)`,
-			).run({
-				$missionId: missionId,
-				$nodeId: nodeId,
-				$now: new Date().toISOString(),
-				$graceMs: graceMs,
-				$maxTotalWaitMs: maxTotalWaitMs,
-			});
-			const row = db
-				.prepare<
-					{
-						entered_at: string;
-						nudge_count: number;
-						last_nudge_at: string | null;
-						respawn_count: number;
-						grace_ms: number;
-						nudge_interval_ms: number;
-						max_nudges: number;
-						max_total_wait_ms: number;
-					},
-					{ $missionId: string; $nodeId: string }
-				>(
-					`SELECT entered_at, nudge_count, last_nudge_at, respawn_count,
-					        grace_ms, nudge_interval_ms, max_nudges, max_total_wait_ms
-					 FROM mission_gate_state
-					 WHERE mission_id = $missionId AND node_id = $nodeId`,
-				)
-				.get({ $missionId: missionId, $nodeId: nodeId });
-			if (!row) throw new Error(`Gate state not found for ${missionId}:${nodeId}`);
-			return row;
-		},
+			);
+			const selectStmt = db.prepare<
+				{
+					entered_at: string;
+					nudge_count: number;
+					last_nudge_at: string | null;
+					respawn_count: number;
+					grace_ms: number;
+					nudge_interval_ms: number;
+					max_nudges: number;
+					max_total_wait_ms: number;
+				},
+				{ $missionId: string; $nodeId: string }
+			>(
+				`SELECT entered_at, nudge_count, last_nudge_at, respawn_count,
+				        grace_ms, nudge_interval_ms, max_nudges, max_total_wait_ms
+				 FROM mission_gate_state
+				 WHERE mission_id = $missionId AND node_id = $nodeId`,
+			);
+			return (
+				missionId: string,
+				nodeId: string,
+				graceMs: number,
+				maxTotalWaitMs: number,
+			) => {
+				insertStmt.run({
+					$missionId: missionId,
+					$nodeId: nodeId,
+					$now: new Date().toISOString(),
+					$graceMs: graceMs,
+					$maxTotalWaitMs: maxTotalWaitMs,
+				});
+				const row = selectStmt.get({ $missionId: missionId, $nodeId: nodeId });
+				if (!row) throw new Error(`Gate state not found for ${missionId}:${nodeId}`);
+				return row;
+			};
+		})(),
 
-		incrementNudgeCount(missionId: string, nodeId: string): void {
-			db.prepare(
+		incrementNudgeCount: (() => {
+			const stmt = db.prepare(
 				`UPDATE mission_gate_state
 				 SET nudge_count = nudge_count + 1, last_nudge_at = $now
 				 WHERE mission_id = $missionId AND node_id = $nodeId`,
-			).run({
-				$missionId: missionId,
-				$nodeId: nodeId,
-				$now: new Date().toISOString(),
-			});
-		},
+			);
+			return (missionId: string, nodeId: string): void => {
+				stmt.run({
+					$missionId: missionId,
+					$nodeId: nodeId,
+					$now: new Date().toISOString(),
+				});
+			};
+		})(),
 
-		resolveGate(missionId: string, nodeId: string, trigger: string): void {
-			db.prepare(
+		resolveGate: (() => {
+			const stmt = db.prepare(
 				`UPDATE mission_gate_state
 				 SET resolved_at = $now, resolved_trigger = $trigger
 				 WHERE mission_id = $missionId AND node_id = $nodeId`,
-			).run({
-				$missionId: missionId,
-				$nodeId: nodeId,
-				$now: new Date().toISOString(),
-				$trigger: trigger,
-			});
-		},
+			);
+			return (missionId: string, nodeId: string, trigger: string): void => {
+				stmt.run({
+					$missionId: missionId,
+					$nodeId: nodeId,
+					$now: new Date().toISOString(),
+					$trigger: trigger,
+				});
+			};
+		})(),
 
 		close(): void {
 			try {
