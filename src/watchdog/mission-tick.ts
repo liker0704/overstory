@@ -8,7 +8,6 @@
  * agents are alive but stuck, and respawns when agents are dead.
  */
 
-import type { Database } from "bun:sqlite";
 import { join } from "node:path";
 import type { OverstoryConfig } from "../config-types.ts";
 import type { EventStore } from "../events/types.ts";
@@ -56,53 +55,6 @@ const MAX_TOTAL_WAIT_OVERRIDES: Record<string, number> = {
 	"await-refactor": 14_400_000, // 4 hours
 };
 
-// === Tick lock ===
-
-function acquireTickLock(db: Database, missionId: string, intervalMs: number): boolean {
-	const now = new Date().toISOString();
-	const timeoutSec = (intervalMs * 2) / 1000;
-
-	// Clear stale locks (older than 2x interval)
-	db.prepare(
-		`DELETE FROM mission_tick_lock
-		 WHERE mission_id = $id
-		 AND (julianday($now) - julianday(locked_at)) * 86400 > $timeout`,
-	).run({ $id: missionId, $now: now, $timeout: timeoutSec });
-
-	// Try to acquire lock
-	const result = db
-		.prepare(
-			`INSERT OR IGNORE INTO mission_tick_lock (mission_id, locked_at, locked_by)
-		 VALUES ($id, $now, $pid)`,
-		)
-		.run({ $id: missionId, $now: now, $pid: String(process.pid) });
-
-	return result.changes > 0;
-}
-
-function releaseTickLock(db: Database, missionId: string): void {
-	db.prepare("DELETE FROM mission_tick_lock WHERE mission_id = $id").run({
-		$id: missionId,
-	});
-}
-
-// === Gate state management ===
-
-interface GateStateRow {
-	mission_id: string;
-	node_id: string;
-	entered_at: string;
-	nudge_count: number;
-	last_nudge_at: string | null;
-	respawn_count: number;
-	last_respawn_at: string | null;
-	grace_ms: number;
-	nudge_interval_ms: number;
-	max_nudges: number;
-	max_total_wait_ms: number;
-	resolved_at: string | null;
-}
-
 function getGraceMs(nodeName: string): number {
 	return GRACE_OVERRIDES[nodeName] ?? DEFAULT_GRACE_MS;
 }
@@ -111,98 +63,29 @@ function getMaxTotalWaitMs(nodeName: string): number {
 	return MAX_TOTAL_WAIT_OVERRIDES[nodeName] ?? DEFAULT_MAX_TOTAL_WAIT_MS;
 }
 
-function ensureGateState(db: Database, missionId: string, nodeId: string): GateStateRow {
-	const nodeName = nodeId.split(":")[1] ?? "";
-	const graceMs = getGraceMs(nodeName);
-	const maxTotalWaitMs = getMaxTotalWaitMs(nodeName);
-
-	db.prepare(
-		`INSERT OR IGNORE INTO mission_gate_state
-		 (mission_id, node_id, entered_at, grace_ms, max_total_wait_ms)
-		 VALUES ($missionId, $nodeId, $now, $graceMs, $maxTotalWaitMs)`,
-	).run({
-		$missionId: missionId,
-		$nodeId: nodeId,
-		$now: new Date().toISOString(),
-		$graceMs: graceMs,
-		$maxTotalWaitMs: maxTotalWaitMs,
-	});
-
-	const row = db
-		.prepare<GateStateRow, { $missionId: string; $nodeId: string }>(
-			`SELECT * FROM mission_gate_state
-			 WHERE mission_id = $missionId AND node_id = $nodeId`,
-		)
-		.get({ $missionId: missionId, $nodeId: nodeId });
-
-	if (!row) throw new Error(`Gate state row not found for ${missionId}:${nodeId}`);
-	return row;
-}
-
-function incrementNudgeCount(db: Database, missionId: string, nodeId: string): void {
-	db.prepare(
-		`UPDATE mission_gate_state
-		 SET nudge_count = nudge_count + 1, last_nudge_at = $now
-		 WHERE mission_id = $missionId AND node_id = $nodeId`,
-	).run({
-		$missionId: missionId,
-		$nodeId: nodeId,
-		$now: new Date().toISOString(),
-	});
-}
-
-function resolveGate(db: Database, missionId: string, nodeId: string, trigger: string): void {
-	db.prepare(
-		`UPDATE mission_gate_state
-		 SET resolved_at = $now, resolved_trigger = $trigger
-		 WHERE mission_id = $missionId AND node_id = $nodeId`,
-	).run({
-		$missionId: missionId,
-		$nodeId: nodeId,
-		$now: new Date().toISOString(),
-		$trigger: trigger,
-	});
-}
-
 // === Main tick ===
 
 export async function runMissionTick(opts: MissionTickOpts): Promise<void> {
 	const { missionStore, intervalMs } = opts;
-	const sessionsDbPath = join(opts.overstoryDir, "sessions.db");
+	const missions = missionStore.getActiveList();
 
-	// Import Database dynamically to avoid circular deps at module level
-	const { Database } = await import("bun:sqlite");
-	const gateDb = new Database(sessionsDbPath);
-	gateDb.exec("PRAGMA journal_mode=WAL");
-	gateDb.exec("PRAGMA busy_timeout=5000");
+	for (const mission of missions) {
+		if (mission.state !== "active") continue;
 
-	try {
-		const missions = missionStore.getActiveList();
-
-		for (const mission of missions) {
-			if (mission.state !== "active") continue;
-
-			// Acquire per-mission tick lock
-			if (!acquireTickLock(gateDb, mission.id, intervalMs)) {
-				continue; // Another tick is processing this mission
-			}
-
-			try {
-				await processMission(mission, opts, gateDb);
-			} finally {
-				releaseTickLock(gateDb, mission.id);
-			}
+		// Acquire per-mission tick lock via missionStore (single DB connection)
+		if (!missionStore.acquireTickLock(mission.id, intervalMs)) {
+			continue; // Another tick is processing this mission
 		}
-	} finally {
-		gateDb.close();
+
+		try {
+			await processMission(mission, opts);
+		} finally {
+			missionStore.releaseTickLock(mission.id);
+		}
 	}
 }
 
-async function processMission(
-	mission: Mission,
-	opts: MissionTickOpts,
-	gateDb: Database,
-): Promise<void> {
+async function processMission(mission: Mission, opts: MissionTickOpts): Promise<void> {
 	const { missionStore } = opts;
 
 	// Seed checkpoint on first engine tick for this mission (backward compat)
@@ -214,16 +97,14 @@ async function processMission(
 
 	// Reconstruct engine from checkpoint.
 	// If the current node is a subgraph node (e.g., "understand-phase:evaluate"),
-	// we need to tell the parent engine to start at the parent lifecycle node
-	// (e.g., "understand:active") so it can re-enter the subgraph properly.
+	// tell the parent engine to start at the parent lifecycle node so it can
+	// re-enter the subgraph properly.
 	const engineFactory =
 		opts._startEngine ?? (await import("../missions/engine-wiring.ts")).startLifecycleEngine;
 
-	// Detect subgraph node and override start to parent node
 	const currentMissionNode = missionStore.getById(mission.id)?.currentNode;
 	let startNodeOverride: string | undefined;
 	if (currentMissionNode && currentMissionNode.includes("-phase:")) {
-		// Subgraph node — extract phase and set parent node
 		const phasePart = currentMissionNode.split("-phase:")[0];
 		if (phasePart) {
 			startNodeOverride = `${phasePart}:active`;
@@ -258,15 +139,18 @@ async function processMission(
 	const result = await engine.step();
 
 	if (result.status === "gate") {
-		// The engine's currentNodeId may be a parent lifecycle node with a subgraph.
-		// The actual gated node is tracked in mission.currentNode (updated by
-		// engine.updateCurrentNode on every transition, including subgraph transitions).
-		// Re-read mission to get the latest currentNode.
+		// Re-read mission to get latest currentNode (updated by engine transitions)
 		const freshMission = missionStore.getById(mission.id);
 		const currentNodeId = freshMission?.currentNode ?? engine.currentNodeId();
+		const nodeName = currentNodeId.split(":")[1] ?? "";
 
-		// Ensure gate state row exists
-		const gateState = ensureGateState(gateDb, mission.id, currentNodeId);
+		// Ensure gate state row exists (uses missionStore's DB connection)
+		const gateState = missionStore.ensureGateState(
+			mission.id,
+			currentNodeId,
+			getGraceMs(nodeName),
+			getMaxTotalWaitMs(nodeName),
+		);
 
 		const now = Date.now();
 		const enteredAt = new Date(gateState.entered_at).getTime();
@@ -274,7 +158,6 @@ async function processMission(
 
 		// Absolute ceiling check
 		if (elapsed > gateState.max_total_wait_ms) {
-			// Ceiling exceeded — escalate regardless of activity
 			if (opts.eventStore) {
 				opts.eventStore.insert({
 					runId: mission.runId,
@@ -300,30 +183,20 @@ async function processMission(
 			return; // Within grace, agent is working
 		}
 
-		// Evaluate gate condition
+		// Evaluate gate condition (use freshMission for up-to-date phase/state)
 		const artifactRoot = mission.artifactRoot ?? join(opts.overstoryDir, "missions", mission.id);
 		const evalResult = await evaluateGate(
 			currentNodeId,
-			mission,
-			{
-				mailStore: opts.mailStore,
-				sessionStore: opts.sessionStore,
-			},
+			freshMission ?? mission,
+			{ mailStore: opts.mailStore, sessionStore: opts.sessionStore },
 			artifactRoot,
 		);
 
 		if (evalResult.met && evalResult.trigger) {
-			// Condition met — resolve gate and advance.
-			// For subgraph gates, engine.advanceNode() doesn't work because the
-			// parent engine doesn't know about subgraph internals. Instead, we
-			// find the target node from the subgraph edges and directly update
-			// the checkpoint and mission currentNode. On the next tick, the
-			// engine will resume from the new position.
-			resolveGate(gateDb, mission.id, currentNodeId, evalResult.trigger);
+			// Gate resolved — advance
+			missionStore.resolveGate(mission.id, currentNodeId, evalResult.trigger);
 
-			// Find target node by matching the trigger against subgraph edges.
-			// The currentNodeId is in cellType:nodeName format. We need to find
-			// the edge with this trigger from the current node in the subgraph.
+			// For subgraph gates, find the target node and advance directly
 			const cellType = currentNodeId.split(":")[0] ?? "";
 			const phaseCell = (await import("../missions/engine-wiring.ts")).PHASE_CELL_REGISTRY[
 				cellType
@@ -338,8 +211,6 @@ async function processMission(
 					(e) => e.from === currentNodeId && e.trigger === evalResult.trigger,
 				);
 				if (edge) {
-					// Advance: save checkpoint at target node and update mission currentNode
-					const checkpointKey = `${freshMission?.currentNode?.split(":").slice(0, -1).join(":") ?? ""}:${mission.id}`;
 					missionStore.checkpoints.saveStepResult(
 						mission.id,
 						currentNodeId,
@@ -350,7 +221,7 @@ async function processMission(
 					missionStore.updateCurrentNode(mission.id, edge.to);
 				}
 			} else {
-				// Top-level gate (not in subgraph) — use engine.advanceNode
+				// Top-level gate — use engine.advanceNode
 				await engine.advanceNode(evalResult.trigger);
 			}
 
@@ -373,13 +244,15 @@ async function processMission(
 				});
 			}
 		} else if (evalResult.nudgeTarget && evalResult.nudgeMessage) {
-			// Condition not met — nudge if interval elapsed
-			const lastNudge = gateState.last_nudge_at ? new Date(gateState.last_nudge_at).getTime() : 0;
+			// Not met — nudge if interval elapsed
+			const lastNudge = gateState.last_nudge_at
+				? new Date(gateState.last_nudge_at).getTime()
+				: 0;
 			const sinceLastNudge = now - lastNudge;
 
 			if (sinceLastNudge >= gateState.nudge_interval_ms) {
 				if (gateState.nudge_count < gateState.max_nudges) {
-					incrementNudgeCount(gateDb, mission.id, currentNodeId);
+					missionStore.incrementNudgeCount(mission.id, currentNodeId);
 
 					if (opts.eventStore) {
 						opts.eventStore.insert({
@@ -402,7 +275,6 @@ async function processMission(
 						});
 					}
 				}
-				// maxNudges exceeded — agent may be dead, let watchdog health checks handle
 			}
 		}
 	}

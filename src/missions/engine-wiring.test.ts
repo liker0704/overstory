@@ -202,6 +202,11 @@ function createMockMissionStore(): MissionStore {
 		updateCurrentNode: noop,
 		markLearningsExtracted: noop,
 		checkpoints: createMockCheckpointStore(),
+		acquireTickLock: () => true,
+		releaseTickLock: noop,
+		ensureGateState: () => ({ entered_at: new Date().toISOString(), nudge_count: 0, last_nudge_at: null, respawn_count: 0, grace_ms: 120000, nudge_interval_ms: 60000, max_nudges: 3, max_total_wait_ms: 3600000 }),
+		incrementNudgeCount: noop,
+		resolveGate: noop,
 		close: noop,
 	};
 }

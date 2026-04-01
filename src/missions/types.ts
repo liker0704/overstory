@@ -421,5 +421,27 @@ export interface MissionStore {
 	markLearningsExtracted(id: string): void;
 	/** Access the checkpoint store backed by the same db connection. */
 	checkpoints: CheckpointStore;
+
+	// === Gate state operations (for mission engine tick) ===
+	acquireTickLock(missionId: string, intervalMs: number): boolean;
+	releaseTickLock(missionId: string): void;
+	ensureGateState(
+		missionId: string,
+		nodeId: string,
+		graceMs: number,
+		maxTotalWaitMs: number,
+	): {
+		entered_at: string;
+		nudge_count: number;
+		last_nudge_at: string | null;
+		respawn_count: number;
+		grace_ms: number;
+		nudge_interval_ms: number;
+		max_nudges: number;
+		max_total_wait_ms: number;
+	};
+	incrementNudgeCount(missionId: string, nodeId: string): void;
+	resolveGate(missionId: string, nodeId: string, trigger: string): void;
+
 	close(): void;
 }
