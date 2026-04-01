@@ -822,13 +822,8 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 		const activeHeadlessAgents = new Set<string>();
 		const eventsDbPath = join(overstoryDir, "events.db");
 
-		// Open mail store once for the entire tick (not per-agent)
-		let mailStore: ReturnType<typeof createMailStore> | null = null;
-		try {
-			mailStore = createMailStore(join(overstoryDir, "mail.db"));
-		} catch {
-			// Non-fatal: mail nudge disabled for this tick
-		}
+		// Use the outer mailStore (opened at line 675) for session processing.
+		// Do NOT re-open — the outer handle is shared with runMissionTick later.
 
 		for (const session of sessions) {
 			// Done agents: if the agent sent worker_done but session isn't completed,
@@ -1410,14 +1405,8 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 			}
 		}
 
-		// Close shared mail store for this tick
-		if (mailStore) {
-			try {
-				mailStore.close();
-			} catch {
-				// Non-fatal
-			}
-		}
+		// mailStore stays open — closed in the outer finally block (line ~1728).
+		// Do NOT close here — runMissionTick (below) needs it.
 
 		// === Tailer cleanup ===
 		// Stop tailers for any headless agent that is no longer in the active set
