@@ -144,6 +144,13 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 		// Re-read mission to get latest currentNode (engine.step may have updated it)
 		const freshMission = missionStore.getById(mission.id) ?? latestMission;
 		const currentNodeId = freshMission?.currentNode ?? engine.currentNodeId();
+
+		// If we fell back to engine.currentNodeId(), it's the parent lifecycle node
+		// (e.g., "understand:active"), not the subgraph node. Gate evaluation won't
+		// match any subgraph gate — skip this tick rather than evaluate wrong node.
+		if (!freshMission?.currentNode && currentNodeId === engine.currentNodeId()) {
+			return;
+		}
 		const nodeName = currentNodeId.split(":")[1] ?? "";
 
 		// Ensure gate state row exists (uses missionStore's DB connection)
@@ -165,7 +172,7 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 					runId: mission.runId,
 					agentName: "engine",
 					sessionId: null,
-					eventType: "engine_nudge_sent",
+					eventType: "engine_mission_suspended",
 					toolName: null,
 					toolArgs: null,
 					toolDurationMs: null,
@@ -213,8 +220,15 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 					(e) => e.from === currentNodeId && e.trigger === evalResult.trigger,
 				);
 				if (edge) {
+					// Subgraph checkpoints use a prefixed key: "parentNodeId:missionId".
+					// The parent lifecycle node is derived from cellType:
+					//   "understand-phase" → parent "understand:active"
+					const phaseName = cellType.replace("-phase", "");
+					const parentNodeId = `${phaseName}:active`;
+					const subgraphCheckpointKey = `${parentNodeId}:${mission.id}`;
+
 					missionStore.checkpoints.saveStepResult(
-						mission.id,
+						subgraphCheckpointKey,
 						currentNodeId,
 						edge.to,
 						evalResult.trigger,

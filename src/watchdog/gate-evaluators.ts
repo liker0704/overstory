@@ -170,8 +170,11 @@ export function evaluateArchFinal(mission: Mission, mailStore: MailStore | null)
 
 	const coordinatorName = `coordinator-${mission.slug}`;
 	const msgs = mailStore.getAll({ to: coordinatorName });
+	const architectName = `architect-${mission.slug}`;
 	const hasFinal = msgs.some(
-		(m) => m.subject.includes("architecture_final") || m.type === "result",
+		(m) =>
+			m.from.includes(architectName) &&
+			(m.subject.includes("architecture_final") || m.subject.includes("Architecture Finalization")),
 	);
 
 	if (hasFinal) {
