@@ -36,7 +36,7 @@ export function evaluateAwaitResearch(
 
 	// Check if analyst sent research result — check coordinator's inbox
 	const coordinatorName = `coordinator-${mission.slug}`;
-	const msgs = mailStore.getUnread(coordinatorName);
+	const msgs = mailStore.getAll({ to: coordinatorName });
 	const hasResult = msgs.some((m) => m.type === "result" && m.from.includes("analyst"));
 	if (hasResult) {
 		return { met: true, trigger: "research_complete" };
@@ -114,7 +114,7 @@ export async function evaluateArchitectDesign(
 
 	// Check for architect_ready mail from architect capability
 	const coordinatorName = `coordinator-${mission.slug}`;
-	const msgs = mailStore.getUnread(coordinatorName);
+	const msgs = mailStore.getAll({ to: coordinatorName });
 	const hasArchitectReady = msgs.some(
 		(m) => m.type === "status" && m.subject.includes("architect_ready"),
 	);
@@ -150,7 +150,7 @@ export function evaluateWsCompletion(
 
 	// Check for 'merged' mail sent to execution director or coordinator
 	const edName = `execution-director-${mission.slug}`;
-	const msgs = mailStore.getUnread(edName);
+	const msgs = mailStore.getAll({ to: edName });
 	const mergedMail = msgs.find((m) => m.type === "merged");
 	if (mergedMail) {
 		return {
@@ -169,7 +169,7 @@ export function evaluateArchFinal(mission: Mission, mailStore: MailStore | null)
 	if (!mailStore) return { met: false };
 
 	const coordinatorName = `coordinator-${mission.slug}`;
-	const msgs = mailStore.getUnread(coordinatorName);
+	const msgs = mailStore.getAll({ to: coordinatorName });
 	const hasFinal = msgs.some(
 		(m) => m.subject.includes("architecture_final") || m.type === "result",
 	);
@@ -193,7 +193,7 @@ export function evaluateDispatchPlanning(
 	if (!mailStore) return { met: false };
 
 	const analystName = `mission-analyst-${mission.slug}`;
-	const msgs = mailStore.getUnread(analystName);
+	const msgs = mailStore.getAll({ to: analystName });
 	const hasDispatch = msgs.some((m) => m.type === "dispatch");
 	if (hasDispatch) {
 		return { met: true, trigger: "planning_started" };
@@ -213,7 +213,7 @@ export function evaluateArchReviewDispatch(
 	if (!mailStore) return { met: false };
 
 	const architectName = `architect-${mission.slug}`;
-	const msgs = mailStore.getUnread(architectName);
+	const msgs = mailStore.getAll({ to: architectName });
 	const hasDispatch = msgs.some(
 		(m) => m.type === "dispatch" && m.subject.toLowerCase().includes("architecture review"),
 	);
@@ -235,7 +235,7 @@ export function evaluateRefactorCompletion(
 	if (!mailStore) return { met: false };
 
 	const edName = `execution-director-${mission.slug}`;
-	const msgs = mailStore.getUnread(edName);
+	const msgs = mailStore.getAll({ to: edName });
 	const hasDone = msgs.some((m) => m.type === "worker_done" || m.type === "merged");
 	if (hasDone) {
 		return { met: true, trigger: "refactor_done" };
@@ -276,7 +276,7 @@ export function evaluateArchReviewComplete(
 	if (!mailStore) return { met: false };
 
 	const coordinatorName = `coordinator-${mission.slug}`;
-	const msgs = mailStore.getUnread(coordinatorName);
+	const msgs = mailStore.getAll({ to: coordinatorName });
 
 	// Check for architecture review completion signals
 	const hasApproved = msgs.some(
