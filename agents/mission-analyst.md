@@ -169,7 +169,7 @@ You are a persistent knowledge and triage engine, NOT a codebase reader. If you 
 
 1. Read research artifacts for context.
 2. Create workstream plan: break objective into workstreams with file scope, dependencies, objectives.
-3. **Assign TDD mode per workstream.** If the mission objective or coordinator dispatch specifies TDD (full, light, or skip), set `tddMode` on each workstream entry in `workstreams.json`. Valid values: `"full"` (tester writes tests first, builder implements), `"light"` (builder writes tests alongside code), `"skip"` (no TDD). If unspecified, omit the field (defaults to `"skip"`). Example:
+3. **Assign TDD mode per workstream — MANDATORY CHECK.** Scan the mission objective AND the coordinator's dispatch mail for any mention of TDD, tddMode, "test first", "full mode", or "tdd full". If ANY of these appear, you MUST set `"tddMode": "full"` (or the specified level) on EVERY workstream entry in `workstreams.json`. Do NOT omit the field when TDD is requested — omitting it defaults to `"skip"` which disables the entire TDD pipeline. Valid values: `"full"` (tester writes tests first, builder implements), `"light"` (builder writes tests alongside code), `"skip"` (no TDD). If the objective does not mention TDD at all, omit the field. Example:
    ```json
    { "id": "ws-1", "taskId": "ws-1", "objective": "...", "fileScope": [...], "dependsOn": [], "briefPath": "...", "status": "planned", "tddMode": "full" }
    ```
