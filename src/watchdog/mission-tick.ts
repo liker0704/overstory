@@ -15,8 +15,10 @@ import type { MailStore } from "../mail/store.ts";
 import type { startLifecycleEngine } from "../missions/engine-wiring.ts";
 import { nodeId } from "../missions/graph.ts";
 import type { SessionStore } from "../sessions/store.ts";
-import type { Mission, MissionStore } from "../types.ts";
+import type { AgentSession, Mission, MissionStore } from "../types.ts";
 import { evaluateGate } from "./gate-evaluators.ts";
+import { evaluateHealth } from "./health.ts";
+import { listSessions as listTmuxSessions } from "../worktree/tmux.ts";
 
 // === Types ===
 
@@ -63,6 +65,75 @@ function getMaxTotalWaitMs(nodeName: string): number {
 	return MAX_TOTAL_WAIT_OVERRIDES[nodeName] ?? DEFAULT_MAX_TOTAL_WAIT_MS;
 }
 
+// === Dead agent detection ===
+
+/** Session IDs bound to a mission for critical roles. */
+function getMissionRoleSessions(
+	mission: Mission,
+): Array<{ role: string; sessionId: string | null }> {
+	return [
+		{ role: "coordinator", sessionId: mission.coordinatorSessionId },
+		{ role: "analyst", sessionId: mission.analystSessionId },
+		{ role: "execution-director", sessionId: mission.executionDirectorSessionId },
+		{ role: "architect", sessionId: mission.architectSessionId },
+	];
+}
+
+/**
+ * Check if critical mission role agents are dead and record events.
+ * Checks tmux liveness + PID liveness via evaluateHealth.
+ */
+async function checkAndRecoverDeadAgents(
+	mission: Mission,
+	opts: MissionTickOpts,
+): Promise<void> {
+	const { sessionStore, eventStore } = opts;
+	const tmuxSessions = await listTmuxSessions();
+	const tmuxNames = new Set(tmuxSessions.map((s) => s.name));
+	const thresholds = { staleMs: 300_000, zombieMs: 600_000 };
+
+	for (const { role, sessionId } of getMissionRoleSessions(mission)) {
+		if (!sessionId) continue;
+
+		// Get session from store
+		let session: AgentSession | undefined;
+		const allSessions = sessionStore.getAll();
+		session = allSessions.find((s) => s.id === sessionId);
+		if (!session) continue;
+		if (session.state === "completed" || session.state === "zombie") continue;
+
+		// Evaluate health
+		const tmuxAlive = tmuxNames.has(session.tmuxSession);
+		const check = evaluateHealth(session, tmuxAlive, thresholds);
+
+		if (check.state === "zombie") {
+			// Update session state to zombie
+			sessionStore.updateState(session.agentName, "zombie");
+
+			if (eventStore) {
+				eventStore.insert({
+					runId: mission.runId,
+					agentName: "engine",
+					sessionId: session.id,
+					eventType: "engine_agent_respawned",
+					toolName: null,
+					toolArgs: null,
+					toolDurationMs: null,
+					level: "warn",
+					data: JSON.stringify({
+						kind: "dead_agent_detected",
+						missionId: mission.id,
+						role,
+						agentName: session.agentName,
+						note: check.reconciliationNote,
+						action: "marked_zombie",
+					}),
+				});
+			}
+		}
+	}
+}
+
 // === Main tick ===
 
 export async function runMissionTick(opts: MissionTickOpts): Promise<void> {
@@ -87,6 +158,9 @@ export async function runMissionTick(opts: MissionTickOpts): Promise<void> {
 
 async function processMission(mission: Mission, opts: MissionTickOpts): Promise<void> {
 	const { missionStore } = opts;
+
+	// === Dead agent detection for critical mission roles ===
+	await checkAndRecoverDeadAgents(mission, opts);
 
 	// Seed checkpoint on first engine tick for this mission (backward compat)
 	const checkpoint = missionStore.checkpoints.getLatestCheckpoint(mission.id);
