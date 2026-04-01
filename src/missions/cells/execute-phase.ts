@@ -156,6 +156,11 @@ function buildSubgraph(_config: PhaseCellConfig): MissionGraph {
 				trigger: "approved",
 			},
 			{
+				from: `${CELL_TYPE}:arch-review`,
+				to: `${CELL_TYPE}:await-arch-final`,
+				trigger: "stuck",
+			},
+			{
 				from: `${CELL_TYPE}:check-refactor`,
 				to: `${CELL_TYPE}:await-refactor`,
 				trigger: "refactor_needed",
