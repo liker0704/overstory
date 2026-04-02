@@ -843,6 +843,7 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 				session.state !== "completed" &&
 				session.state !== "zombie" &&
 				session.state !== "waiting" &&
+				!PERSISTENT_CAPABILITIES.has(session.capability) &&
 				hasRecentCompletionSignal(eventStore, session.agentName, session.startedAt)
 			) {
 				store.updateState(session.agentName, "completed");
