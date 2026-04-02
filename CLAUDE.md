@@ -40,6 +40,25 @@ Orchestrator (your Claude Code session)
 
 Depth limit is configurable (default 2). Prevents runaway spawning.
 
+### Mission Lifecycle Engine
+
+The graph execution engine (`src/missions/engine.ts`) runs as an always-on controller inside the watchdog daemon tick. It monitors mission phases, nudges stuck agents, and auto-resumes waiting agents. See `docs/architecture/adr-graph-engine-lifecycle.md` for the full ADR.
+
+Key components:
+- **Phase subgraphs** (`src/missions/cells/`): understand, plan, execute, done — each with async gates
+- **Gate evaluators** (`src/watchdog/gate-evaluators.ts`): check mail/artifacts for gate resolution
+- **Mission tick** (`src/watchdog/mission-tick.ts`): per-tick engine evaluation inside watchdog daemon
+- **Gate state** (`mission_gate_state` table): tracks grace periods, nudge counts, respawn counts
+
+### Agent `waiting` State
+
+Agents that dispatch sub-agents set `state=waiting` before stopping (`ov status set --state waiting`). The system treats waiting agents specially:
+- **Stop hook**: does NOT mark completed (preserves waiting state)
+- **Health eval**: skips stale/zombie escalation
+- **Watchdog**: does NOT auto-complete on dead tmux
+- **Mail arrival**: auto-resumes agent via `resumeAgent()` when sub-agent sends results
+- **Tool-start hook**: auto-clears waiting → working when agent starts processing
+
 ### Messaging: Custom SQLite Mail
 
 Purpose-built messaging via `bun:sqlite` in `.overstory/mail.db`. WAL mode for concurrent access from multiple agents. ~1-5ms per query.
@@ -61,7 +80,7 @@ src/
   runtimes/                       # Runtime adapters: claude, pi, copilot, codex, gemini, sapling, opencode, cursor, qwen
   worktree/                       # Git worktree + tmux + headless process management
   merge/                          # Merge queue + tiered conflict resolver
-  watchdog/                       # Tier 0 health daemon + Tier 1 triage
+  watchdog/                       # Tier 0 health daemon + Tier 1 triage + mission lifecycle engine tick
   recovery/                       # Snapshot, restore, reconcile for disaster recovery
   dashboard/                      # TUI dashboard: data loading + panel rendering
   db/                             # Shared SQLite migration framework

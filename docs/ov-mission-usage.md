@@ -196,6 +196,32 @@ ov mission complete
 ov review mission <mission-id-or-slug>
 ```
 
+## Graph Engine & Waiting State
+
+The mission graph engine runs inside the watchdog daemon and monitors mission
+progress. It nudges stuck agents and auto-resumes waiting agents.
+
+### Agent Waiting State
+
+When agents dispatch sub-agents (scouts, builders), they set `state=waiting`
+before stopping. The system keeps them alive:
+
+- Agents are NOT marked completed while in `waiting` state
+- When sub-agents send results, the waiting agent is auto-resumed
+- The watchdog skips stale/zombie escalation for waiting agents
+
+If an agent gets stuck in `waiting` for too long, the graph engine's
+`maxTotalWaitMs` ceiling triggers escalation.
+
+### Manual Workstream Completion
+
+If the engine's automatic workstream status tracking fails, operators can
+manually mark a workstream as completed:
+
+```bash
+ov mission workstream-complete <workstream-id>
+```
+
 ## Autonomous Operation
 
 Missions run autonomously. The operator monitors progress via a sleep-based
