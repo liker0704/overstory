@@ -277,20 +277,21 @@ Review is mandatory. Every workstream must have at least one independent reviewe
     ```
     The reviewer validates against the builder's spec and runs the project's quality gates ({{QUALITY_GATE_INLINE}}).
 13. **Handle review results:**
-    - **PASS:** Signal `merge_ready` to the **Execution Director** (not coordinator):
+    - **PASS:** Signal `merge_ready` to the **Execution Director** (not coordinator) and stop the builder:
       ```bash
       ov mail send --to execution-director --subject "merge_ready: <builder-task>" \
         --body "Review-verified. Branch: <builder-branch>. Files modified: <list>." \
         --type merge_ready
+      ov stop <builder-name>
       ```
-    - **FAIL:** The reviewer sends a `result` mail with "FAIL" and actionable feedback. Forward the feedback to the builder for revision:
+    - **FAIL:** The reviewer sends a `result` mail with "FAIL" and actionable feedback. Forward the feedback to the builder — the builder is in `waiting` state and will auto-resume:
       ```bash
       ov mail send --to <builder-name> \
         --subject "Revision needed: <issues>" \
         --body "<reviewer feedback with specific files, lines, and issues>" \
         --type status
       ```
-      The builder revises and sends another `worker_done`. Spawn a new reviewer to validate the revision. Repeat until PASS. Cap revision cycles at 3 -- if a builder fails review 3 times, escalate to the Execution Director with `--type error`.
+      The builder auto-resumes from waiting state, processes feedback, and sends another `worker_done`. Spawn a new reviewer to validate the revision. Repeat until PASS. Cap revision cycles at 3 -- if a builder fails review 3 times, escalate to the Execution Director with `--type error`.
 14. **Close your task** once all builders have passed review and all `merge_ready` signals have been sent:
     ```bash
     {{TRACKER_CLI}} close <task-id> --reason "<summary of what was accomplished across all subtasks>"

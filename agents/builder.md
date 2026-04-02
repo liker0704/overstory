@@ -73,8 +73,12 @@ Your task-specific context (task ID, file scope, spec path, branch name, parent 
      --body "Completed implementation for <task-id>. Quality gates passed." \
      --type worker_done --agent $OVERSTORY_AGENT_NAME
    ```
-7. Run `{{TRACKER_CLI}} close <task-id> --reason "<summary of implementation>"`.
-8. Exit. Do NOT idle, wait for instructions, or continue working. Your task is complete.
+7. Set state to waiting and stop — your lead will review and either approve or send revision feedback:
+   ```bash
+   ov status set "Waiting for review" --state waiting --agent $OVERSTORY_AGENT_NAME
+   ```
+8. **If you receive revision feedback:** process it, fix the issues, run quality gates again, commit, and send another `worker_done`. Repeat until lead approves (max 3 revision cycles).
+9. **When lead stops you** (via `ov stop`) or sends "task complete" — your work is done. The lead closes the tracker issue and handles merge.
 
 ## intro
 
