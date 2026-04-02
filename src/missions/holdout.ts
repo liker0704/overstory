@@ -57,65 +57,31 @@ function checkSections(content: string, required: string[]): string[] {
 
 // === Level 1 Checks ===
 
-async function checkL1Tests(
+/**
+ * Run quality gates from project config instead of hardcoded bun commands.
+ * Falls back to DEFAULT_QUALITY_GATES if config has no gates defined.
+ */
+async function checkQualityGates(
 	projectRoot: string,
+	qualityGates: ReadonlyArray<{ name: string; command: string; description?: string }>,
 	run: (
 		cmd: string[],
 		cwd: string,
 	) => Promise<{ exitCode: number; stdout: string; stderr: string }>,
-): Promise<HoldoutCheck> {
-	const result = await run(["bun", "test"], projectRoot);
-	if (result.exitCode === 0) {
-		return makeCheck("l1-tests-pass", 1, "Tests Pass", "pass", "bun test exited with code 0");
+): Promise<HoldoutCheck[]> {
+	const checks: HoldoutCheck[] = [];
+	for (const gate of qualityGates) {
+		const cmd = gate.command.split(" ");
+		const result = await run(cmd, projectRoot);
+		const id = `l1-${gate.name.toLowerCase().replace(/\s+/g, "-")}`;
+		if (result.exitCode === 0) {
+			checks.push(makeCheck(id, 1, gate.name, "pass", `${gate.command} passed`));
+		} else {
+			const output = (result.stderr || result.stdout).split("\n").slice(0, 5);
+			checks.push(makeCheck(id, 1, gate.name, "fail", `${gate.command} failed`, output));
+		}
 	}
-	const lines = result.stdout
-		.split("\n")
-		.filter((l) => l.includes("fail") || l.includes("error"))
-		.slice(0, 5);
-	return makeCheck("l1-tests-pass", 1, "Tests Pass", "fail", "bun test failed", lines);
-}
-
-async function checkL1Lint(
-	projectRoot: string,
-	run: (
-		cmd: string[],
-		cwd: string,
-	) => Promise<{ exitCode: number; stdout: string; stderr: string }>,
-): Promise<HoldoutCheck> {
-	const result = await run(["bun", "run", "lint"], projectRoot);
-	if (result.exitCode === 0) {
-		return makeCheck("l1-lint-clean", 1, "Lint Clean", "pass", "bun run lint exited with code 0");
-	}
-	const lines = result.stdout.split("\n").slice(0, 5);
-	return makeCheck("l1-lint-clean", 1, "Lint Clean", "fail", "bun run lint failed", lines);
-}
-
-async function checkL1Typecheck(
-	projectRoot: string,
-	run: (
-		cmd: string[],
-		cwd: string,
-	) => Promise<{ exitCode: number; stdout: string; stderr: string }>,
-): Promise<HoldoutCheck> {
-	const result = await run(["bun", "run", "typecheck"], projectRoot);
-	if (result.exitCode === 0) {
-		return makeCheck(
-			"l1-typecheck-clean",
-			1,
-			"Typecheck Clean",
-			"pass",
-			"bun run typecheck exited with code 0",
-		);
-	}
-	const lines = result.stderr.split("\n").slice(0, 5);
-	return makeCheck(
-		"l1-typecheck-clean",
-		1,
-		"Typecheck Clean",
-		"fail",
-		"bun run typecheck failed",
-		lines,
-	);
+	return checks;
 }
 
 function checkL1ArchitectureStructure(artifactRoot: string): HoldoutCheck {
@@ -734,9 +700,12 @@ export async function runMissionHoldout(
 
 	// === Level 1 ===
 	if (maxLevel >= 1) {
-		checks.push(await checkL1Tests(projectRoot, run));
-		checks.push(await checkL1Lint(projectRoot, run));
-		checks.push(await checkL1Typecheck(projectRoot, run));
+		// Use project-configured quality gates instead of hardcoded bun commands.
+		// Falls back to DEFAULT_QUALITY_GATES if config has none.
+		const { loadConfig, DEFAULT_QUALITY_GATES: defaultGates } = await import("../config.ts");
+		const config = await loadConfig(projectRoot);
+		const gates = config.project.qualityGates ?? defaultGates;
+		checks.push(...(await checkQualityGates(projectRoot, gates, run)));
 		if (artifactRoot) {
 			checks.push(checkL1ArchitectureStructure(artifactRoot));
 			checks.push(checkL1TestPlanStructure(artifactRoot));

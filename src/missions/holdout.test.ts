@@ -118,7 +118,7 @@ describe("runMissionHoldout", () => {
 		expect(result.level1Passed).toBe(false);
 		expect(result.passed).toBe(false);
 
-		const testCheck = result.checks.find((c) => c.id === "l1-tests-pass");
+		const testCheck = result.checks.find((c) => c.id === "l1-tests");
 		expect(testCheck).toBeDefined();
 		expect(testCheck?.status).toBe("fail");
 	});
@@ -245,7 +245,7 @@ describe("runMissionHoldout", () => {
 		);
 
 		expect(result.level1Passed).toBe(false);
-		const lintCheck = result.checks.find((c) => c.id === "l1-lint-clean");
+		const lintCheck = result.checks.find((c) => c.id === "l1-lint");
 		expect(lintCheck?.status).toBe("fail");
 	});
 
@@ -261,7 +261,7 @@ describe("runMissionHoldout", () => {
 		);
 
 		expect(result.level1Passed).toBe(false);
-		const typecheckCheck = result.checks.find((c) => c.id === "l1-typecheck-clean");
+		const typecheckCheck = result.checks.find((c) => c.id === "l1-typecheck");
 		expect(typecheckCheck?.status).toBe("fail");
 	});
 

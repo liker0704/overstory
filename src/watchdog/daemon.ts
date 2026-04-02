@@ -238,13 +238,22 @@ function hasRecentRateLimitHistory(eventStore: EventStore | null, agentName: str
 	return false;
 }
 
-function hasRecentCompletionSignal(eventStore: EventStore | null, agentName: string): boolean {
+function hasRecentCompletionSignal(
+	eventStore: EventStore | null,
+	agentName: string,
+	sessionStartedAt?: string,
+): boolean {
 	if (!eventStore) return false;
 	try {
 		const events = eventStore.getByAgent(agentName);
 		for (let i = events.length - 1; i >= 0 && i >= events.length - 20; i--) {
 			const event = events[i];
 			if (!event || event.eventType !== "mail_sent" || !event.data) {
+				continue;
+			}
+			// Skip events from before this session started — old completion
+			// signals from previous sessions must not trigger auto-completion.
+			if (sessionStartedAt && event.createdAt < sessionStartedAt) {
 				continue;
 			}
 			try {
@@ -834,7 +843,7 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 				session.state !== "completed" &&
 				session.state !== "zombie" &&
 				session.state !== "waiting" &&
-				hasRecentCompletionSignal(eventStore, session.agentName)
+				hasRecentCompletionSignal(eventStore, session.agentName, session.startedAt)
 			) {
 				store.updateState(session.agentName, "completed");
 				session.state = "completed";
@@ -1149,7 +1158,7 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 					if (
 						rateLimitConfig.behavior === "wait" &&
 						session.state !== "completed" &&
-						!hasRecentCompletionSignal(eventStore, session.agentName) &&
+						!hasRecentCompletionSignal(eventStore, session.agentName, session.startedAt) &&
 						lastPaneContent
 					) {
 						try {
@@ -1184,7 +1193,7 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 
 			// TUI reconciliation: unread-mail wakeups and held session-end completion.
 			// Skip if agent already sent a completion signal (worker_done/merge_ready).
-			const agentDone = hasRecentCompletionSignal(eventStore, session.agentName);
+			const agentDone = hasRecentCompletionSignal(eventStore, session.agentName, session.startedAt);
 			if (
 				mailStore &&
 				tmuxAlive &&
@@ -1251,7 +1260,7 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 				session.state !== "waiting" &&
 				latestEventType === "session_end"
 			) {
-				const completionSignal = hasRecentCompletionSignal(eventStore, session.agentName);
+				const completionSignal = hasRecentCompletionSignal(eventStore, session.agentName, session.startedAt);
 				if (!recentRateLimitHistory || completionSignal) {
 					reconcileSessionToCompleted({
 						session,
