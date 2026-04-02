@@ -6,24 +6,18 @@
  * focused modules; this file re-exports the public API surface.
  */
 
-export type { MissionCommandDeps } from "./lifecycle-types.ts";
-
 export {
-	adviseGraphTransition,
 	resolveCurrentMissionId,
 	resolveMissionRoleStates,
 	toSummary,
 } from "./lifecycle-helpers.ts";
-
-export { suspendMission } from "./lifecycle-suspend.ts";
-
-export { missionStop, missionComplete } from "./lifecycle-terminate.ts";
-
-export { missionStart, missionResumeAll } from "./lifecycle-start.ts";
-
 export {
-	missionUpdate,
 	missionAnswer,
-	missionPause,
 	missionExtractLearnings,
+	missionPause,
+	missionUpdate,
 } from "./lifecycle-ops.ts";
+export { missionResumeAll, missionStart } from "./lifecycle-start.ts";
+export { suspendMission } from "./lifecycle-suspend.ts";
+export { missionComplete, missionStop } from "./lifecycle-terminate.ts";
+export type { MissionCommandDeps } from "./lifecycle-types.ts";

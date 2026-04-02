@@ -20,14 +20,10 @@ import {
 	getMissionArtifactPaths,
 	materializeMissionRolePrompt,
 } from "./context.ts";
+import { transitionMissionViaEngine } from "./engine-wiring.ts";
 import { recordMissionEvent } from "./events.ts";
 import type { MissionCommandDeps } from "./lifecycle.ts";
-import {
-	adviseGraphTransition,
-	resolveCurrentMissionId,
-	resolveMissionRoleStates,
-	toSummary,
-} from "./lifecycle.ts";
+import { resolveCurrentMissionId, resolveMissionRoleStates, toSummary } from "./lifecycle.ts";
 import {
 	drainAgentInbox,
 	nudgeMissionRoleBestEffort,
@@ -755,7 +751,10 @@ export async function missionHandoff(
 			executionDirectorSessionId: executionDirectorResult.session.id,
 		});
 
-		adviseGraphTransition(overstoryDir, missionStore, mission, "execute", "active");
+		await transitionMissionViaEngine(mission.id, "handoff", {
+			checkpointStore: missionStore.checkpoints,
+			missionStore,
+		});
 		const beforePhase = mission.phase;
 		missionStore.updatePhase(mission.id, "execute");
 		recordMissionEvent({

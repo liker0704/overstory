@@ -22,7 +22,7 @@ import type {
 	ReviewCellDefinition,
 } from "./cells/types.ts";
 import { understandPhaseCell } from "./cells/understand-phase.ts";
-import { createGraphEngine, type GraphEngine, type RunResult } from "./engine.ts";
+import { createGraphEngine, type GraphEngine, type RunResult, type StepResult } from "./engine.ts";
 import { DEFAULT_MISSION_GRAPH } from "./graph.ts";
 import { autoAdvanceHandlers } from "./handlers/auto-advance.ts";
 import { createHandlerRegistry } from "./handlers.ts";
@@ -30,8 +30,8 @@ import type { HandlerRegistry } from "./types.ts";
 
 // === Types ===
 
-export type { ReviewCellConfig, ReviewCellDefinition } from "./cells/types.ts";
-export type { PhaseCellDefinition } from "./cells/types.ts";
+export type { PhaseCellDefinition, ReviewCellConfig, ReviewCellDefinition } from "./cells/types.ts";
+export type { StepResult } from "./engine.ts";
 
 export interface EngineDeps {
 	checkpointStore: CheckpointStore;
@@ -261,6 +261,40 @@ function buildLifecycleGraph(mission: Mission): MissionGraph {
 	});
 
 	return { version: 1, nodes, edges: DEFAULT_MISSION_GRAPH.edges };
+}
+
+/**
+ * Transition a mission's graph state via the engine using a named trigger.
+ *
+ * Loads the mission, creates a lifecycle engine starting from its currentNode,
+ * and calls forceAdvance(trigger). Returns a StepResult — no continuation run.
+ */
+export async function transitionMissionViaEngine(
+	missionId: string,
+	trigger: string,
+	deps: EngineDeps,
+): Promise<StepResult> {
+	const mission = deps.missionStore.getById(missionId);
+	if (!mission) {
+		return {
+			status: "error",
+			fromNodeId: "",
+			toNodeId: "",
+			trigger,
+			error: `Mission ${missionId} not found`,
+		};
+	}
+	if (!mission.currentNode) {
+		return {
+			status: "error",
+			fromNodeId: "",
+			toNodeId: "",
+			trigger,
+			error: `Mission ${missionId} has no currentNode`,
+		};
+	}
+	const engine = startLifecycleEngine(mission, deps, { startNodeId: mission.currentNode });
+	return engine.forceAdvance(trigger);
 }
 
 /**

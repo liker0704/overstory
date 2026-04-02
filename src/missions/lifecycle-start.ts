@@ -12,19 +12,16 @@ import { openSessionStore } from "../sessions/compat.ts";
 import { createRunStore } from "../sessions/store.ts";
 import type { InsertMission } from "../types.ts";
 import { createWatchdogControl } from "../watchdog/control.ts";
-import {
-	attachOrSwitch,
-	listSessions,
-} from "../worktree/tmux.ts";
+import { attachOrSwitch, listSessions } from "../worktree/tmux.ts";
 import {
 	buildMissionRoleBeacon,
 	ensureMissionArtifacts,
 	materializeMissionRolePrompt,
 } from "./context.ts";
-import { shouldUseEngine } from "./engine-wiring.ts";
+import { shouldUseEngine, transitionMissionViaEngine } from "./engine-wiring.ts";
 import { recordMissionEvent } from "./events.ts";
 import { nodeId } from "./graph.ts";
-import { adviseGraphTransition, resolveCurrentMissionId, toSummary } from "./lifecycle-helpers.ts";
+import { resolveCurrentMissionId, toSummary } from "./lifecycle-helpers.ts";
 import type { MissionCommandDeps } from "./lifecycle-types.ts";
 import {
 	drainAgentInbox,
@@ -32,15 +29,8 @@ import {
 	sendMissionControlMail,
 	sendMissionDispatchMail,
 } from "./messaging.ts";
-import {
-	startMissionAnalyst,
-	startMissionCoordinator,
-	stopMissionRole,
-} from "./roles.ts";
-import {
-	removeActiveMission,
-	writeMissionRuntimePointers,
-} from "./runtime-context.ts";
+import { startMissionAnalyst, startMissionCoordinator, stopMissionRole } from "./roles.ts";
+import { removeActiveMission, writeMissionRuntimePointers } from "./runtime-context.ts";
 import { createMissionStore } from "./store.ts";
 
 // === ov mission start ===
@@ -508,7 +498,10 @@ export async function missionResumeAll(
 		}
 
 		// Restore mission state
-		adviseGraphTransition(overstoryDir, missionStore, mission, mission.phase, "active");
+		await transitionMissionViaEngine(mission.id, "resume", {
+			checkpointStore: missionStore.checkpoints,
+			missionStore,
+		});
 		missionStore.updateState(mission.id, "active");
 		recordMissionEvent({
 			overstoryDir,

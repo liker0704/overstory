@@ -76,6 +76,8 @@ export interface GraphEngine {
 	step(): Promise<StepResult>;
 	/** Run the engine until a terminal node, gate, or error. */
 	run(): Promise<RunResult>;
+	/** Force a transition via trigger regardless of gate status. Single-step, no continuation. */
+	forceAdvance(trigger: string): Promise<StepResult>;
 }
 
 // === Factory ===
@@ -291,10 +293,15 @@ export function createGraphEngine(opts: GraphEngineOpts): GraphEngine {
 		return run();
 	};
 
+	const forceAdvance = async (trigger: string): Promise<StepResult> => {
+		return performAdvance(state.currentNodeId, trigger);
+	};
+
 	return {
 		currentNodeId: () => state.currentNodeId,
 		advanceNode,
 		step,
 		run,
+		forceAdvance,
 	};
 }

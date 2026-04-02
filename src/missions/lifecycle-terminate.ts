@@ -19,18 +19,19 @@ import type { Mission } from "../types.ts";
 import {
 	getCurrentSessionName,
 	isSessionAlive,
-	killSession,
 	killProcessTree,
+	killSession,
 	removeAgentEnvFile,
 } from "../worktree/tmux.ts";
+import { transitionMissionViaEngine } from "./engine-wiring.ts";
 import { recordMissionEvent } from "./events.ts";
-import { adviseGraphTransition, resolveCurrentMissionId } from "./lifecycle-helpers.ts";
+import { resolveCurrentMissionId } from "./lifecycle-helpers.ts";
 import { suspendMission } from "./lifecycle-suspend.ts";
 import type { MissionCommandDeps } from "./lifecycle-types.ts";
 import { drainAgentInbox } from "./messaging.ts";
 import { generateMissionReview } from "./review.ts";
-import { removeActiveMission } from "./runtime-context.ts";
 import { stopMissionRole, stopMissionRunDescendants } from "./roles.ts";
+import { removeActiveMission } from "./runtime-context.ts";
 import { createMissionStore } from "./store.ts";
 
 /**
@@ -275,9 +276,15 @@ async function terminalizeMission(opts: {
 		const beforeState = mission.state;
 		const beforePhase = mission.phase;
 		if (targetState === "completed") {
-			adviseGraphTransition(overstoryDir, missionStore, mission, "done", "completed");
+			await transitionMissionViaEngine(mission.id, "complete", {
+				checkpointStore: missionStore.checkpoints,
+				missionStore,
+			});
 			if (mission.phase !== "done") {
 				missionStore.updatePhase(mission.id, "done");
+			}
+			missionStore.completeMission(mission.id);
+			if (mission.phase !== "done") {
 				recordMissionEvent({
 					overstoryDir,
 					mission,
@@ -285,9 +292,11 @@ async function terminalizeMission(opts: {
 					data: { kind: "phase_change", from: beforePhase, to: "done" },
 				});
 			}
-			missionStore.completeMission(mission.id);
 		} else {
-			adviseGraphTransition(overstoryDir, missionStore, mission, "done", "stopped");
+			await transitionMissionViaEngine(mission.id, "stop", {
+				checkpointStore: missionStore.checkpoints,
+				missionStore,
+			});
 			missionStore.updateState(mission.id, "stopped");
 		}
 

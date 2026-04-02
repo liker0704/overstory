@@ -7,8 +7,8 @@ import { printSuccess } from "../logging/color.ts";
 import { openSessionStore } from "../sessions/compat.ts";
 import type { Mission } from "../types.ts";
 import { isSessionAlive, killProcessTree, killSession } from "../worktree/tmux.ts";
+import { transitionMissionViaEngine } from "./engine-wiring.ts";
 import { recordMissionEvent } from "./events.ts";
-import { adviseGraphTransition } from "./lifecycle-helpers.ts";
 import { createMissionStore } from "./store.ts";
 
 /**
@@ -94,7 +94,10 @@ export async function suspendMission(opts: {
 		}
 
 		// Set mission state to suspended (preserves runtime pointers, mail, run)
-		adviseGraphTransition(overstoryDir, missionStore, mission, mission.phase, "suspended");
+		await transitionMissionViaEngine(mission.id, "suspend", {
+			checkpointStore: missionStore.checkpoints,
+			missionStore,
+		});
 		const beforeState = mission.state;
 		missionStore.updateState(mission.id, "suspended");
 		recordMissionEvent({
