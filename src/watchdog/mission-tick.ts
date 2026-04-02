@@ -108,8 +108,23 @@ async function checkAndRecoverDeadAgents(
 		const check = evaluateHealth(session, tmuxAlive, thresholds);
 
 		if (check.state === "zombie") {
-			// Update session state to zombie
+			// Mark zombie and attempt resume for mission role agents
 			sessionStore.updateState(session.agentName, "zombie");
+
+			// Try to resume the dead agent via ov resume
+			let resumed = false;
+			try {
+				const { existsSync } = await import("node:fs");
+				if (existsSync(session.worktreePath)) {
+					const { loadConfig } = await import("../config.ts");
+					const config = await loadConfig(opts.projectRoot);
+					const { resumeAgent } = await import("../commands/resume.ts");
+					await resumeAgent(session, config, opts.projectRoot);
+					resumed = true;
+				}
+			} catch {
+				// Non-fatal: resume failure, agent stays zombie
+			}
 
 			if (eventStore) {
 				eventStore.insert({
@@ -122,12 +137,12 @@ async function checkAndRecoverDeadAgents(
 					toolDurationMs: null,
 					level: "warn",
 					data: JSON.stringify({
-						kind: "dead_agent_detected",
+						kind: resumed ? "dead_agent_respawned" : "dead_agent_detected",
 						missionId: mission.id,
 						role,
 						agentName: session.agentName,
 						note: check.reconciliationNote,
-						action: "marked_zombie",
+						resumed,
 					}),
 				});
 			}
@@ -240,8 +255,10 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 		const enteredAt = new Date(gateState.entered_at).getTime();
 		const elapsed = now - enteredAt;
 
-		// Absolute ceiling check
+		// Absolute ceiling check — suspend mission if exceeded
 		if (elapsed > gateState.max_total_wait_ms) {
+			missionStore.updateState(mission.id, "suspended");
+
 			if (opts.eventStore) {
 				opts.eventStore.insert({
 					runId: mission.runId,
@@ -260,6 +277,7 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 					}),
 				});
 			}
+			return; // Mission suspended — stop processing
 		}
 
 		// Grace period check
