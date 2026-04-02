@@ -275,15 +275,18 @@ async function terminalizeMission(opts: {
 
 		const beforeState = mission.state;
 		const beforePhase = mission.phase;
+		const engineDeps = { checkpointStore: missionStore.checkpoints, missionStore };
 		if (targetState === "completed") {
-			await transitionMissionViaEngine(mission.id, "complete", {
-				checkpointStore: missionStore.checkpoints,
-				missionStore,
-			});
-			if (mission.phase !== "done") {
-				missionStore.updatePhase(mission.id, "done");
+			const result = await transitionMissionViaEngine(mission.id, "complete", engineDeps);
+			if (result.status === "error") {
+				printWarning("Graph transition failed", result.error ?? "unknown");
 			}
-			missionStore.completeMission(mission.id);
+			missionStore.transaction(() => {
+				if (mission.phase !== "done") {
+					missionStore.updatePhase(mission.id, "done");
+				}
+				missionStore.completeMission(mission.id);
+			});
 			if (mission.phase !== "done") {
 				recordMissionEvent({
 					overstoryDir,
@@ -293,10 +296,10 @@ async function terminalizeMission(opts: {
 				});
 			}
 		} else {
-			await transitionMissionViaEngine(mission.id, "stop", {
-				checkpointStore: missionStore.checkpoints,
-				missionStore,
-			});
+			const result = await transitionMissionViaEngine(mission.id, "stop", engineDeps);
+			if (result.status === "error") {
+				printWarning("Graph transition failed", result.error ?? "unknown");
+			}
 			missionStore.updateState(mission.id, "stopped");
 		}
 

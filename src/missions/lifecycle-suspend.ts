@@ -94,10 +94,14 @@ export async function suspendMission(opts: {
 		}
 
 		// Set mission state to suspended (preserves runtime pointers, mail, run)
-		await transitionMissionViaEngine(mission.id, "suspend", {
+		const result = await transitionMissionViaEngine(mission.id, "suspend", {
 			checkpointStore: missionStore.checkpoints,
 			missionStore,
 		});
+		if (result.status === "error") {
+			const { printWarning } = await import("../logging/color.ts");
+			printWarning("Graph transition failed", result.error ?? "unknown");
+		}
 		const beforeState = mission.state;
 		missionStore.updateState(mission.id, "suspended");
 		recordMissionEvent({

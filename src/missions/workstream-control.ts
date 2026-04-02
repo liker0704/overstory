@@ -751,10 +751,13 @@ export async function missionHandoff(
 			executionDirectorSessionId: executionDirectorResult.session.id,
 		});
 
-		await transitionMissionViaEngine(mission.id, "handoff", {
+		const handoffResult = await transitionMissionViaEngine(mission.id, "handoff", {
 			checkpointStore: missionStore.checkpoints,
 			missionStore,
 		});
+		if (handoffResult.status === "error") {
+			printWarning("Graph transition failed", handoffResult.error ?? "unknown");
+		}
 		const beforePhase = mission.phase;
 		missionStore.updatePhase(mission.id, "execute");
 		recordMissionEvent({

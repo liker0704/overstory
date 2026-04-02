@@ -498,10 +498,13 @@ export async function missionResumeAll(
 		}
 
 		// Restore mission state
-		await transitionMissionViaEngine(mission.id, "resume", {
+		const transResult = await transitionMissionViaEngine(mission.id, "resume", {
 			checkpointStore: missionStore.checkpoints,
 			missionStore,
 		});
+		if (transResult.status === "error") {
+			printWarning("Graph transition failed", transResult.error ?? "unknown");
+		}
 		missionStore.updateState(mission.id, "active");
 		recordMissionEvent({
 			overstoryDir,
