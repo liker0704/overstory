@@ -604,20 +604,6 @@ async function terminalizeMission(opts: {
 
 		let bundlePath: string | null = null;
 		const refreshedMission = missionStore.getById(mission.id) ?? mission;
-		try {
-			const { exportBundle } = await import("./bundle.ts");
-			const initialBundle = await exportBundle({
-				overstoryDir,
-				dbPath,
-				missionId: mission.id,
-				force: true,
-			});
-			bundlePath = initialBundle.outputDir;
-		} catch (err) {
-			if (!json) {
-				printWarning("Bundle export failed", String(err));
-			}
-		}
 
 		const review = generateMissionReview({ overstoryDir, mission: refreshedMission });
 		recordMissionEvent({
