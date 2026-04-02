@@ -345,6 +345,19 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 				if (gateState.nudge_count < gateState.max_nudges) {
 					missionStore.incrementNudgeCount(mission.id, currentNodeId);
 
+					// Send actual tmux nudge to the agent
+					try {
+						const { nudgeAgent } = await import("../commands/nudge.ts");
+						await nudgeAgent(
+							opts.projectRoot,
+							evalResult.nudgeTarget,
+							`[ENGINE] ${evalResult.nudgeMessage}`,
+							true,
+						);
+					} catch {
+						// Non-fatal: nudge delivery failure
+					}
+
 					if (opts.eventStore) {
 						opts.eventStore.insert({
 							runId: mission.runId,
