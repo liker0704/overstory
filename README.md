@@ -132,6 +132,35 @@ Every command supports `--json` where noted. Global flags: `-q`/`--quiet`, `--ti
 |---------|-------------|
 | `ov merge` | Merge agent branches into canonical (`--branch`, `--all`, `--into`, `--dry-run`, `--json`) |
 
+### Mission Orchestration
+
+| Command | Description |
+|---------|-------------|
+| `ov mission start` | Start a mission with objective (`--slug`, `--objective`) |
+| `ov mission status` | Show mission phase, agents, workstreams |
+| `ov mission answer` | Answer a pending mission question (`--body`, `--file`) |
+| `ov mission handoff` | Hand off from plan to execute phase |
+| `ov mission pause <ws-id>` | Pause a workstream (`--reason`) |
+| `ov mission resume <ws-id>` | Resume a paused workstream |
+| `ov mission complete` | Complete the mission (runs holdout validation) |
+| `ov mission stop` | Stop the mission (suspends all agents) |
+| `ov mission list` | List all missions |
+| `ov mission show` | Show mission details |
+| `ov mission output` | Show mission coordinator output |
+| `ov mission graph` | Show mission graph state |
+| `ov mission workstream-complete <ws-id>` | Manually mark a workstream as completed |
+| `ov mission refresh-briefs` | Refresh workstream briefs after scope change |
+| `ov mission bundle` | Export mission result bundle |
+
+### Configuration
+
+| Command | Description |
+|---------|-------------|
+| `ov config list` | Show all current settings (merged config as YAML) |
+| `ov config get <key>` | Get a specific value (e.g., `taskTracker.backend`) |
+| `ov config set <key> <value>` | Set a config value (`--local` for machine-local overrides) |
+| `ov config reset` | Reset config to defaults (preserves project name/root/branch) |
+
 ### Observability
 
 | Command | Description |
@@ -214,6 +243,11 @@ Orchestrator (multi-repo coordinator of coordinators)
 | **Lead** | Team coordination, can spawn sub-workers | Read-write |
 | **Merger** | Branch merge specialist | Read-write |
 | **Monitor** | Tier 2 continuous fleet patrol — ongoing health monitoring | Read-only |
+| **Mission Analyst** | Research + planning for missions — spawns scouts, creates workstream plans | Read-only |
+| **Execution Director** | Mission execution — dispatches leads per workstream, forwards merge signals | Read-only |
+| **Architect** | Design authority (TDD mode) — writes architecture.md, test-plan.yaml, reviews merged code | Read-only |
+| **Plan-Review-Lead** | Multi-critic review loop — spawns critics, runs convergence until approve/stuck | Read-only |
+| **Tester** | RED-phase test writer (TDD full mode) — writes failing tests before builders | Read-write |
 
 ### Key Architecture
 
@@ -222,6 +256,8 @@ Orchestrator (multi-repo coordinator of coordinators)
 - **Worktrees**: Each agent gets an isolated git worktree — no file conflicts between agents
 - **Merge**: FIFO merge queue (SQLite-backed) with 4-tier conflict resolution
 - **Watchdog**: Tiered health monitoring — Tier 0 mechanical daemon (tmux/pid liveness), Tier 1 AI-assisted failure triage, Tier 2 monitor agent for continuous fleet patrol
+- **Mission Lifecycle**: Graph execution engine monitors mission phases (understand → plan → execute → done), nudges stuck agents, auto-resumes waiting agents. See [ADR](docs/architecture/adr-graph-engine-lifecycle.md)
+- **Waiting State**: Agents that dispatch sub-agents set `state=waiting` — system prevents premature completion, auto-resumes when results arrive
 - **Tool Enforcement**: Runtime-specific guards (hooks for Claude Code, extensions for Pi) mechanically block file modifications for non-implementation agents and dangerous git operations for all agents
 - **Task Groups**: Batch coordination with auto-close when all member issues complete
 - **Session Lifecycle**: Checkpoint save/restore for compaction survivability, handoff orchestration for crash recovery
