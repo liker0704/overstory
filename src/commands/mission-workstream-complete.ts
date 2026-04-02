@@ -8,7 +8,6 @@
 import { join } from "node:path";
 import { Command } from "commander";
 import { createMissionStore } from "../missions/store.ts";
-import { updateWorkstreamStatus } from "../missions/workstreams.ts";
 
 export function createWorkstreamCompleteCommand(): Command {
 	return new Command("workstream-complete")
@@ -34,31 +33,21 @@ export function createWorkstreamCompleteCommand(): Command {
 					return;
 				}
 
-				// Access underlying DB for workstream_status table
-				const { Database } = await import("bun:sqlite");
-				const db = new Database(dbPath);
-				db.exec("PRAGMA journal_mode=WAL");
-				db.exec("PRAGMA busy_timeout=5000");
+				store.updateWorkstreamStatus(mission.id, workstreamId, "completed", "operator");
 
-				try {
-					updateWorkstreamStatus(db, mission.id, workstreamId, "completed", "operator");
-
-					if (opts.json) {
-						process.stdout.write(
-							JSON.stringify({
-								missionId: mission.id,
-								workstreamId,
-								status: "completed",
-								updatedBy: "operator",
-							}) + "\n",
-						);
-					} else {
-						process.stdout.write(
-							`Workstream '${workstreamId}' marked as completed in mission '${mission.slug}'\n`,
-						);
-					}
-				} finally {
-					db.close();
+				if (opts.json) {
+					process.stdout.write(
+						JSON.stringify({
+							missionId: mission.id,
+							workstreamId,
+							status: "completed",
+							updatedBy: "operator",
+						}) + "\n",
+					);
+				} else {
+					process.stdout.write(
+						`Workstream '${workstreamId}' marked as completed in mission '${mission.slug}'\n`,
+					);
 				}
 			} finally {
 				store.close();

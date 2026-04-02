@@ -29,11 +29,7 @@ import {
 	missionShow,
 	missionStatus,
 } from "../missions/render.ts";
-import {
-	addActiveMission,
-	removeActiveMission,
-	resolveMissionByIdOrSlug,
-} from "../missions/runtime-context.ts";
+import { resolveMissionByIdOrSlug } from "../missions/runtime-context.ts";
 import { createMissionStore } from "../missions/store.ts";
 import { missionHandoff, missionResume } from "../missions/workstream-control.ts";
 
@@ -123,19 +119,8 @@ export function createMissionCommand(): Command {
 				const cwd = process.cwd();
 				const config = await loadConfig(cwd);
 				const overstoryDir = join(config.project.root, ".overstory");
-				if (opts.mission) {
-					const resolvedId = resolveExplicitMission(overstoryDir, opts.mission);
-					if (resolvedId) {
-						await addActiveMission(overstoryDir, resolvedId);
-						try {
-							await missionUpdate(overstoryDir, opts);
-						} finally {
-							await removeActiveMission(overstoryDir, resolvedId);
-						}
-					}
-				} else {
-					await missionUpdate(overstoryDir, opts);
-				}
+				const resolved = resolveExplicitMission(overstoryDir, opts.mission);
+				await missionUpdate(overstoryDir, { ...opts, missionId: resolved });
 			},
 		);
 
@@ -307,14 +292,15 @@ export function createMissionCommand(): Command {
 	cmd
 		.command("bundle")
 		.description("Export a result bundle (summary, events, narrative, review) for a mission")
-		.option("--mission-id <id>", "Mission ID (defaults to active mission)")
+		.option("--mission <id-or-slug>", "Mission ID or slug (defaults to active mission)")
 		.option("--force", "Force regeneration even if bundle is fresh")
 		.option("--json", "Output as JSON")
-		.action(async (opts: { missionId?: string; force?: boolean; json?: boolean }) => {
+		.action(async (opts: { mission?: string; force?: boolean; json?: boolean }) => {
 			const cwd = process.cwd();
 			const config = await loadConfig(cwd);
 			const overstoryDir = join(config.project.root, ".overstory");
-			await missionBundle(overstoryDir, opts);
+			const missionId = resolveExplicitMission(overstoryDir, opts.mission);
+			await missionBundle(overstoryDir, { ...opts, missionId });
 		});
 
 	cmd
@@ -346,10 +332,10 @@ export function createMissionCommand(): Command {
 	cmd
 		.command("holdout")
 		.description("Run holdout validation checks against a mission")
-		.option("--mission-id <id>", "Target a specific mission (default: active)")
+		.option("--mission <id-or-slug>", "Target a specific mission (default: active)")
 		.option("--level <level>", "Maximum check level to run (1, 2, or 3)", "2")
 		.option("--json", "Output as JSON")
-		.action(async (opts: { missionId?: string; level?: string; json?: boolean }) => {
+		.action(async (opts: { mission?: string; level?: string; json?: boolean }) => {
 			const cwd = process.cwd();
 			const config = await loadConfig(cwd);
 			const overstoryDir = join(config.project.root, ".overstory");
@@ -359,14 +345,15 @@ export function createMissionCommand(): Command {
 			const missionStore = createMissionStore(dbPath);
 			try {
 				let mission: import("../types.ts").Mission | null | undefined;
-				if (opts.missionId) {
-					mission = missionStore.getById(opts.missionId) ?? missionStore.getBySlug(opts.missionId);
+				const resolvedId = resolveExplicitMission(overstoryDir, opts.mission);
+				if (resolvedId) {
+					mission = missionStore.getById(resolvedId);
 				} else {
 					mission = missionStore.getActive();
 				}
 				if (!mission) {
 					console.error(
-						opts.missionId ? `Mission not found: ${opts.missionId}` : "No active mission",
+						opts.mission ? `Mission not found: ${opts.mission}` : "No active mission",
 					);
 					process.exitCode = 1;
 					return;

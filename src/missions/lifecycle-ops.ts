@@ -54,7 +54,10 @@ interface UpdateOpts {
 	json?: boolean;
 }
 
-export async function missionUpdate(overstoryDir: string, opts: UpdateOpts): Promise<void> {
+export async function missionUpdate(
+	overstoryDir: string,
+	opts: UpdateOpts & { missionId?: string },
+): Promise<void> {
 	const json = opts.json ?? false;
 
 	if (!opts.slug && !opts.objective) {
@@ -67,7 +70,7 @@ export async function missionUpdate(overstoryDir: string, opts: UpdateOpts): Pro
 		return;
 	}
 
-	const missionId = await resolveCurrentMissionId(overstoryDir);
+	const missionId = opts.missionId ?? (await resolveCurrentMissionId(overstoryDir));
 	if (!missionId) {
 		if (json) {
 			jsonError("mission update", "No active mission");
