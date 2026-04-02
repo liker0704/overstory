@@ -26,7 +26,7 @@ agents:
 worktrees:
   baseDir: .overstory/worktrees
 taskTracker:
-  backend: auto
+  backend: github
   enabled: true
 mulch:
   enabled: true
