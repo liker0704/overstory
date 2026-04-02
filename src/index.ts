@@ -269,6 +269,7 @@ program.hook("postAction", () => {
 
 // Migrated commands — use addCommand() with createXCommand() factories
 program.addCommand(createAgentsCommand());
+program.addCommand((await import("./commands/config.ts")).createConfigCommand());
 program.addCommand(createAttachCommand());
 program.addCommand(createDoctorCommand());
 program.addCommand(createContextCommand());

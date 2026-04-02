@@ -52,6 +52,7 @@ mission:
     enabled: true
   cleanup:
     purgeSessionTranscripts: true
+  graphExecution: true
 coordinator:
   exitTriggers:
     allAgentsDone: false
