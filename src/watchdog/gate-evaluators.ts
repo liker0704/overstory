@@ -15,6 +15,7 @@ export interface GateEvalResult {
 	trigger?: string;
 	nudgeTarget?: string;
 	nudgeMessage?: string;
+	unknown?: boolean;
 }
 
 /** Check if research phase has completed: analyst sent result mail to coordinator. */
@@ -338,6 +339,6 @@ export async function evaluateGate(
 		case "summary":
 			return evaluateSummaryReady(mission, artifactRoot);
 		default:
-			return { met: false };
+			return { met: false, unknown: true };
 	}
 }

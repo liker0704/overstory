@@ -20,6 +20,7 @@ export type EventType =
 	| "engine_nudge_sent"
 	| "engine_agent_respawned"
 	| "engine_gate_advanced"
+	| "engine_gate_evaluator_missing"
 	| "engine_ws_status_updated"
 	| "engine_mission_suspended";
 

@@ -215,6 +215,12 @@ export interface OverstoryConfig {
 			/** Delete Claude session transcript JSONL files after mission completion. Default: false. */
 			purgeSessionTranscripts?: boolean;
 		};
+		gates?: {
+			/** Per-node grace period overrides in ms. Keys are node name suffixes. */
+			gracePeriods?: Record<string, number>;
+			/** Per-node max total wait overrides in ms. Keys are node name suffixes. */
+			maxTotalWaitMs?: Record<string, number>;
+		};
 	};
 	mail?: {
 		reliability?: {

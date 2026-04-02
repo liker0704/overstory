@@ -57,11 +57,15 @@ const MAX_TOTAL_WAIT_OVERRIDES: Record<string, number> = {
 	"await-refactor": 14_400_000, // 4 hours
 };
 
-function getGraceMs(nodeName: string): number {
+function getGraceMs(nodeName: string, config?: OverstoryConfig): number {
+	const configOverride = config?.mission?.gates?.gracePeriods?.[nodeName];
+	if (configOverride !== undefined) return configOverride;
 	return GRACE_OVERRIDES[nodeName] ?? DEFAULT_GRACE_MS;
 }
 
-function getMaxTotalWaitMs(nodeName: string): number {
+function getMaxTotalWaitMs(nodeName: string, config?: OverstoryConfig): number {
+	const configOverride = config?.mission?.gates?.maxTotalWaitMs?.[nodeName];
+	if (configOverride !== undefined) return configOverride;
 	return MAX_TOTAL_WAIT_OVERRIDES[nodeName] ?? DEFAULT_MAX_TOTAL_WAIT_MS;
 }
 
@@ -247,8 +251,8 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 		const gateState = missionStore.ensureGateState(
 			mission.id,
 			currentNodeId,
-			getGraceMs(nodeName),
-			getMaxTotalWaitMs(nodeName),
+			getGraceMs(nodeName, opts.config),
+			getMaxTotalWaitMs(nodeName, opts.config),
 		);
 
 		const now = Date.now();
@@ -293,6 +297,22 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 			{ mailStore: opts.mailStore, sessionStore: opts.sessionStore },
 			artifactRoot,
 		);
+
+		if (evalResult.unknown) {
+			if (opts.eventStore) {
+				opts.eventStore.insert({
+					runId: mission.runId,
+					agentName: "engine",
+					sessionId: null,
+					eventType: "engine_gate_evaluator_missing",
+					toolName: null,
+					toolArgs: null,
+					toolDurationMs: null,
+					level: "warn",
+					data: JSON.stringify({ nodeId: currentNodeId, nodeName }),
+				});
+			}
+		}
 
 		if (evalResult.met && evalResult.trigger) {
 			// Gate resolved — advance
