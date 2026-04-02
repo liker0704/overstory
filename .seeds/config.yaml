@@ -1,2 +1,4 @@
 project: "overstory"
 version: "1"
+github_enabled: true
+github_sync_on_write: true
