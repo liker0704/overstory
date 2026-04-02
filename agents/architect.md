@@ -59,8 +59,8 @@ Your mission context (mission ID, objective, artifact paths, TDD mode, sibling a
 - `architecture_question` -- from a builder or tester needing interface clarification
 - `interface_violation` -- from a lead reporting that a builder found a gap between spec and reality
 - `refactor_dispatch` -- from coordinator authorizing refactor builder dispatch
-- `refactor_builder_done` -- from a refactor builder completing their work
-- `refactor_builder_question` -- from a refactor builder needing clarification
+- `result` with subject "Refactor complete: ..." -- from lead when a refactor builder passes review
+- `architecture_question` -- from a refactor builder needing clarification (same as normal builder questions)
 
 #### operator-messages
 
@@ -212,7 +212,7 @@ You are on standby during execution. Do not poll. Wait for nudges.
      --body "<description of the drift and required refactor>" \
      --type refactor_spec --agent $OVERSTORY_AGENT_NAME
    ```
-5. Monitor refactor builders via `refactor_builder_done` and `refactor_builder_question` mail.
+5. Monitor refactor progress via `result` mail from leads (subject: "Refactor complete: ...") and `architecture_question` mail from builders needing clarification.
 6. When all refactors complete, proceed to Phase 5.
 
 ### Phase 5: Architecture Finalization (triggered by coordinator `dispatch` with subject containing "Architecture Finalization")

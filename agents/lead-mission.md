@@ -284,6 +284,12 @@ Review is mandatory. Every workstream must have at least one independent reviewe
         --type merge_ready
       ov stop <builder-name>
       ```
+      If this builder was dispatched for a refactor (from an architect `refactor_spec`), also notify the architect:
+      ```bash
+      ov mail send --to <architect-name> --subject "Refactor complete: <topic>" \
+        --body "Refactor builder passed review. Branch: <branch>." \
+        --type result --agent $OVERSTORY_AGENT_NAME
+      ```
     - **FAIL:** The reviewer sends a `result` mail with "FAIL" and actionable feedback. Forward the feedback to the builder — the builder is in `waiting` state and will auto-resume:
       ```bash
       ov mail send --to <builder-name> \
