@@ -68,7 +68,7 @@ function updateLastActivity(projectRoot: string, agentName: string): void {
 			const session = store.getByName(agentName);
 			if (session) {
 				store.updateLastActivity(agentName);
-				if (session.state === "booting" || session.state === "zombie") {
+				if (session.state === "booting" || session.state === "zombie" || session.state === "waiting") {
 					store.updateState(agentName, "working");
 				}
 			}
