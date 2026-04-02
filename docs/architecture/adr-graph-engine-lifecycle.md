@@ -1,6 +1,6 @@
 # ADR: Graph Execution Engine as Mission Lifecycle Controller
 
-**Status**: Proposed
+**Status**: Accepted
 
 **Date**: 2026-03-31
 
