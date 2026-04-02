@@ -883,6 +883,26 @@ export function createMissionStore(dbPath: string): MissionStore {
 			});
 		},
 
+		updateWorkstreamStatus(
+			missionId: string,
+			workstreamId: string,
+			status: string,
+			updatedBy: string,
+		): void {
+			db.prepare(
+				`INSERT INTO workstream_status (mission_id, workstream_id, status, updated_at, updated_by)
+				 VALUES ($missionId, $wsId, $status, $now, $by)
+				 ON CONFLICT(mission_id, workstream_id) DO UPDATE SET
+				   status = $status, updated_at = $now, updated_by = $by`,
+			).run({
+				$missionId: missionId,
+				$wsId: workstreamId,
+				$status: status,
+				$now: new Date().toISOString(),
+				$by: updatedBy,
+			});
+		},
+
 		checkpoints: createCheckpointStore(db),
 
 		// === Gate state operations (for mission engine tick) ===
@@ -993,6 +1013,10 @@ export function createMissionStore(dbPath: string): MissionStore {
 				});
 			};
 		})(),
+
+		transaction<T>(fn: () => T): T {
+			return db.transaction(fn)();
+		},
 
 		close(): void {
 			try {

@@ -21,6 +21,10 @@ export interface LifecycleGraphNode {
 	handler?: string;
 	/** Static configuration passed to handler. */
 	handlerConfig?: Record<string, unknown>;
+	/** Timeout in seconds for gate resolution. Overrides hardcoded ceiling. */
+	gateTimeout?: number;
+	/** Handler key to invoke on timeout instead of suspending. */
+	onTimeout?: string;
 }
 
 /** A cell node — represents a discrete workstream cell. */
@@ -419,8 +423,11 @@ export interface MissionStore {
 	updateObjective(id: string, objective: string): void;
 	updateCurrentNode(id: string, nodeId: string): void;
 	markLearningsExtracted(id: string): void;
+	updateWorkstreamStatus(missionId: string, workstreamId: string, status: string, updatedBy: string): void;
 	/** Access the checkpoint store backed by the same db connection. */
 	checkpoints: CheckpointStore;
+	/** Wrap multiple store operations in a single SQLite transaction. */
+	transaction<T>(fn: () => T): T;
 
 	// === Gate state operations (for mission engine tick) ===
 	acquireTickLock(missionId: string, intervalMs: number): boolean;

@@ -204,6 +204,7 @@ export function createMockMissionStore(): MissionStore & { currentNode: string |
 			currentNode = nodeId;
 		},
 		markLearningsExtracted: noop,
+		updateWorkstreamStatus: noop,
 		checkpoints: createMockCheckpointStore(),
 		acquireTickLock: () => true,
 		releaseTickLock: noop,
@@ -219,6 +220,7 @@ export function createMockMissionStore(): MissionStore & { currentNode: string |
 		}),
 		incrementNudgeCount: noop,
 		resolveGate: noop,
+		transaction: <T>(fn: () => T): T => fn(),
 		close: noop,
 	};
 }
