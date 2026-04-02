@@ -80,6 +80,7 @@ const EVENT_LABELS: Record<EventType, EventLabel> = {
 	engine_gate_evaluator_missing: { compact: "ENG? ", full: "ENG NO EVAL", color: color.yellow },
 	engine_ws_status_updated: { compact: "WS UP", full: "ENG WS UPD", color: color.cyan },
 	engine_mission_suspended: { compact: "SUSPM", full: "ENG SUSPND", color: color.red },
+	engine_gate_timeout_routed: { compact: "TMOUT", full: "ENG TMOUT ", color: color.yellow },
 };
 
 /** Returns the EventLabel for a given event type. */

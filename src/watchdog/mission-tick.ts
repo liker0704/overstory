@@ -13,9 +13,9 @@ import type { OverstoryConfig } from "../config-types.ts";
 import type { EventStore } from "../events/types.ts";
 import type { MailStore } from "../mail/store.ts";
 import type { startLifecycleEngine } from "../missions/engine-wiring.ts";
-import { nodeId } from "../missions/graph.ts";
+import { flattenGraph, nodeId } from "../missions/graph.ts";
 import type { SessionStore } from "../sessions/store.ts";
-import type { AgentSession, Mission, MissionStore } from "../types.ts";
+import type { AgentSession, Mission, MissionGraphNode, MissionStore } from "../types.ts";
 import { evaluateGate } from "./gate-evaluators.ts";
 import { evaluateHealth } from "./health.ts";
 import { listSessions as listTmuxSessions } from "../worktree/tmux.ts";
@@ -67,6 +67,51 @@ function getMaxTotalWaitMs(nodeName: string, config?: OverstoryConfig): number {
 	const configOverride = config?.mission?.gates?.maxTotalWaitMs?.[nodeName];
 	if (configOverride !== undefined) return configOverride;
 	return MAX_TOTAL_WAIT_OVERRIDES[nodeName] ?? DEFAULT_MAX_TOTAL_WAIT_MS;
+}
+
+/**
+ * Look up the graph node for a given node ID.
+ *
+ * Searches phase cell registry, review cell registry, and finally the
+ * lifecycle graph (via flattenGraph). Returns undefined if not found.
+ */
+async function findGraphNode(
+	nodeIdStr: string,
+	mission: Mission,
+): Promise<MissionGraphNode | undefined> {
+	const colonIdx = nodeIdStr.indexOf(":");
+	if (colonIdx === -1) return undefined;
+
+	const prefix = nodeIdStr.slice(0, colonIdx);
+
+	const { PHASE_CELL_REGISTRY, CELL_REGISTRY } = await import("../missions/engine-wiring.ts");
+
+	// Check phase cell registry (understand-phase, plan-phase, etc.)
+	const phaseCell = PHASE_CELL_REGISTRY[prefix];
+	if (phaseCell) {
+		const subgraph = phaseCell.buildSubgraph({
+			missionId: mission.id,
+			artifactRoot: mission.artifactRoot ?? "",
+			projectRoot: "",
+		});
+		return subgraph.nodes.find((n) => n.id === nodeIdStr);
+	}
+
+	// Check review cell registry (plan-review, architecture-review)
+	const reviewCell = CELL_REGISTRY[prefix];
+	if (reviewCell) {
+		const subgraph = reviewCell.buildSubgraph({
+			tier: "full",
+			maxRounds: 3,
+			artifactRoot: mission.artifactRoot ?? "",
+		});
+		return subgraph.nodes.find((n) => n.id === nodeIdStr);
+	}
+
+	// Fall back to lifecycle graph
+	const { DEFAULT_MISSION_GRAPH } = await import("../missions/graph.ts");
+	const allNodes = flattenGraph(DEFAULT_MISSION_GRAPH);
+	return allNodes.find((n) => n.id === nodeIdStr);
 }
 
 // === Dead agent detection ===
@@ -247,41 +292,109 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 		}
 		const nodeName = currentNodeId.split(":")[1] ?? "";
 
+		// Look up the current graph node to read per-node timeout overrides
+		const currentGraphNode = await findGraphNode(currentNodeId, mission);
+		const nodeGateTimeoutMs =
+			currentGraphNode?.gateTimeout !== undefined
+				? currentGraphNode.gateTimeout * 1000
+				: undefined;
+
 		// Ensure gate state row exists (uses missionStore's DB connection)
+		// gateTimeout on the node takes priority over config and hardcoded dictionaries
 		const gateState = missionStore.ensureGateState(
 			mission.id,
 			currentNodeId,
 			getGraceMs(nodeName, opts.config),
-			getMaxTotalWaitMs(nodeName, opts.config),
+			nodeGateTimeoutMs ?? getMaxTotalWaitMs(nodeName, opts.config),
 		);
 
 		const now = Date.now();
 		const enteredAt = new Date(gateState.entered_at).getTime();
 		const elapsed = now - enteredAt;
 
-		// Absolute ceiling check — suspend mission if exceeded
+		// Absolute ceiling check
 		if (elapsed > gateState.max_total_wait_ms) {
-			missionStore.updateState(mission.id, "suspended");
+			// If the node declares onTimeout, route via timeout edge instead of suspending
+			const onTimeout = currentGraphNode?.onTimeout;
+			if (onTimeout) {
+				missionStore.resolveGate(mission.id, currentNodeId, "timeout");
 
-			if (opts.eventStore) {
-				opts.eventStore.insert({
-					runId: mission.runId,
-					agentName: "engine",
-					sessionId: null,
-					eventType: "engine_mission_suspended",
-					toolName: null,
-					toolArgs: null,
-					toolDurationMs: null,
-					level: "warn",
-					data: JSON.stringify({
-						kind: "max_total_wait_exceeded",
+				// Advance the subgraph to the timeout-edge target.
+				// Phase cells use manual checkpoint saves; review cells use engine.advanceNode.
+				const cellType = currentNodeId.split(":")[0] ?? "";
+				const { PHASE_CELL_REGISTRY: registry, CELL_REGISTRY: cellRegistry } =
+					await import("../missions/engine-wiring.ts");
+				const phaseCell = registry[cellType];
+				if (phaseCell) {
+					const subgraph = phaseCell.buildSubgraph({
 						missionId: mission.id,
-						nodeId: currentNodeId,
-						elapsedMs: elapsed,
-					}),
-				});
+						artifactRoot: mission.artifactRoot ?? "",
+						projectRoot: opts.projectRoot,
+					});
+					const edge = subgraph.edges.find(
+						(e) => e.from === currentNodeId && e.trigger === "timeout",
+					);
+					if (edge) {
+						const phaseName = cellType.replace("-phase", "");
+						const parentNodeId = `${phaseName}:active`;
+						const subgraphCheckpointKey = `${parentNodeId}:${mission.id}`;
+						missionStore.checkpoints.saveStepResult(
+							subgraphCheckpointKey,
+							currentNodeId,
+							edge.to,
+							"timeout",
+							null,
+						);
+						missionStore.updateCurrentNode(mission.id, edge.to);
+					}
+				} else if (cellRegistry[cellType]) {
+					// Review cells: advance via the engine (same path as normal gate resolution)
+					await engine.advanceNode("timeout");
+				}
+
+				if (opts.eventStore) {
+					opts.eventStore.insert({
+						runId: mission.runId,
+						agentName: "engine",
+						sessionId: null,
+						eventType: "engine_gate_timeout_routed",
+						toolName: null,
+						toolArgs: null,
+						toolDurationMs: null,
+						level: "warn",
+						data: JSON.stringify({
+							kind: "gate_timeout_routed",
+							missionId: mission.id,
+							nodeId: currentNodeId,
+							onTimeout,
+							elapsedMs: elapsed,
+						}),
+					});
+				}
+			} else {
+				// Original behavior: suspend mission
+				missionStore.updateState(mission.id, "suspended");
+
+				if (opts.eventStore) {
+					opts.eventStore.insert({
+						runId: mission.runId,
+						agentName: "engine",
+						sessionId: null,
+						eventType: "engine_mission_suspended",
+						toolName: null,
+						toolArgs: null,
+						toolDurationMs: null,
+						level: "warn",
+						data: JSON.stringify({
+							kind: "max_total_wait_exceeded",
+							missionId: mission.id,
+							nodeId: currentNodeId,
+							elapsedMs: elapsed,
+						}),
+					});
+				}
 			}
-			return; // Mission suspended — stop processing
+			return; // Ceiling breached — stop processing this tick
 		}
 
 		// Grace period check

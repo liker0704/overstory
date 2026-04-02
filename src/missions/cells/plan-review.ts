@@ -86,6 +86,11 @@ function buildSubgraph(_config: ReviewCellConfig): MissionGraph {
 				trigger: "verdicts-collected",
 			},
 			{
+				from: "plan-review:collect-verdicts",
+				to: "plan-review:escalate",
+				trigger: "timeout",
+			},
+			{
 				from: "plan-review:convergence",
 				to: "plan-review:approved",
 				trigger: "approved",

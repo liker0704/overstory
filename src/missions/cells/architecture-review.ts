@@ -138,6 +138,11 @@ function buildSubgraph(_config: ReviewCellConfig): MissionGraph {
 				trigger: "verdicts-collected",
 			},
 			{
+				from: "arch-review:collect-verdicts",
+				to: "arch-review:escalate",
+				trigger: "timeout",
+			},
+			{
 				from: "arch-review:convergence",
 				to: "arch-review:approved",
 				trigger: "approved",

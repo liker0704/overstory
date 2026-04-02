@@ -22,7 +22,8 @@ export type EventType =
 	| "engine_gate_advanced"
 	| "engine_gate_evaluator_missing"
 	| "engine_ws_status_updated"
-	| "engine_mission_suspended";
+	| "engine_mission_suspended"
+	| "engine_gate_timeout_routed";
 
 /** Severity levels for events. */
 export type EventLevel = "debug" | "info" | "warn" | "error";
