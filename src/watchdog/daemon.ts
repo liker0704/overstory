@@ -92,6 +92,7 @@ const PERSISTENT_CAPABILITIES = new Set([
 	"execution-director",
 	"monitor",
 	"plan-review-lead",
+	"architecture-review-lead",
 ]);
 
 /**

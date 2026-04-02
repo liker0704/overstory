@@ -51,6 +51,7 @@ const PERSISTENT_CAPABILITIES = new Set([
 	"execution-director",
 	"monitor",
 	"plan-review-lead",
+	"architecture-review-lead",
 ]);
 
 /** Numeric ordering for forward-only state transitions. */
