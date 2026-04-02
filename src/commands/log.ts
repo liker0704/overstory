@@ -138,6 +138,13 @@ async function transitionToCompleted(
 				return;
 			}
 
+			// Waiting agents have dispatched sub-agents and are waiting for results.
+			// Do NOT mark completed — the mail-send resume path will wake them.
+			if (session.state === "waiting") {
+				store.updateLastActivity(agentName);
+				return;
+			}
+
 			// Check if session-end was triggered by rate limit dialog.
 			// Claude Code fires Stop hook when the rate limit dialog appears,
 			// so we must detect this before marking the session as completed.

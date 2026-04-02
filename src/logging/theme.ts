@@ -15,6 +15,7 @@ import { brand, color, noColor, visibleLength } from "./color.ts";
 const STATE_COLORS: Record<AgentState, ColorFn> = {
 	working: color.green,
 	booting: color.yellow,
+	waiting: color.yellow,
 	stalled: color.red,
 	zombie: color.dim,
 	completed: color.cyan,
@@ -24,6 +25,7 @@ const STATE_COLORS: Record<AgentState, ColorFn> = {
 const STATE_ICONS: Record<AgentState, string> = {
 	working: ">",
 	booting: "~",
+	waiting: "w",
 	stalled: "!",
 	zombie: "x",
 	completed: "\u2713",

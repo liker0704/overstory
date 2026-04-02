@@ -91,6 +91,7 @@ const PERSISTENT_CAPABILITIES = new Set([
 	"mission-analyst",
 	"execution-director",
 	"monitor",
+	"plan-review-lead",
 ]);
 
 /**
@@ -832,6 +833,7 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 			if (
 				session.state !== "completed" &&
 				session.state !== "zombie" &&
+				session.state !== "waiting" &&
 				hasRecentCompletionSignal(eventStore, session.agentName)
 			) {
 				store.updateState(session.agentName, "completed");
@@ -1246,6 +1248,7 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 				session.tmuxSession !== "" &&
 				!tmuxAlive &&
 				session.state !== "completed" &&
+				session.state !== "waiting" &&
 				latestEventType === "session_end"
 			) {
 				const completionSignal = hasRecentCompletionSignal(eventStore, session.agentName);

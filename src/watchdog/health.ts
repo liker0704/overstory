@@ -50,15 +50,17 @@ const PERSISTENT_CAPABILITIES = new Set([
 	"mission-analyst",
 	"execution-director",
 	"monitor",
+	"plan-review-lead",
 ]);
 
 /** Numeric ordering for forward-only state transitions. */
 const STATE_ORDER: Record<AgentState, number> = {
 	booting: 0,
 	working: 1,
-	completed: 2,
-	stalled: 3,
-	zombie: 4,
+	waiting: 2,
+	completed: 3,
+	stalled: 4,
+	zombie: 5,
 };
 
 /**
@@ -119,6 +121,18 @@ function evaluateTimeBased(
 				: session.state === "stalled"
 					? `Persistent capability "${session.capability}" exempted from stale detection — resetting to working`
 					: null,
+		};
+	}
+
+	// Waiting agents have explicitly signaled they are waiting for sub-agent results.
+	// Skip time-based stale/zombie escalation — the mail-send path handles resume.
+	if (session.state === "waiting") {
+		return {
+			...base,
+			processAlive: true,
+			state: "waiting",
+			action: "none",
+			reconciliationNote: "Agent is waiting for sub-agent results — skipping time-based escalation",
 		};
 	}
 

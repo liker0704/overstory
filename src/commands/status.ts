@@ -7,6 +7,7 @@
 
 import { join } from "node:path";
 import { Command } from "commander";
+import type { AgentState } from "../agents/types.ts";
 import { loadConfig } from "../config.ts";
 import { ValidationError } from "../errors.ts";
 import { createHeadroomStore } from "../headroom/store.ts";
@@ -689,12 +690,14 @@ async function executeStatus(opts: StatusOpts): Promise<void> {
 
 async function executeStatusSet(
 	statusLine: string,
-	opts: { agent: string; json?: boolean },
+	opts: { agent: string; json?: boolean; state?: string },
 ): Promise<void> {
 	const cwd = process.cwd();
 	const config = await loadConfig(cwd);
 	const root = config.project.root;
 	const overstoryDir = join(root, ".overstory");
+
+	const validStates = new Set(["booting", "working", "waiting", "completed", "stalled", "zombie"]);
 
 	const { store } = openSessionStore(overstoryDir);
 	try {
@@ -705,9 +708,24 @@ async function executeStatusSet(
 				value: opts.agent,
 			});
 		}
-		store.updateStatusLine(opts.agent, statusLine);
+		if (statusLine) {
+			store.updateStatusLine(opts.agent, statusLine);
+		}
+		if (opts.state) {
+			if (!validStates.has(opts.state)) {
+				throw new ValidationError(
+					`Invalid state: ${opts.state}. Valid: ${[...validStates].join(", ")}`,
+					{ field: "state", value: opts.state },
+				);
+			}
+			store.updateState(opts.agent, opts.state as AgentState);
+		}
 		if (opts.json) {
-			jsonOutput("status_set", { agent: opts.agent, statusLine });
+			jsonOutput("status_set", {
+				agent: opts.agent,
+				statusLine: statusLine || undefined,
+				state: opts.state || undefined,
+			});
 		}
 	} finally {
 		store.close();
@@ -729,13 +747,16 @@ export function createStatusCommand(): Command {
 		});
 
 	cmd
-		.command("set <statusLine>")
-		.description("Set agent status line (self-reported current activity)")
+		.command("set [statusLine]")
+		.description("Set agent status line and/or session state")
 		.requiredOption("--agent <name>", "Agent name (use $OVERSTORY_AGENT_NAME)")
+		.option("--state <state>", "Set session state (waiting, working)")
 		.option("--json", "Output as JSON")
-		.action(async (statusLine: string, opts: { agent: string; json?: boolean }) => {
-			await executeStatusSet(statusLine, opts);
-		});
+		.action(
+			async (statusLine: string | undefined, opts: { agent: string; state?: string; json?: boolean }) => {
+				await executeStatusSet(statusLine ?? "", opts);
+			},
+		);
 
 	return cmd;
 }

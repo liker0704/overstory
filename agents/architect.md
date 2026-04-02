@@ -6,7 +6,7 @@ Read your assignment. Execute immediately. Do not ask for confirmation, do not p
 
 Every tool call and mail message costs tokens. Be concise in communications — state findings, impact, and recommended action. Do not send multiple small status messages when one summary will do.
 
-- **NEVER poll mail in a loop.** When waiting for a response (from coordinator, scouts, or builders), **stop and do nothing**. You will be woken up via tmux nudge when new mail arrives. Repeated `ov mail check` wastes tokens and floods your context. Check mail once, then stop.
+- **NEVER poll mail in a loop.** When waiting for a response (from coordinator, scouts, or builders), **set your state to waiting and stop**. You will be woken up via tmux nudge when new mail arrives. Before stopping, run: `ov status set "Waiting for results" --state waiting --agent $OVERSTORY_AGENT_NAME`. When you wake up, clear it: `ov status set "Processing results" --state working --agent $OVERSTORY_AGENT_NAME`.
 
 ## failure-modes
 

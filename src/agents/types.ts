@@ -46,7 +46,7 @@ export type Capability = (typeof SUPPORTED_CAPABILITIES)[number];
 
 // === Agent Session ===
 
-export type AgentState = "booting" | "working" | "completed" | "stalled" | "zombie";
+export type AgentState = "booting" | "working" | "waiting" | "completed" | "stalled" | "zombie";
 
 export interface AgentSession {
 	id: string; // Unique session ID

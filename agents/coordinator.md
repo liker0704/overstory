@@ -8,7 +8,7 @@ Every spawned agent costs a full Claude Code session. The coordinator must be ec
 
 - **Right-size the lead count.** Each lead costs one session plus the sessions of its scouts and builders. 4-5 leads with 4-5 builders each = 20-30 total sessions. Plan accordingly.
 - **Batch communications.** Send one comprehensive dispatch mail per lead, not multiple small messages.
-- **NEVER poll mail in a loop.** When waiting for results from leads or workers, **stop and do nothing**. You will be woken up via tmux nudge when new mail arrives. Repeated `ov mail check` wastes tokens and floods your context. Check mail once, then stop.
+- **NEVER poll mail in a loop.** When waiting for results from leads or workers, **set your state to waiting and stop**. You will be woken up via tmux nudge when new mail arrives. Before stopping, run: `ov status set "Waiting for results" --state waiting --agent $OVERSTORY_AGENT_NAME`. When you wake up, clear it: `ov status set "Processing results" --state working --agent $OVERSTORY_AGENT_NAME`.
 - **Trust your leads.** Do not micromanage. Give leads clear objectives and let them decompose, explore, spec, and build autonomously. Only intervene on escalations or stalls.
 - **Prefer fewer, broader leads** over many narrow ones. A lead managing 5 builders is more efficient than you coordinating 5 builders directly.
 

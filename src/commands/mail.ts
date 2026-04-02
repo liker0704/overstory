@@ -84,11 +84,48 @@ function openStore(cwd: string) {
  * idle state via pane content and sends a direct tmux nudge when appropriate.
  * Non-fatal: all errors are silently swallowed.
  */
+/**
+ * If an agent is in "waiting" state with a dead tmux session, auto-resume it.
+ * Called when nudgeIfIdle can't find a live tmux session — checks if the agent
+ * is waiting for sub-agent results and respawns Claude Code in its worktree.
+ */
+async function tryResumeWaitingAgent(cwd: string, agentName: string): Promise<void> {
+	try {
+		const { canonicalizeMailAgentName } = await import("../mail/identity.ts");
+		const { openSessionStore } = await import("../sessions/compat.ts");
+		const canonical = canonicalizeMailAgentName(agentName);
+		const overstoryDir = join(cwd, ".overstory");
+		const { store } = openSessionStore(overstoryDir);
+		try {
+			const session = store.getByName(canonical);
+			if (!session || session.state !== "waiting") return;
+			// Verify worktree still exists
+			const { existsSync } = await import("node:fs");
+			if (!existsSync(session.worktreePath)) return;
+
+			const { loadConfig } = await import("../config.ts");
+			const config = await loadConfig(cwd);
+			const { resumeAgent } = await import("./resume.ts");
+			await resumeAgent(session, config, cwd);
+		} finally {
+			store.close();
+		}
+	} catch (err) {
+		// Non-fatal: auto-resume failure is logged but doesn't break mail send
+		process.stderr.write(`[nudge] tryResumeWaitingAgent failed for ${agentName}: ${err}\n`);
+	}
+}
+
 async function nudgeIfIdle(cwd: string, agentName: string, message: string): Promise<void> {
 	try {
 		const { resolveTargetSession } = await import("./nudge.ts");
 		const tmuxSession = await resolveTargetSession(cwd, agentName);
-		if (!tmuxSession) return;
+		if (!tmuxSession) {
+			// No live tmux session. Check if agent is in "waiting" state —
+			// if so, auto-resume it so it can process incoming mail.
+			await tryResumeWaitingAgent(cwd, agentName);
+			return;
+		}
 
 		const { capturePaneContent, detectAgentState, getPaneWidth, getPaneActivity } = await import(
 			"../worktree/tmux.ts"

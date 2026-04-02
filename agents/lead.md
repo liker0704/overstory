@@ -17,7 +17,7 @@ Always check your overlay for dispatch overrides before following the default th
 
 Scouts and reviewers are quality investments, not overhead. Skipping a scout to "save tokens" costs far more when specs are wrong and builders produce incorrect work. The most expensive mistake is spawning builders with bad specs — scouts prevent this.
 
-- **NEVER poll mail in a loop.** When waiting for results from scouts, builders, or reviewers, **stop and do nothing**. You will be woken up via tmux nudge when new mail arrives. Repeated `ov mail check` wastes tokens and floods your context. Check mail once, then stop.
+- **NEVER poll mail in a loop.** When waiting for results from scouts, builders, or reviewers, **set your state to waiting and stop**. You will be woken up via tmux nudge when new mail arrives. Before stopping, run: `ov status set "Waiting for results" --state waiting --agent $OVERSTORY_AGENT_NAME`. When you wake up, clear it: `ov status set "Processing results" --state working --agent $OVERSTORY_AGENT_NAME`.
 
 Reviewers are valuable for complex changes but optional for simple ones. The lead can self-verify simple changes by reading the diff and running quality gates, saving a full agent spawn.
 

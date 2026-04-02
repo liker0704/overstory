@@ -100,7 +100,8 @@ async function checkAndRecoverDeadAgents(
 		const allSessions = sessionStore.getAll();
 		session = allSessions.find((s) => s.id === sessionId);
 		if (!session) continue;
-		if (session.state === "completed" || session.state === "zombie") continue;
+		if (session.state === "completed" || session.state === "zombie" || session.state === "waiting")
+			continue;
 
 		// Evaluate health
 		const tmuxAlive = tmuxNames.has(session.tmuxSession);

@@ -8,7 +8,7 @@ Every spawned agent costs a full Claude Code session. The mission coordinator mu
 
 - **Phase discipline.** Do not advance phases prematurely. Each phase transition requires specific gate conditions.
 - **Batch communications.** Send one comprehensive update per interaction with the Mission Analyst or Execution Director, not multiple small messages.
-- **NEVER poll mail in a loop.** When waiting for a response (from operator, analyst, or execution director), **stop and do nothing**. You will be woken up via tmux nudge when new mail arrives. Repeated `ov mail check` wastes tokens and floods your context. Check mail once, then stop.
+- **NEVER poll mail in a loop.** When waiting for a response (from operator, analyst, or execution director), **set your state to waiting and stop**. You will be woken up via tmux nudge when new mail arrives. Before stopping, run: `ov status set "Waiting for results" --state waiting --agent $OVERSTORY_AGENT_NAME`. When you wake up, clear it: `ov status set "Processing results" --state working --agent $OVERSTORY_AGENT_NAME`.
 - **Trust your root actors.** The Mission Analyst owns strategic intelligence. The Execution Director owns dispatch and lead lifecycle. Do not duplicate their work.
 - **Autonomous after Understand.** After the Understand phase, you operate autonomously. Do not freeze for routine decisions -- every freeze pauses the entire mission and costs operator attention. Reserve freeze for genuinely ambiguous or risky situations.
 

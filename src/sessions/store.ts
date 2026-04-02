@@ -261,6 +261,83 @@ const SESSION_MIGRATIONS: Migration[] = [
 		},
 		detect: (_db, cols) => cols.has("rate_limit_resumes_at"),
 	},
+	{
+		version: 11,
+		description: "add waiting to sessions state CHECK constraint",
+		up: (db) => {
+			const result = db
+				.prepare<{ sql: string }, []>(
+					"SELECT sql FROM sqlite_master WHERE type='table' AND name='sessions'",
+				)
+				.get();
+			if (!result || result.sql.includes("'waiting'")) return;
+			rebuildTable({
+				db,
+				table: "sessions",
+				createSql: `CREATE TABLE sessions (
+					id TEXT PRIMARY KEY,
+					agent_name TEXT NOT NULL UNIQUE,
+					capability TEXT NOT NULL,
+					worktree_path TEXT NOT NULL,
+					branch_name TEXT NOT NULL,
+					task_id TEXT NOT NULL,
+					tmux_session TEXT NOT NULL,
+					state TEXT NOT NULL DEFAULT 'booting'
+						CHECK(state IN ('booting','working','waiting','completed','stalled','zombie')),
+					pid INTEGER,
+					parent_agent TEXT,
+					depth INTEGER NOT NULL DEFAULT 0,
+					run_id TEXT,
+					started_at TEXT NOT NULL,
+					last_activity TEXT NOT NULL,
+					escalation_level INTEGER NOT NULL DEFAULT 0,
+					stalled_since TEXT,
+					transcript_path TEXT,
+					prompt_version TEXT,
+					rate_limited_since TEXT,
+					runtime TEXT DEFAULT 'claude',
+					runtime_session_id TEXT,
+					original_runtime TEXT,
+					status_line TEXT,
+					rate_limit_resumes_at TEXT
+				)`,
+				columns: [
+					"id",
+					"agent_name",
+					"capability",
+					"worktree_path",
+					"branch_name",
+					"task_id",
+					"tmux_session",
+					"state",
+					"pid",
+					"parent_agent",
+					"depth",
+					"run_id",
+					"started_at",
+					"last_activity",
+					"escalation_level",
+					"stalled_since",
+					"transcript_path",
+					"prompt_version",
+					"rate_limited_since",
+					"runtime",
+					"runtime_session_id",
+					"original_runtime",
+					"status_line",
+					"rate_limit_resumes_at",
+				],
+			});
+		},
+		detect: (db) => {
+			const result = db
+				.prepare<{ sql: string }, []>(
+					"SELECT sql FROM sqlite_master WHERE type='table' AND name='sessions'",
+				)
+				.get();
+			return result !== null && result.sql.includes("'waiting'");
+		},
+	},
 ];
 
 /** Migrations for the runs table (v8-v9). Separate for independent use by RunStore. */
@@ -419,7 +496,7 @@ export function createSessionStore(dbPath: string): SessionStore {
 	`);
 
 	const getActiveStmt = db.prepare<SessionRow, Record<string, never>>(`
-		SELECT * FROM sessions WHERE state IN ('booting', 'working', 'stalled')
+		SELECT * FROM sessions WHERE state IN ('booting', 'working', 'waiting', 'stalled')
 		ORDER BY started_at ASC
 	`);
 
