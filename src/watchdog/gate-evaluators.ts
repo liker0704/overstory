@@ -51,7 +51,10 @@ export function evaluateAwaitResearch(
 }
 
 /** Check if coordinator has evaluated research and is ready to advance. */
-export function evaluateUnderstandReady(mission: Mission): GateEvalResult {
+export function evaluateUnderstandReady(
+	mission: Mission,
+	mailStore?: MailStore | null,
+): GateEvalResult {
 	// Coordinator freezes mission → "frozen" trigger
 	if (mission.state === "frozen") {
 		return { met: true, trigger: "frozen" };
@@ -59,6 +62,18 @@ export function evaluateUnderstandReady(mission: Mission): GateEvalResult {
 	// Coordinator advanced phase → "ready" trigger
 	if (mission.phase !== "understand") {
 		return { met: true, trigger: "ready" };
+	}
+	// Auto-resolve if "Plan complete" mail arrived (analyst finished planning)
+	// This means coordinator has implicitly moved past understand phase.
+	if (mailStore) {
+		const coordName = mission.slug ? `coordinator-${mission.slug}` : "coordinator";
+		const msgs = mailStore.getAll({ to: coordName });
+		const planComplete = msgs.find(
+			(m) => m.type === "result" && m.subject?.toLowerCase().includes("plan complete"),
+		);
+		if (planComplete) {
+			return { met: true, trigger: "ready" };
+		}
 	}
 	return {
 		met: false,
@@ -317,7 +332,7 @@ export async function evaluateGate(
 		case "await-research":
 			return evaluateAwaitResearch(mission, stores.mailStore);
 		case "evaluate":
-			return evaluateUnderstandReady(mission);
+			return evaluateUnderstandReady(mission, stores.mailStore);
 		case "dispatch-planning":
 			return evaluateDispatchPlanning(mission, stores.mailStore);
 		case "await-plan":
