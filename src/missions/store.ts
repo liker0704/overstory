@@ -16,7 +16,7 @@ import type {
 	MissionTier,
 	PendingInputKind,
 } from "../types.ts";
-import { TIER_ORDER } from "./types.ts";
+import { MISSION_PHASES, TIER_ORDER } from "./types.ts";
 import { createCheckpointStore } from "./checkpoint.ts";
 
 /** Safely parse a JSON string from a database column, returning a fallback on failure. */
@@ -692,6 +692,13 @@ export function createMissionStore(dbPath: string): MissionStore {
 		UPDATE missions SET current_node = $current_node, updated_at = $updated_at WHERE id = $id
 	`);
 
+	const updateCurrentNodeWithPhaseStmt = db.prepare<
+		void,
+		{ $id: string; $current_node: string; $phase: string; $updated_at: string }
+	>(`
+		UPDATE missions SET current_node = $current_node, phase = $phase, updated_at = $updated_at WHERE id = $id
+	`);
+
 	const completeMissionStmt = db.prepare<
 		void,
 		{ $id: string; $completed_at: string; $updated_at: string }
@@ -893,11 +900,23 @@ export function createMissionStore(dbPath: string): MissionStore {
 		},
 
 		updateCurrentNode(id: string, nodeId: string): void {
-			updateCurrentNodeStmt.run({
-				$id: id,
-				$current_node: nodeId,
-				$updated_at: new Date().toISOString(),
-			});
+			const now = new Date().toISOString();
+			// Auto-sync phase when nodeId is a lifecycle node (e.g., "plan:active", "execute:frozen").
+			// Lifecycle nodes follow "phase:state" convention. Subgraph nodes use "phase-phase:name".
+			const colonIdx = nodeId.indexOf(":");
+			if (colonIdx > 0 && !nodeId.includes("-phase:")) {
+				const possiblePhase = nodeId.slice(0, colonIdx);
+				if (MISSION_PHASES.includes(possiblePhase as MissionPhase)) {
+					updateCurrentNodeWithPhaseStmt.run({
+						$id: id,
+						$current_node: nodeId,
+						$phase: possiblePhase,
+						$updated_at: now,
+					});
+					return;
+				}
+			}
+			updateCurrentNodeStmt.run({ $id: id, $current_node: nodeId, $updated_at: now });
 		},
 
 		markLearningsExtracted(id: string): void {

@@ -396,6 +396,44 @@ describe("updateArtifactRoot", () => {
 
 // === bindSessions ===
 
+describe("updateCurrentNode phase sync", () => {
+	test("auto-syncs phase when nodeId is a lifecycle node", () => {
+		store.create(makeMission());
+		expect(store.getById("mission-001")?.phase).toBe("understand");
+
+		store.updateCurrentNode("mission-001", "plan:active");
+		expect(store.getById("mission-001")?.phase).toBe("plan");
+		expect(store.getById("mission-001")?.currentNode).toBe("plan:active");
+	});
+
+	test("syncs phase for execute:active", () => {
+		store.create(makeMission());
+		store.updateCurrentNode("mission-001", "execute:active");
+		expect(store.getById("mission-001")?.phase).toBe("execute");
+	});
+
+	test("syncs phase for done:completed", () => {
+		store.create(makeMission());
+		store.updateCurrentNode("mission-001", "done:completed");
+		expect(store.getById("mission-001")?.phase).toBe("done");
+	});
+
+	test("does NOT sync phase for subgraph nodes", () => {
+		store.create(makeMission());
+		store.updateCurrentNode("mission-001", "understand-phase:evaluate");
+		// Subgraph node — phase should stay at original "understand"
+		expect(store.getById("mission-001")?.phase).toBe("understand");
+		expect(store.getById("mission-001")?.currentNode).toBe("understand-phase:evaluate");
+	});
+
+	test("does NOT sync phase for non-phase prefixes", () => {
+		store.create(makeMission());
+		store.updateCurrentNode("mission-001", "custom:node");
+		// "custom" is not a valid MissionPhase
+		expect(store.getById("mission-001")?.phase).toBe("understand");
+	});
+});
+
 describe("bindSessions", () => {
 	test("new missions have null session IDs by default", () => {
 		store.create(makeMission());
