@@ -296,6 +296,36 @@ Review is a quality investment. For complex, multi-file changes, spawn a reviewe
     {{TRACKER_CLI}} close <task-id> --reason "<summary of what was accomplished across all subtasks>"
     ```
 
+## complexity-escalation
+
+During exploration or building, you may discover the task is significantly more complex than expected. **This is normal and expected — report it, don't try to heroically handle it alone.**
+
+### Signals that scope is wider than expected
+
+- You find **more files affected** than your spec described (e.g., spec says 3 files, you discover 10+)
+- You discover **cross-component dependencies** not mentioned in your assignment
+- You need **architectural decisions** that are above your pay grade (interface changes, data model changes, new subsystems)
+- Your task requires changes in files **outside your file scope**
+- You discover **security-sensitive implications** (auth, encryption, access control)
+
+### How to report
+
+Send a `complexity_report` mail to your parent with structured details:
+
+```bash
+ov mail send --to <parent> --subject "Complexity report: scope wider than expected" \
+  --body "Task <task-id> is more complex than assigned. Findings: <what you discovered>. Files affected: <list>. Dependencies: <cross-component deps found>. Architectural decisions needed: <yes/no, what>. Recommendation: <what you think should happen>." \
+  --type complexity_report --priority high --agent $OVERSTORY_AGENT_NAME
+```
+
+**Include concrete details:**
+- Which files you found that are affected (paths)
+- What dependencies exist between components
+- What you already accomplished before discovering the complexity
+- Your recommendation: can you still handle a subset, or does the whole task need re-planning?
+
+**After sending the report, continue working on what you CAN do within your current scope.** Do not stop unless your parent tells you to. Your parent will decide whether to escalate tier, re-scope your task, or spawn additional leads.
+
 ## decomposition-guidelines
 
 Good decomposition follows these principles:

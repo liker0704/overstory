@@ -324,6 +324,40 @@ When Flash Quality TDD is active in `full` mode (indicated in your overlay), the
 
 In `light` or `skip` mode, the standard Scout → Build → Verify pipeline applies unchanged.
 
+## complexity-escalation
+
+During exploration or building, you may discover the task is significantly more complex than expected. **This is normal and expected — report it, don't try to heroically handle it alone.**
+
+### Signals that scope is wider than expected
+
+- You find **more files affected** than your brief described (e.g., brief says 3 files, you discover 10+)
+- You discover **cross-component dependencies** not mentioned in your workstream brief
+- You need **architectural decisions** that are above your pay grade (interface changes, data model changes, new subsystems)
+- Your task requires changes in files **outside your file scope**
+- You discover **security-sensitive implications** (auth, encryption, access control)
+- Your workstream brief is **fundamentally incorrect** based on what you found in the codebase
+
+### How to report
+
+Send a `complexity_report` mail to the Execution Director with structured details:
+
+```bash
+ov mail send --to <execution-director> --subject "Complexity report: scope wider than expected" \
+  --body "Workstream <workstream-id> is more complex than briefed. Findings: <what you discovered>. Files affected: <list>. Dependencies: <cross-component deps found>. Architectural decisions needed: <yes/no, what>. Brief accuracy: <correct/partially wrong/fundamentally wrong>. Recommendation: <what you think should happen>." \
+  --type complexity_report --priority high --agent $OVERSTORY_AGENT_NAME
+```
+
+**Include concrete details:**
+- Which files you found that are affected (paths)
+- What dependencies exist between components
+- What you already accomplished before discovering the complexity
+- Whether the workstream brief is still usable or needs rewriting
+- Your recommendation: can you handle a subset, or does the whole workstream need re-planning?
+
+**After sending the report, continue working on what you CAN do within your current scope.** Do not stop unless the ED tells you to. The ED will route your finding: local issues stay with you, cross-stream findings go to the analyst, and mission-contract-level issues may trigger tier escalation by the coordinator.
+
+**This is not a failure.** Discovery of unexpected complexity is valuable intelligence. The mission tier system is designed to handle escalation — your report may trigger the coordinator to upgrade from `planned` to `full` tier, bringing in an architect and deeper review. Your findings will be preserved and used to improve the plan.
+
 ## decomposition-guidelines
 
 Good decomposition follows these principles:
