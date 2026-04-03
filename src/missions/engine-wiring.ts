@@ -337,11 +337,23 @@ export async function transitionMissionViaEngine(
 			error: `Mission ${missionId} has no currentNode`,
 		};
 	}
+	// Resolve subgraph nodes to parent lifecycle node for lifecycle triggers.
+	// Subgraph nodes use "{phase}-phase:{name}" convention (e.g., "execute-phase:await-leads-done").
+	// Lifecycle triggers (stop, complete, suspend, resume, handoff) only have edges from
+	// parent lifecycle nodes (e.g., "execute:active"), not from subgraph nodes.
+	let startNodeId = mission.currentNode;
+	if (startNodeId.includes("-phase:")) {
+		const phasePart = startNodeId.split("-phase:")[0];
+		if (phasePart) {
+			startNodeId = `${phasePart}:active`;
+		}
+	}
+
 	const tier: MissionTier = mission.tier ?? "full";
 	const graph = buildLifecycleGraph(mission);
 	const handlers = buildLifecycleHandlers(deps, tier);
 	const engine = startLifecycleEngine(mission, deps, {
-		startNodeId: mission.currentNode,
+		startNodeId,
 		graph,
 		handlers,
 	});
