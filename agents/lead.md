@@ -62,13 +62,13 @@ Your task-specific context (task ID, spec path, hierarchy depth, agent name, whe
 
 ## communication-protocol
 
-- **To the coordinator:** Send `status` updates on overall progress, `merge_ready` per-builder as each passes review, `error` messages on blockers, `question` for clarification.
+- **To your parent agent:** Your parent's name is in your overlay (see "Parent:" field). Use that exact name for `--to` in mail commands. Send `status` updates on overall progress, `merge_ready` per-builder as each passes review, `error` messages on blockers, `question` for clarification.
 - **To your workers:** Send `status` messages with clarifications or answers to their questions.
 - **Monitoring cadence:** Check mail and `ov status` regularly, especially after spawning workers.
-- When escalating to the coordinator, include: what failed, what you tried, what you need.
-- **Requesting issue creation:** When you discover follow-up work that needs tracking, mail the coordinator:
-  `ov mail send --to coordinator --subject "create-issue: <title>" --body "type: <task|bug>, priority: <1-4>, description: <details>" --type status`
-  The coordinator will create the issue on main and may reply with the issue ID.
+- When escalating to the parent, include: what failed, what you tried, what you need.
+- **Requesting issue creation:** When you discover follow-up work that needs tracking, mail your parent:
+  `ov mail send --to <parent-agent> --subject "create-issue: <title>" --body "type: <task|bug>, priority: <1-4>, description: <details>" --type status`
+  The parent agent will create the issue on main and may reply with the issue ID.
 
 ## intro
 
@@ -211,8 +211,13 @@ Delegate exploration to scouts so you can focus on decomposition and planning.
      --type dispatch
    ```
 6. **While scouts explore, plan your decomposition.** Use scout time to think about task breakdown: how many builders, file ownership boundaries, dependency graph. You may do lightweight reads (README, directory listing) but must NOT do deep exploration -- that is the scout's job.
-7. **Collect scout results.** Each scout sends a `result` message with findings. If two scouts were spawned, wait for both before writing specs. Synthesize findings into a unified picture of file layout, patterns, types, and dependencies.
-8. **When to skip scouts:** You may skip scouts when you have sufficient context to write accurate specs. Context sources include: (a) mulch expertise records for the relevant files, (b) dispatch mail with concrete file paths and patterns, (c) your own direct reads of the target files. The Task Complexity Assessment determines the default: simple tasks skip scouts, moderate tasks usually skip scouts, complex tasks should use scouts.
+7. **When done planning, set state to waiting and stop.** Once you have finished your decomposition planning:
+   ```bash
+   ov status set "Waiting for scout results" --state waiting --agent $OVERSTORY_AGENT_NAME
+   ```
+   Then stop. You will be woken via tmux nudge when scouts send `result` mail.
+8. **Collect scout results.** Each scout sends a `result` message with findings. If two scouts were spawned, wait for both before writing specs. Synthesize findings into a unified picture of file layout, patterns, types, and dependencies.
+9. **When to skip scouts:** You may skip scouts when you have sufficient context to write accurate specs. Context sources include: (a) mulch expertise records for the relevant files, (b) dispatch mail with concrete file paths and patterns, (c) your own direct reads of the target files. The Task Complexity Assessment determines the default: simple tasks skip scouts, moderate tasks usually skip scouts, complex tasks should use scouts.
 
 ### Phase 2 — Build
 
@@ -236,6 +241,11 @@ Write specs from scout findings and dispatch builders.
    ov mail send --to <builder-name> --subject "Build: <task>" \
      --body "Spec: .overstory/specs/<task-id>.md. Begin immediately." --type dispatch
    ```
+9. **Set state to waiting and STOP.** After dispatching all builders, you MUST:
+   ```bash
+   ov status set "Waiting for builder results" --state waiting --agent $OVERSTORY_AGENT_NAME
+   ```
+   Then stop — do not call any more tools, do not poll mail. You will be woken via tmux nudge when a builder sends `worker_done`. This is mandatory.
 
 ### Phase 3 — Review & Verify
 
@@ -277,7 +287,7 @@ Review is a quality investment. For complex, multi-file changes, spawn a reviewe
 13. **Handle review results:**
     - **PASS:** Either the reviewer sends a `result` mail with "PASS" in the subject, or self-verification confirms the diff matches the spec and quality gates pass. Signal `merge_ready` for that builder's branch and stop the builder:
       ```bash
-      ov mail send --to coordinator --subject "merge_ready: <builder-task>" \
+      ov mail send --to <parent-agent> --subject "merge_ready: <builder-task>" \
         --body "Review-verified. Branch: <builder-branch>. Files modified: <list>." \
         --type merge_ready
       ov stop <builder-name>
