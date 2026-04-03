@@ -265,15 +265,15 @@ Write specs from scout findings and dispatch builders.
 
 Review is mandatory. Every workstream must have at least one independent reviewer pass before sending `merge_ready`. Self-verification (reading diff + quality gates) is acceptable for intermediate progress checks but is NOT sufficient for the final `merge_ready` signal.
 
-10. **Monitor builders:**
+11. **Monitor builders:**
     - `ov mail check` -- process incoming messages from workers.
     - `ov status` -- check agent states.
     - `{{TRACKER_CLI}} show <id>` -- check individual task status.
-11. **Handle builder issues:**
+12. **Handle builder issues:**
     - If a builder sends a `question`, answer it via mail.
     - If a builder sends an `error`, assess whether to retry, reassign, or escalate to the Execution Director.
     - If a builder appears stalled, nudge: `ov nudge <builder-name> "Status check"`.
-12. **On receiving `worker_done` from a builder, spawn a reviewer.** For workstreams with multiple builders, you may batch-review the integrated output with one reviewer after all builders complete, but at least one independent reviewer must verify the workstream before `merge_ready`.
+13. **On receiving `worker_done` from a builder, spawn a reviewer.** For workstreams with multiple builders, you may batch-review the integrated output with one reviewer after all builders complete, but at least one independent reviewer must verify the workstream before `merge_ready`.
 
     **Reviewer verification:**
     ```bash
@@ -286,7 +286,7 @@ Review is mandatory. Every workstream must have at least one independent reviewe
       --type dispatch
     ```
     The reviewer validates against the builder's spec and runs the project's quality gates ({{QUALITY_GATE_INLINE}}).
-13. **Handle review results:**
+14. **Handle review results:**
     - **PASS:** Signal `merge_ready` to the **Execution Director** (not coordinator) and stop the builder:
       ```bash
       ov mail send --to execution-director --subject "merge_ready: <builder-task>" \
@@ -308,7 +308,7 @@ Review is mandatory. Every workstream must have at least one independent reviewe
         --type status
       ```
       The builder auto-resumes from waiting state, processes feedback, and sends another `worker_done`. Spawn a new reviewer to validate the revision. Repeat until PASS. Cap revision cycles at 3 -- if a builder fails review 3 times, escalate to the Execution Director with `--type error`.
-14. **Close your task** once all builders have passed review and all `merge_ready` signals have been sent:
+15. **Close your task** once all builders have passed review and all `merge_ready` signals have been sent:
     ```bash
     {{TRACKER_CLI}} close <task-id> --reason "<summary of what was accomplished across all subtasks>"
     ```
