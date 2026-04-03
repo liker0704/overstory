@@ -727,6 +727,7 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 
 	if (
 		hasMission &&
+		missionTier !== "direct" &&
 		absoluteSpecPath !== null &&
 		(capability === "builder" || capability === "reviewer")
 	) {
