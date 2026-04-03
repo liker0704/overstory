@@ -508,6 +508,7 @@ async function spawnHeadless(
 	const directEnv = {
 		...runtime.buildEnv(resolvedModel),
 		OVERSTORY_AGENT_NAME: name,
+		OVERSTORY_PARENT_AGENT: parentAgent ?? "",
 		OVERSTORY_WORKTREE_PATH: worktreePath,
 		OVERSTORY_TASK_ID: taskId,
 	};
@@ -610,6 +611,7 @@ async function spawnInteractive(
 		env: {
 			...runtime.buildEnv(resolvedModel),
 			OVERSTORY_AGENT_NAME: name,
+			OVERSTORY_PARENT_AGENT: parentAgent ?? "",
 			OVERSTORY_WORKTREE_PATH: worktreePath,
 			OVERSTORY_TASK_ID: taskId,
 		},
@@ -617,6 +619,7 @@ async function spawnInteractive(
 	const pid = await tmux.createSession(tmuxSessionName, worktreePath, spawnCmd, {
 		...runtime.buildEnv(resolvedModel),
 		OVERSTORY_AGENT_NAME: name,
+		OVERSTORY_PARENT_AGENT: parentAgent ?? "",
 		OVERSTORY_WORKTREE_PATH: worktreePath,
 		OVERSTORY_TASK_ID: taskId,
 	});
