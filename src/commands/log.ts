@@ -149,10 +149,11 @@ async function transitionToCompleted(
 				return;
 			}
 
-			// Hard gate: if this agent has active children (builders, scouts, etc.),
-			// force state=waiting instead of completing. Prevents lost worker_done mail
+			// Hard gate: if this agent has active children (builders, scouts, critics, etc.),
+			// force state=waiting instead of completing. Prevents lost mail
 			// when the agent exits without setting state=waiting.
-			if (session.capability === "lead" || session.capability === "lead-mission") {
+			// Applies to ALL agents — parentAgent filter ensures only actual children counted.
+			{
 				const children = store.getAll().filter(
 					(s) =>
 						s.parentAgent === agentName &&

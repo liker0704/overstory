@@ -315,19 +315,13 @@ describe("freeze", () => {
 		expect(result?.pendingInputThreadId).toBeNull();
 	});
 
-	test("updates currentNode to phase:frozen", () => {
+	test("does NOT clobber currentNode on freeze", () => {
 		store.create(makeMission());
+		store.updateCurrentNode("mission-001", "understand-phase:evaluate");
 		store.freeze("mission-001", "question", null);
 		const result = store.getById("mission-001");
-		expect(result?.currentNode).toBe("understand:frozen");
-	});
-
-	test("updates currentNode to current phase:frozen after phase advance", () => {
-		store.create(makeMission());
-		store.updatePhase("mission-001", "plan");
-		store.freeze("mission-001", "approval", null);
-		const result = store.getById("mission-001");
-		expect(result?.currentNode).toBe("plan:frozen");
+		// currentNode should be preserved — engine manages subgraph position
+		expect(result?.currentNode).toBe("understand-phase:evaluate");
 	});
 });
 
@@ -357,13 +351,16 @@ describe("unfreeze", () => {
 		expect(result?.reopenCount).toBe(2);
 	});
 
-	test("updates currentNode to phase:active", () => {
+	test("does NOT clobber currentNode on unfreeze", () => {
 		store.create(makeMission());
+		store.updateCurrentNode("mission-001", "understand-phase:evaluate");
 		store.freeze("mission-001", "question", null);
-		expect(store.getById("mission-001")?.currentNode).toBe("understand:frozen");
+		// currentNode preserved through freeze
+		expect(store.getById("mission-001")?.currentNode).toBe("understand-phase:evaluate");
 
 		store.unfreeze("mission-001");
-		expect(store.getById("mission-001")?.currentNode).toBe("understand:active");
+		// currentNode preserved through unfreeze too
+		expect(store.getById("mission-001")?.currentNode).toBe("understand-phase:evaluate");
 	});
 });
 
