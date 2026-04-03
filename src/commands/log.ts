@@ -149,6 +149,23 @@ async function transitionToCompleted(
 				return;
 			}
 
+			// Hard gate: if this agent has active children (builders, scouts, etc.),
+			// force state=waiting instead of completing. Prevents lost worker_done mail
+			// when the agent exits without setting state=waiting.
+			if (session.capability === "lead" || session.capability === "lead-mission") {
+				const children = store.getAll().filter(
+					(s) =>
+						s.parentAgent === agentName &&
+						s.state !== "completed" &&
+						s.state !== "zombie",
+				);
+				if (children.length > 0) {
+					store.updateState(agentName, "waiting");
+					store.updateLastActivity(agentName);
+					return;
+				}
+			}
+
 			// Check if session-end was triggered by rate limit dialog.
 			// Claude Code fires Stop hook when the rate limit dialog appears,
 			// so we must detect this before marking the session as completed.
