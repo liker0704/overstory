@@ -32,6 +32,7 @@ import {
 import { resolveMissionByIdOrSlug } from "../missions/runtime-context.ts";
 import { createMissionStore } from "../missions/store.ts";
 import { missionHandoff, missionResume } from "../missions/workstream-control.ts";
+import { createMissionTierCommand } from "./mission-tier.ts";
 
 export { missionRefreshBriefsCommand } from "../missions/brief-refresh.ts";
 // Re-export for backward compatibility (consumed by tests)
@@ -414,6 +415,8 @@ export function createMissionCommand(): Command {
 			const cmd = createWorkstreamCompleteCommand();
 			await cmd.parseAsync([workstreamId, ...(opts.mission ? ["--mission", opts.mission] : []), ...(opts.json ? ["--json"] : [])], { from: "user" });
 		});
+
+	cmd.addCommand(createMissionTierCommand());
 
 	return cmd;
 }

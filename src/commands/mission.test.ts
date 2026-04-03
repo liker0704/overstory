@@ -48,7 +48,8 @@ describe("createMissionCommand", () => {
 		expect(names).toContain("graph");
 		expect(names).toContain("update");
 		expect(names).toContain("extract-learnings");
-		expect(names).toHaveLength(17);
+		expect(names).toContain("tier");
+		expect(names).toHaveLength(20);
 	});
 
 	test("answer subcommand supports --body and --file", () => {
@@ -66,7 +67,7 @@ describe("createMissionCommand", () => {
 		const bundle = cmd.commands.find((command) => command.name() === "bundle");
 		const options = bundle?.options ?? [];
 
-		expect(options.find((option) => option.long === "--mission-id")).toBeDefined();
+		expect(options.find((option) => option.long === "--mission")).toBeDefined();
 		expect(options.find((option) => option.long === "--force")).toBeDefined();
 		expect(options.find((option) => option.long === "--json")).toBeDefined();
 	});
