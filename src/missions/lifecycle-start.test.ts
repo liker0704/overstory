@@ -13,6 +13,8 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { access } from "node:fs/promises";
+import type { StartPersistentAgentResult } from "../agents/persistent-root.ts";
+import type { MissionCommandDeps } from "./lifecycle-types.ts";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -64,7 +66,9 @@ function makeRoleStub(sessionId: string) {
 			createdAt: new Date().toISOString(),
 			updatedAt: new Date().toISOString(),
 		},
-	});
+		runId: null,
+		pid: 0,
+	} as unknown as StartPersistentAgentResult);
 }
 
 describe("missionStart", () => {
@@ -73,8 +77,8 @@ describe("missionStart", () => {
 		const deps = {
 			startMissionCoordinator: makeRoleStub("coord-session-stub"),
 			startMissionAnalyst: makeRoleStub("analyst-session-stub"),
-			stopMissionRole: async () => {},
-		};
+			stopMissionRole: async () => ({}) as never,
+		} as MissionCommandDeps;
 
 		await missionStart(
 			overstoryDir,
