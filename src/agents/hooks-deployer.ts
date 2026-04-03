@@ -37,6 +37,9 @@ const NON_IMPLEMENTATION_CAPABILITIES = new Set([
 const COORDINATION_CAPABILITIES = new Set([
 	"coordinator",
 	"coordinator-mission",
+	"coordinator-mission-assess",
+	"coordinator-mission-direct",
+	"coordinator-mission-planned",
 	"execution-director",
 	"supervisor",
 	"monitor",

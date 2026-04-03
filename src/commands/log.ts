@@ -88,6 +88,9 @@ function updateLastActivity(projectRoot: string, agentName: string): void {
 const PERSISTENT_CAPABILITIES = new Set([
 	"coordinator",
 	"coordinator-mission",
+	"coordinator-mission-assess",
+	"coordinator-mission-direct",
+	"coordinator-mission-planned",
 	"monitor",
 	"mission-analyst",
 	"execution-director",

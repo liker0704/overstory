@@ -47,6 +47,9 @@ export { isProcessRunning } from "../process/util.ts";
 const PERSISTENT_CAPABILITIES = new Set([
 	"coordinator",
 	"coordinator-mission",
+	"coordinator-mission-assess",
+	"coordinator-mission-direct",
+	"coordinator-mission-planned",
 	"mission-analyst",
 	"execution-director",
 	"monitor",

@@ -2,7 +2,7 @@
  * Maps capability to throttle priority number.
  * Lower number = higher priority (throttled last).
  *
- * Priority 0 (never throttle): coordinator, coordinator-mission, mission-analyst, execution-director, monitor
+ * Priority 0 (never throttle): coordinator, coordinator-mission[-assess|-direct|-planned], mission-analyst, execution-director, monitor
  * Priority 1 (throttle last): lead, upstream-merge-lead
  * Priority 2 (throttle first): builder, scout, merger, reviewer, any other
  */
@@ -24,6 +24,9 @@ export function getThrottlePriority(capability: string): number {
 export const PERSISTENT_CAPABILITIES: ReadonlySet<string> = new Set([
 	"coordinator",
 	"coordinator-mission",
+	"coordinator-mission-assess",
+	"coordinator-mission-direct",
+	"coordinator-mission-planned",
 	"mission-analyst",
 	"execution-director",
 	"monitor",
