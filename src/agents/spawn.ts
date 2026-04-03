@@ -284,6 +284,11 @@ async function executePostWorktreeSteps(
 	const agentDefPath = join(config.project.root, config.agents.baseDir, agentDef.file);
 	const baseDefinition = await Bun.file(agentDefPath).text();
 
+	// Read shared mandate (mandatory waiting protocol etc.)
+	const mandatePath = join(overstoryDir, "agent-defs", "shared-mandate.md");
+	const mandateFile = Bun.file(mandatePath);
+	const sharedMandate = (await mandateFile.exists()) ? await mandateFile.text() : "";
+
 	// 8a. Fetch file-scoped mulch expertise if mulch is enabled and files are provided
 	let mulchExpertise: string | undefined;
 	if (config.mulch.enabled && opts.fileScope.length > 0) {
@@ -365,6 +370,7 @@ async function executePostWorktreeSteps(
 		tddMode: opts.tddMode,
 		architecturePath: opts.architecturePath,
 		testPlanPath: opts.testPlanPath,
+		sharedMandate,
 	};
 
 	await writeOverlay(worktreePath, overlayConfig, config.project.root, runtime.instructionPath);

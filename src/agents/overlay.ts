@@ -148,6 +148,30 @@ function resolveGates(gates: QualityGate[] | undefined): QualityGate[] {
 }
 
 /**
+ * Build the common template replacement map for agent prompts.
+ * Used by both generateOverlay() (worktree agents) and
+ * materializeMissionRolePrompt() (persistent root agents).
+ */
+export function buildTemplateReplacements(opts: {
+	trackerCli?: string;
+	trackerName?: string;
+	qualityGates?: QualityGate[];
+	agentName?: string;
+	taskId?: string;
+}): Record<string, string> {
+	return {
+		"{{TRACKER_CLI}}": opts.trackerCli ?? "sd",
+		"{{TRACKER_NAME}}": opts.trackerName ?? "seeds",
+		"{{QUALITY_GATE_CAPABILITIES}}": formatQualityGatesCapabilities(opts.qualityGates),
+		"{{QUALITY_GATE_INLINE}}": formatQualityGatesInline(opts.qualityGates),
+		"{{QUALITY_GATE_BASH}}": formatQualityGatesBash(opts.qualityGates),
+		"{{QUALITY_GATE_STEPS}}": formatQualityGatesSteps(opts.qualityGates),
+		"{{AGENT_NAME}}": opts.agentName ?? "",
+		"{{TASK_ID}}": opts.taskId ?? "",
+	};
+}
+
+/**
  * Format quality gates as inline backtick-delimited commands for prose sections.
  * Example: `bun test`, `bun run lint`, `bun run typecheck`
  */
@@ -363,6 +387,7 @@ export async function generateOverlay(config: OverlayConfig): Promise<string> {
 		"{{SKIP_SCOUT}}": config.skipScout ? SKIP_SCOUT_SECTION : "",
 		"{{DISPATCH_OVERRIDES}}": formatDispatchOverrides(config),
 		"{{BASE_DEFINITION}}": config.baseDefinition,
+		"{{SHARED_MANDATE}}": config.sharedMandate ?? "",
 		"{{PROFILE_INSTRUCTIONS}}": formatProfile(config.profileContent),
 		"{{QUALITY_GATE_INLINE}}": formatQualityGatesInline(config.qualityGates),
 		"{{QUALITY_GATE_STEPS}}": formatQualityGatesSteps(config.qualityGates),

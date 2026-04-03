@@ -347,6 +347,8 @@ export interface OverlayConfig {
 	tddMode?: TddMode;
 	architecturePath?: string;
 	testPlanPath?: string;
+	/** Shared mandate content (mandatory waiting protocol etc.). Read from agent-defs/shared-mandate.md. */
+	sharedMandate?: string;
 }
 
 // === Watchdog ===

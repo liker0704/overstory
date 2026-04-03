@@ -8,7 +8,10 @@
  */
 
 import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { buildTemplateReplacements } from "../agents/overlay.ts";
+import { loadConfig } from "../config.ts";
+import { resolveBackend } from "../tracker/factory.ts";
 import type { Mission } from "../types.ts";
 
 export interface MissionArtifactPaths {
@@ -229,9 +232,41 @@ export async function materializeMissionRolePrompt(opts: {
 		"",
 	].join("\n");
 
-	const renderedPrompt = basePrompt.includes("{{INSTRUCTION_PATH}}")
-		? basePrompt.replaceAll("{{INSTRUCTION_PATH}}", contextPath)
-		: `${basePrompt}\n\nMission context: ${contextPath}\n`;
+	// Apply template variable replacements (TRACKER_CLI, QUALITY_GATE_*, etc.)
+	const projectRoot = dirname(overstoryDir);
+	let renderedPrompt = basePrompt;
+	try {
+		const config = await loadConfig(projectRoot);
+		const resolvedBackend = await resolveBackend(config.taskTracker.backend, projectRoot);
+		const trackerCli =
+			resolvedBackend === "github" ? "gh" : resolvedBackend === "seeds" ? "sd" : "bd";
+		const replacements = buildTemplateReplacements({
+			trackerCli,
+			trackerName: resolvedBackend,
+			qualityGates: config.project?.qualityGates,
+			agentName,
+		});
+		for (const [key, value] of Object.entries(replacements)) {
+			while (renderedPrompt.includes(key)) {
+				renderedPrompt = renderedPrompt.replace(key, value);
+			}
+		}
+	} catch {
+		// Config load failure is non-fatal — proceed with unsubstituted prompt
+	}
+
+	// Inject shared mandate (mandatory waiting protocol etc.)
+	const mandatePath = join(overstoryDir, "agent-defs", "shared-mandate.md");
+	const mandateFile = Bun.file(mandatePath);
+	if (await mandateFile.exists()) {
+		const mandate = await mandateFile.text();
+		renderedPrompt = `${renderedPrompt}\n\n${mandate}`;
+	}
+
+	// Replace {{INSTRUCTION_PATH}} with the context file path
+	renderedPrompt = renderedPrompt.includes("{{INSTRUCTION_PATH}}")
+		? renderedPrompt.replaceAll("{{INSTRUCTION_PATH}}", contextPath)
+		: `${renderedPrompt}\n\nMission context: ${contextPath}\n`;
 
 	await Bun.write(contextPath, `${context}\n`);
 	await Bun.write(promptPath, `${renderedPrompt}\n`);
