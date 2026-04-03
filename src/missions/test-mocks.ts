@@ -155,6 +155,7 @@ export function createMockMissionStore(): MissionStore & { currentNode: string |
 			createdAt: "",
 			updatedAt: "",
 			learningsExtracted: false,
+			tier: null,
 		}),
 		getBySlug: () => null,
 		getActive: () => null,
@@ -183,6 +184,7 @@ export function createMockMissionStore(): MissionStore & { currentNode: string |
 			createdAt: "",
 			updatedAt: "",
 			learningsExtracted: false,
+			tier: m.tier ?? null,
 		}),
 		list: () => [],
 		delete: noop,
@@ -220,6 +222,9 @@ export function createMockMissionStore(): MissionStore & { currentNode: string |
 		}),
 		incrementNudgeCount: noop,
 		resolveGate: noop,
+		updateTier: noop as unknown as MissionStore["updateTier"],
+		clearGateStates: noop,
+		clearCheckpoints: noop,
 		transaction: <T>(fn: () => T): T => fn(),
 		close: noop,
 	};
@@ -252,6 +257,7 @@ export function makeMission(overrides?: Partial<Mission>): Mission {
 		createdAt: "",
 		updatedAt: "",
 		learningsExtracted: false,
+		tier: null,
 		...overrides,
 	};
 }

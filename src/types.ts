@@ -208,6 +208,7 @@ export type {
 	MissionState,
 	MissionStore,
 	MissionSummary,
+	MissionTier,
 	NodeCheckpoint,
 	PendingInputKind,
 	TddMode,

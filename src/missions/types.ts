@@ -180,12 +180,14 @@ export interface Mission {
 	createdAt: string;
 	updatedAt: string;
 	learningsExtracted: boolean;
+	tier: MissionTier | null;
 }
 
 export type InsertMission = Pick<Mission, "id" | "slug" | "objective"> & {
 	runId?: string | null;
 	artifactRoot?: string | null;
 	startedAt?: string | null;
+	tier?: MissionTier | null;
 };
 
 export interface MissionSummary {
@@ -269,6 +271,14 @@ export interface CheckpointStore {
 	/** Delete all checkpoints for a mission. */
 	deleteCheckpoints(missionId: string): void;
 }
+
+// === Mission Tier Types ===
+
+export type MissionTier = "direct" | "planned" | "full";
+export const MISSION_TIERS: readonly MissionTier[] = ["direct", "planned", "full"] as const;
+
+/** Tier ordering for transition validation. Only UP transitions allowed. */
+export const TIER_ORDER: Record<MissionTier, number> = { direct: 0, planned: 1, full: 2 };
 
 // === Flash Quality Types ===
 
@@ -449,6 +459,14 @@ export interface MissionStore {
 	};
 	incrementNudgeCount(missionId: string, nodeId: string): void;
 	resolveGate(missionId: string, nodeId: string, trigger: string): void;
+
+	// === Tier operations ===
+	/** Update tier with direction enforcement. Transaction-unaware — caller wraps in transaction. */
+	updateTier(id: string, newTier: MissionTier, triggeredBy?: string): void;
+	/** Clear all gate states for a mission (used during tier escalation). */
+	clearGateStates(missionId: string): void;
+	/** Clear all checkpoint records for a mission (used during tier escalation). */
+	clearCheckpoints(missionId: string): void;
 
 	close(): void;
 }

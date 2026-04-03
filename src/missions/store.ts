@@ -6,15 +6,17 @@
  */
 
 import { Database } from "bun:sqlite";
-import { ensureMigrations, type Migration, rebuildTable } from "../db/migrate.ts";
+import { ensureMigrations, hasColumn, type Migration, rebuildTable } from "../db/migrate.ts";
 import type {
 	InsertMission,
 	Mission,
 	MissionPhase,
 	MissionState,
 	MissionStore,
+	MissionTier,
 	PendingInputKind,
 } from "../types.ts";
+import { TIER_ORDER } from "./types.ts";
 import { createCheckpointStore } from "./checkpoint.ts";
 
 /** Safely parse a JSON string from a database column, returning a fallback on failure. */
@@ -55,6 +57,7 @@ interface MissionRow {
 	created_at: string;
 	updated_at: string;
 	learnings_extracted: number;
+	tier: string | null;
 }
 
 const CREATE_TABLE = `
@@ -444,6 +447,26 @@ const MISSION_MIGRATIONS: Migration[] = [
 			return wsStatus !== null && gateState !== null && tickLock !== null;
 		},
 	},
+	{
+		version: 6,
+		description: "Add tier column and tier_transitions table",
+		up: (db) => {
+			if (!hasColumn(db, "missions", "tier")) {
+				db.exec(
+					"ALTER TABLE missions ADD COLUMN tier TEXT CHECK(tier IS NULL OR tier IN ('direct','planned','full'))",
+				);
+			}
+			db.exec(`CREATE TABLE IF NOT EXISTS mission_tier_transitions (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				mission_id TEXT NOT NULL,
+				from_tier TEXT,
+				to_tier TEXT NOT NULL,
+				triggered_by TEXT,
+				created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+			)`);
+		},
+		detect: (_db, columns) => columns.has("tier"),
+	},
 ];
 
 /** Convert a database row (snake_case) to a Mission object (camelCase). */
@@ -474,6 +497,7 @@ function rowToMission(row: MissionRow): Mission {
 		createdAt: row.created_at,
 		updatedAt: row.updated_at,
 		learningsExtracted: row.learnings_extracted === 1,
+		tier: (row.tier as MissionTier | null) ?? null,
 	};
 }
 
@@ -509,12 +533,13 @@ export function createMissionStore(dbPath: string): MissionStore {
 			$started_at: string | null;
 			$created_at: string;
 			$updated_at: string;
+			$tier: string | null;
 		}
 	>(`
 		INSERT INTO missions
-			(id, slug, objective, run_id, artifact_root, started_at, created_at, updated_at)
+			(id, slug, objective, run_id, artifact_root, started_at, created_at, updated_at, tier)
 		VALUES
-			($id, $slug, $objective, $run_id, $artifact_root, $started_at, $created_at, $updated_at)
+			($id, $slug, $objective, $run_id, $artifact_root, $started_at, $created_at, $updated_at, $tier)
 	`);
 
 	const getByIdStmt = db.prepare<MissionRow, { $id: string }>(`
@@ -700,6 +725,7 @@ export function createMissionStore(dbPath: string): MissionStore {
 				$started_at: mission.startedAt ?? null,
 				$created_at: now,
 				$updated_at: now,
+				$tier: mission.tier ?? null,
 			});
 			const row = getByIdStmt.get({ $id: mission.id });
 			if (!row) {
@@ -1017,6 +1043,55 @@ export function createMissionStore(dbPath: string): MissionStore {
 		transaction<T>(fn: () => T): T {
 			return db.transaction(fn)();
 		},
+
+		updateTier: (() => {
+			const updateStmt = db.prepare(
+				"UPDATE missions SET tier = $tier, updated_at = $now WHERE id = $id",
+			);
+			const logStmt = db.prepare(
+				`INSERT INTO mission_tier_transitions (mission_id, from_tier, to_tier, triggered_by, created_at)
+				 VALUES ($missionId, $fromTier, $toTier, $triggeredBy, $now)`,
+			);
+			return (id: string, newTier: MissionTier, triggeredBy?: string): void => {
+				const row = getByIdStmt.get({ $id: id });
+				if (!row) throw new Error(`Mission ${id} not found`);
+				const currentTier = row.tier as MissionTier | null;
+				if (currentTier !== null) {
+					const currentOrder = TIER_ORDER[currentTier];
+					const newOrder = TIER_ORDER[newTier];
+					if (newOrder <= currentOrder) {
+						throw new Error(
+							`Cannot downgrade mission tier from ${currentTier} to ${newTier}`,
+						);
+					}
+				}
+				const now = new Date().toISOString();
+				updateStmt.run({ $id: id, $tier: newTier, $now: now });
+				logStmt.run({
+					$missionId: id,
+					$fromTier: currentTier,
+					$toTier: newTier,
+					$triggeredBy: triggeredBy ?? null,
+					$now: now,
+				});
+			};
+		})(),
+
+		clearGateStates: (() => {
+			const stmt = db.prepare("DELETE FROM mission_gate_state WHERE mission_id = $missionId");
+			return (missionId: string): void => {
+				stmt.run({ $missionId: missionId });
+			};
+		})(),
+
+		clearCheckpoints: (() => {
+			const stmt = db.prepare(
+				"DELETE FROM mission_node_checkpoints WHERE mission_id = $missionId",
+			);
+			return (missionId: string): void => {
+				stmt.run({ $missionId: missionId });
+			};
+		})(),
 
 		close(): void {
 			try {
