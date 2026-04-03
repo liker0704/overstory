@@ -15,7 +15,9 @@ import type {
 } from "../agents/persistent-root.ts";
 import { startPersistentAgent, stopPersistentAgent } from "../agents/persistent-root.ts";
 import { AgentError } from "../errors.ts";
-import type { MissionStore } from "../types.ts";
+import type { Mission, MissionStore } from "../types.ts";
+import { buildMissionRoleBeacon, materializeMissionRolePrompt } from "./context.ts";
+import { drainAgentInbox } from "./messaging.ts";
 import { createMissionStore } from "./store.ts";
 
 // === Interfaces ===
@@ -115,6 +117,64 @@ export async function startMissionAnalyst(
 	}
 
 	return result;
+}
+
+/**
+ * Ensure the mission analyst is running. If no analyst session exists or
+ * it's dead, spawn one with tier-appropriate capability and slug-scoped name.
+ */
+export async function ensureMissionAnalyst(
+	mission: Mission,
+	overstoryDir: string,
+	projectRoot: string,
+): Promise<void> {
+	if (mission.analystSessionId) {
+		// Analyst already bound — check if alive
+		const { openSessionStore } = await import("../sessions/compat.ts");
+		const { store: sessionStore } = openSessionStore(overstoryDir);
+		try {
+			const analystName = mission.slug ? `mission-analyst-${mission.slug}` : "mission-analyst";
+			const session = sessionStore.getByName(analystName);
+			if (session && session.state !== "completed" && session.state !== "zombie") {
+				return; // Analyst is alive
+			}
+		} finally {
+			sessionStore.close();
+		}
+	}
+
+	// Spawn analyst with tier-appropriate capability
+	const analystName = mission.slug ? `mission-analyst-${mission.slug}` : "mission-analyst";
+	const analystCapability =
+		mission.tier === "planned" ? "mission-analyst-planned" : "mission-analyst";
+	const coordAgentName = mission.slug ? `coordinator-${mission.slug}` : "coordinator";
+
+	const analystPrompt = await materializeMissionRolePrompt({
+		overstoryDir,
+		agentName: analystName,
+		capability: analystCapability,
+		roleLabel: "Mission Analyst",
+		mission,
+		siblingNames: {
+			"Coordinator agent": coordAgentName,
+		},
+	});
+	drainAgentInbox(overstoryDir, analystName);
+
+	await startMissionAnalyst({
+		missionId: mission.id,
+		missionSlug: mission.slug,
+		agentName: analystName,
+		projectRoot,
+		overstoryDir,
+		existingRunId: mission.runId ?? "",
+		appendSystemPromptFile: analystPrompt.promptPath,
+		beacon: buildMissionRoleBeacon({
+			agentName: analystName,
+			missionId: mission.id,
+			contextPath: analystPrompt.contextPath,
+		}),
+	});
 }
 
 /**

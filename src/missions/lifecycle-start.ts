@@ -20,7 +20,6 @@ import {
 } from "./context.ts";
 import { shouldUseEngine, transitionMissionViaEngine } from "./engine-wiring.ts";
 import { recordMissionEvent } from "./events.ts";
-import { nodeId } from "./graph.ts";
 import { resolveCurrentMissionId, toSummary } from "./lifecycle-helpers.ts";
 import type { MissionCommandDeps } from "./lifecycle-types.ts";
 import {
@@ -60,9 +59,9 @@ export async function missionStart(
 	const artifactRoot = join(overstoryDir, "missions", missionId);
 	let missionCreated = false;
 	let coordinatorStarted = false;
-	let analystStarted = false;
+	const analystStarted = false;
 	const startCoord = deps.startMissionCoordinator ?? startMissionCoordinator;
-	const startAnalyst = deps.startMissionAnalyst ?? startMissionAnalyst;
+	const _startAnalyst = deps.startMissionAnalyst ?? startMissionAnalyst;
 	const stopRole = deps.stopMissionRole ?? stopMissionRole;
 
 	try {
@@ -107,11 +106,13 @@ export async function missionStart(
 			runId,
 			artifactRoot,
 			startedAt: new Date().toISOString(),
+			tier: null,
 		};
 		const createdMission = missionStore.create(insertMission);
 		missionCreated = true;
 		missionStore.start(missionId);
-		missionStore.updateCurrentNode(missionId, nodeId("understand", "active"));
+		// currentNode stays NULL — assess mode. The backward-compat guard in
+		// processMission() checks tier===null && currentNode===null to skip engine.
 		const mission = missionStore.getById(missionId) ?? createdMission;
 
 		await mkdir(artifactRoot, { recursive: true });
@@ -122,18 +123,15 @@ export async function missionStart(
 		// --- Start mission coordinator (user-facing role) ---
 		// Scope agent names by slug for parallel mission support
 		const coordAgentName = slug ? `coordinator-${slug}` : "coordinator";
-		const analystAgentName = slug ? `mission-analyst-${slug}` : "mission-analyst";
-		const edAgentName = slug ? `execution-director-${slug}` : "execution-director";
+		const _analystAgentName = slug ? `mission-analyst-${slug}` : "mission-analyst";
+		const _edAgentName = slug ? `execution-director-${slug}` : "execution-director";
 		const coordPrompt = await materializeMissionRolePrompt({
 			overstoryDir,
 			agentName: coordAgentName,
-			capability: "coordinator-mission",
-			roleLabel: "Mission Coordinator",
+			capability: "coordinator-mission-assess",
+			roleLabel: "Mission Coordinator (Assess)",
 			mission,
-			siblingNames: {
-				"Mission Analyst agent": analystAgentName,
-				"Execution Director agent": edAgentName,
-			},
+			siblingNames: {},
 		});
 		drainAgentInbox(overstoryDir, coordAgentName);
 
@@ -156,37 +154,10 @@ export async function missionStart(
 		// Bind coordinator session to the mission record
 		missionStore.bindCoordinatorSession(mission.id, coordResult.session.id);
 
-		// --- Start mission analyst (internal research role) ---
-		const analystPrompt = await materializeMissionRolePrompt({
-			overstoryDir,
-			agentName: analystAgentName,
-			capability: "mission-analyst",
-			roleLabel: "Mission Analyst",
-			mission,
-			siblingNames: {
-				"Coordinator agent": coordAgentName,
-			},
-		});
-		drainAgentInbox(overstoryDir, analystAgentName);
+		// Analyst spawn is deferred — lazy start via `ov mission tier set` when
+		// tier is set to planned or full. In assess mode only the coordinator runs.
 
-		const analystResult = await startAnalyst({
-			missionId: mission.id,
-			missionSlug: mission.slug,
-			agentName: analystAgentName,
-			projectRoot,
-			overstoryDir,
-			existingRunId: runId,
-			appendSystemPromptFile: analystPrompt.promptPath,
-			beacon: buildMissionRoleBeacon({
-				agentName: analystAgentName,
-				missionId: mission.id,
-				contextPath: analystPrompt.contextPath,
-			}),
-		});
-		analystStarted = true;
-		missionStore.bindSessions(mission.id, { analystSessionId: analystResult.session.id });
-
-		// --- Dispatch objective to coordinator (not analyst) ---
+		// --- Dispatch objective to coordinator (assess mode) ---
 		const dispatchBody = pendingObjective
 			? [
 					`Mission ID: ${mission.id}`,
@@ -196,8 +167,7 @@ export async function missionStart(
 					"No objective was provided at start. Begin by asking the operator what they want to accomplish.",
 					"Once you understand the objective, set the mission identity:",
 					`  ov mission update --slug <short-name> --objective '<real objective>'`,
-					"Then proceed with standard mission coordination (planning, freeze, handoff).",
-					"Mission Analyst is running and available for research queries via mail.",
+					"Then assess complexity and set mission tier: ov mission tier set <direct|planned|full>",
 				]
 			: [
 					`Mission ID: ${mission.id}`,
@@ -205,34 +175,17 @@ export async function missionStart(
 					`Artifact root: ${mission.artifactRoot ?? "none"}`,
 					`Context file: ${coordPrompt.contextPath}`,
 					"",
-					"You are the user-facing mission coordinator.",
-					"Mission Analyst is running and available for research queries via mail.",
-					"Begin initial clarification with the operator.",
+					"You are in assess mode. Read the objective, scan the codebase, and select a tier.",
+					"Run: ov mission tier set <direct|planned|full>",
 				];
 		const dispatchId = await sendMissionDispatchMail({
 			overstoryDir,
-			to: "coordinator",
+			to: coordAgentName,
 			subject: `Mission started: ${mission.slug}`,
 			body: dispatchBody.join("\n"),
 		});
 
-		// Notify analyst of mission start (internal, not user-facing)
-		await sendMissionControlMail({
-			overstoryDir,
-			to: "mission-analyst",
-			subject: `Mission started: ${mission.slug}`,
-			body: [
-				`Mission ID: ${mission.id}`,
-				`Objective: ${mission.objective}`,
-				`Artifact root: ${mission.artifactRoot ?? "none"}`,
-				`Context file: ${analystPrompt.contextPath}`,
-				"",
-				"You are the internal research and knowledge role for this mission.",
-				"The coordinator owns the user-facing interaction loop.",
-				"Begin current-state analysis. Report findings to coordinator via mail.",
-			].join("\n"),
-			type: "dispatch",
-		});
+		// Analyst notification deferred to tier set (analyst is lazy-spawned)
 
 		recordMissionEvent({
 			overstoryDir,
@@ -288,7 +241,7 @@ export async function missionStart(
 			process.stdout.write(`  Run:         ${runId}\n`);
 			process.stdout.write(`  Artifacts:   ${artifactRoot}\n`);
 			process.stdout.write(`  Coordinator: ${coordResult.session.id}\n`);
-			process.stdout.write(`  Analyst:     ${analystResult.session.id}\n`);
+			process.stdout.write(`  Tier:        ${accent("null (assess mode)")}\n`);
 			process.stdout.write(`  Dispatch:    ${dispatchId}\n`);
 		}
 
@@ -352,27 +305,44 @@ async function restartMissionRoles(
 		throw new Error(`Mission ${mission.id} has no runId — cannot restart roles`);
 	}
 	const runId = mission.runId;
+	const tier = mission.tier;
 
-	const coordAgentName = "coordinator";
-	const analystAgentName = "mission-analyst";
-	const edAgentName = "execution-director";
+	// Slug-scoped agent names (mirrors missionStart pattern)
+	const coordAgentName = mission.slug ? `coordinator-${mission.slug}` : "coordinator";
+	const analystAgentName = mission.slug ? `mission-analyst-${mission.slug}` : "mission-analyst";
+	const edAgentName = mission.slug ? `execution-director-${mission.slug}` : "execution-director";
+
+	// Tier-aware coordinator capability
+	let coordCapability: string;
+	const siblingNames: Record<string, string> = {};
+	if (tier === "direct") {
+		coordCapability = "coordinator-mission-direct";
+	} else if (tier === "planned") {
+		coordCapability = "coordinator-mission-planned";
+		siblingNames["Mission Analyst agent"] = analystAgentName;
+	} else if (tier === "full") {
+		coordCapability = "coordinator-mission";
+		siblingNames["Mission Analyst agent"] = analystAgentName;
+		siblingNames["Execution Director agent"] = edAgentName;
+	} else {
+		// tier === null → assess mode
+		coordCapability = "coordinator-mission-assess";
+	}
 
 	const coordPrompt = await materializeMissionRolePrompt({
 		overstoryDir,
 		agentName: coordAgentName,
-		capability: "coordinator-mission",
+		capability: coordCapability,
 		roleLabel: "Mission Coordinator",
 		mission,
-		siblingNames: {
-			"Mission Analyst agent": analystAgentName,
-			"Execution Director agent": edAgentName,
-		},
+		siblingNames,
 	});
 	drainAgentInbox(overstoryDir, coordAgentName);
 
 	const coordResult = await startMissionCoordinator({
 		missionId: mission.id,
 		missionSlug: mission.slug,
+		agentName: coordAgentName,
 		projectRoot,
 		overstoryDir,
 		existingRunId: runId,
@@ -391,43 +361,74 @@ async function restartMissionRoles(
 		missionStore.close();
 	}
 
-	const analystPrompt = await materializeMissionRolePrompt({
-		overstoryDir,
-		agentName: analystAgentName,
-		capability: "mission-analyst",
-		roleLabel: "Mission Analyst",
-		mission,
-		siblingNames: {
-			"Coordinator agent": coordAgentName,
-		},
-	});
-	drainAgentInbox(overstoryDir, "mission-analyst");
+	// Conditionally spawn analyst — only for planned/full tiers
+	if (tier === "planned" || tier === "full") {
+		const analystCapability = tier === "planned" ? "mission-analyst-planned" : "mission-analyst";
+		const analystPrompt = await materializeMissionRolePrompt({
+			overstoryDir,
+			agentName: analystAgentName,
+			capability: analystCapability,
+			roleLabel: "Mission Analyst",
+			mission,
+			siblingNames: {
+				"Coordinator agent": coordAgentName,
+			},
+		});
+		drainAgentInbox(overstoryDir, analystAgentName);
 
-	const analystResult = await startMissionAnalyst({
-		missionId: mission.id,
-		missionSlug: mission.slug,
-		projectRoot,
-		overstoryDir,
-		existingRunId: runId,
-		appendSystemPromptFile: analystPrompt.promptPath,
-		beacon: buildMissionRoleBeacon({
-			agentName: "mission-analyst",
+		const analystResult = await startMissionAnalyst({
 			missionId: mission.id,
-			contextPath: analystPrompt.contextPath,
-		}),
-	});
+			missionSlug: mission.slug,
+			agentName: analystAgentName,
+			projectRoot,
+			overstoryDir,
+			existingRunId: runId,
+			appendSystemPromptFile: analystPrompt.promptPath,
+			beacon: buildMissionRoleBeacon({
+				agentName: analystAgentName,
+				missionId: mission.id,
+				contextPath: analystPrompt.contextPath,
+			}),
+		});
 
-	const missionStore2 = createMissionStore(join(overstoryDir, "sessions.db"));
-	try {
-		missionStore2.bindSessions(mission.id, { analystSessionId: analystResult.session.id });
-	} finally {
-		missionStore2.close();
+		const missionStore2 = createMissionStore(join(overstoryDir, "sessions.db"));
+		try {
+			missionStore2.bindSessions(mission.id, { analystSessionId: analystResult.session.id });
+		} finally {
+			missionStore2.close();
+		}
+
+		// Notify analyst of resumed mission
+		await sendMissionControlMail({
+			overstoryDir,
+			to: analystAgentName,
+			subject: `Mission resumed: ${mission.slug}`,
+			body: [
+				`Mission ID: ${mission.id}`,
+				`Objective: ${mission.objective}`,
+				`Artifact root: ${mission.artifactRoot ?? "none"}`,
+				`Context file: ${analystPrompt.contextPath}`,
+				"",
+				"This mission is being RESUMED. Check artifacts for prior analysis.",
+				"Report findings to coordinator via mail.",
+			].join("\n"),
+			type: "dispatch",
+		});
+		await nudgeMissionRoleBestEffort(
+			projectRoot,
+			analystAgentName,
+			`Mission resumed: ${mission.slug}. Check mail and review prior work.`,
+		);
 	}
 
 	// Notify coordinator of resumed mission
+	const analystNote =
+		tier === "planned" || tier === "full"
+			? "Mission Analyst is running and available for research queries via mail."
+			: "";
 	await sendMissionDispatchMail({
 		overstoryDir,
-		to: "coordinator",
+		to: coordAgentName,
 		subject: `Mission resumed: ${mission.slug}`,
 		body: [
 			`Mission ID: ${mission.id}`,
@@ -437,34 +438,15 @@ async function restartMissionRoles(
 			"",
 			"This mission is being RESUMED (not started fresh).",
 			"Check the mission artifacts directory for prior work.",
-			"Mission Analyst is running and available for research queries via mail.",
-		].join("\n"),
+			analystNote,
+		]
+			.filter(Boolean)
+			.join("\n"),
 	});
 	await nudgeMissionRoleBestEffort(
 		projectRoot,
-		"coordinator",
+		coordAgentName,
 		`Mission resumed: ${mission.slug}. Check mail and review prior artifacts.`,
-	);
-
-	await sendMissionControlMail({
-		overstoryDir,
-		to: "mission-analyst",
-		subject: `Mission resumed: ${mission.slug}`,
-		body: [
-			`Mission ID: ${mission.id}`,
-			`Objective: ${mission.objective}`,
-			`Artifact root: ${mission.artifactRoot ?? "none"}`,
-			`Context file: ${analystPrompt.contextPath}`,
-			"",
-			"This mission is being RESUMED. Check artifacts for prior analysis.",
-			"Report findings to coordinator via mail.",
-		].join("\n"),
-		type: "dispatch",
-	});
-	await nudgeMissionRoleBestEffort(
-		projectRoot,
-		"mission-analyst",
-		`Mission resumed: ${mission.slug}. Check mail and review prior work.`,
 	);
 }
 
