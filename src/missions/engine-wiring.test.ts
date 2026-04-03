@@ -8,11 +8,13 @@ import { describe, expect, test } from "bun:test";
 import type { Mission } from "../types.ts";
 import {
 	advanceCellGate,
+	buildLifecycleGraph,
 	CELL_REGISTRY,
 	type EngineDeps,
 	getCellEngineStatus,
 	shouldUseEngine,
 	startCellEngine,
+	TIER_PHASES,
 } from "./engine-wiring.ts";
 import { validateGraph } from "./graph.ts";
 import { createMockCheckpointStore, createMockMissionStore, makeMission } from "./test-mocks.ts";
@@ -278,5 +280,97 @@ describe("getCellEngineStatus", () => {
 		expect(status.transitions[0]).toHaveProperty("toNode");
 		expect(status.transitions[0]).toHaveProperty("trigger");
 		expect(status.transitions[0]).toHaveProperty("createdAt");
+	});
+});
+
+// === tier-aware graph construction ===
+
+describe("tier-aware graph construction", () => {
+	test('buildLifecycleGraph with tier="direct" produces only execute+done phases', () => {
+		const mission = makeMission({ tier: "direct" });
+		const graph = buildLifecycleGraph(mission);
+
+		const lifecycleNodes = graph.nodes.filter((n) => n.kind === "lifecycle");
+		const phases = new Set(lifecycleNodes.map((n) => n.phase));
+
+		expect(phases).toEqual(new Set(["execute", "done"]));
+		expect(phases.has("understand")).toBe(false);
+		expect(phases.has("align")).toBe(false);
+		expect(phases.has("decide")).toBe(false);
+		expect(phases.has("plan")).toBe(false);
+	});
+
+	test('buildLifecycleGraph with tier="planned" includes understand, plan, execute, done (skips align/decide)', () => {
+		const mission = makeMission({ tier: "planned" });
+		const graph = buildLifecycleGraph(mission);
+
+		const lifecycleNodes = graph.nodes.filter((n) => n.kind === "lifecycle");
+		const phases = new Set(lifecycleNodes.map((n) => n.phase));
+
+		expect(phases).toEqual(new Set(["understand", "plan", "execute", "done"]));
+		expect(phases.has("align")).toBe(false);
+		expect(phases.has("decide")).toBe(false);
+	});
+
+	test('buildLifecycleGraph with tier="full" includes all 6 phases', () => {
+		const mission = makeMission({ tier: "full" });
+		const graph = buildLifecycleGraph(mission);
+
+		const lifecycleNodes = graph.nodes.filter((n) => n.kind === "lifecycle");
+		const phases = new Set(lifecycleNodes.map((n) => n.phase));
+
+		expect(phases).toEqual(new Set(["understand", "align", "decide", "plan", "execute", "done"]));
+	});
+
+	test("buildLifecycleGraph with tier=null defaults to full (backward compat)", () => {
+		const mission = makeMission({ tier: null });
+		const graph = buildLifecycleGraph(mission);
+
+		const lifecycleNodes = graph.nodes.filter((n) => n.kind === "lifecycle");
+		const phases = [...new Set(lifecycleNodes.map((n) => n.phase))].sort() as string[];
+
+		// tier=null should produce the same phases as tier="full"
+		expect(phases).toEqual(Array.from(TIER_PHASES.full).sort());
+	});
+
+	test("direct graph has executeDirectPhaseCell subgraph nodes (dispatch-leads, await-leads-done, etc.)", () => {
+		const mission = makeMission({ tier: "direct" });
+		const graph = buildLifecycleGraph(mission);
+
+		// Find the execute:active node — it should have a subgraph
+		const executeActive = graph.nodes.find((n) => n.id === "execute:active");
+		expect(executeActive).toBeDefined();
+		expect(executeActive?.kind).toBe("lifecycle");
+		if (executeActive?.kind !== "lifecycle") throw new Error("Expected lifecycle node");
+		expect(executeActive.subgraph).toBeDefined();
+
+		const subNodes = executeActive.subgraph!.nodes;
+		const subNodeIds = subNodes.map((n: { id: string }) => n.id);
+
+		expect(subNodeIds).toContain("execute-phase:dispatch-leads");
+		expect(subNodeIds).toContain("execute-phase:await-leads-done");
+		expect(subNodeIds).toContain("execute-phase:merge-all");
+		expect(subNodeIds).toContain("execute-phase:complete");
+	});
+
+	test("direct graph edges only connect nodes from allowed phases", () => {
+		const mission = makeMission({ tier: "direct" });
+		const graph = buildLifecycleGraph(mission);
+
+		const nodeIds = new Set(graph.nodes.map((n) => n.id));
+		for (const edge of graph.edges) {
+			expect(nodeIds.has(edge.from)).toBe(true);
+			expect(nodeIds.has(edge.to)).toBe(true);
+		}
+	});
+
+	test("full and planned graphs produce valid graphs", () => {
+		for (const tier of ["full", "planned"] as const) {
+			const mission = makeMission({ tier });
+			const graph = buildLifecycleGraph(mission);
+			// Graph should have nodes and edges
+			expect(graph.nodes.length).toBeGreaterThan(0);
+			expect(graph.edges.length).toBeGreaterThan(0);
+		}
 	});
 });

@@ -10,7 +10,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cleanupTempDir } from "../test-helpers.ts";
-import type { InsertMission, MissionStore } from "../types.ts";
+import type { InsertMission, MissionStore, MissionTier } from "../types.ts";
 import { createMissionStore } from "./store.ts";
 
 let tempDir: string;
@@ -739,5 +739,141 @@ describe("schema idempotency", () => {
 		}
 
 		store = createMissionStore(dbPath);
+	});
+});
+
+// === tier operations ===
+
+describe("tier operations", () => {
+	test("updateTier stores and retrieves correctly", () => {
+		store.create(makeMission());
+		store.updateTier("mission-001", "direct");
+		const result = store.getById("mission-001");
+		expect(result?.tier).toBe("direct");
+	});
+
+	test("updateTier upgrades from direct to planned", () => {
+		store.create(makeMission());
+		store.updateTier("mission-001", "direct");
+		store.updateTier("mission-001", "planned");
+		const result = store.getById("mission-001");
+		expect(result?.tier).toBe("planned");
+	});
+
+	test("updateTier rejects downgrades (planned to direct throws)", () => {
+		store.create(makeMission());
+		store.updateTier("mission-001", "planned");
+		expect(() => store.updateTier("mission-001", "direct")).toThrow(
+			"Cannot downgrade mission tier from planned to direct",
+		);
+	});
+
+	test("updateTier rejects same-tier update (full to full throws)", () => {
+		store.create(makeMission());
+		store.updateTier("mission-001", "full");
+		expect(() => store.updateTier("mission-001", "full")).toThrow(
+			"Cannot downgrade mission tier from full to full",
+		);
+	});
+
+	test("updateTier records transition in mission_tier_transitions", () => {
+		store.create(makeMission());
+		store.updateTier("mission-001", "direct", "auto-detect");
+
+		const db = new Database(dbPath, { readonly: true });
+		const rows = db
+			.prepare(
+				"SELECT mission_id, from_tier, to_tier, triggered_by FROM mission_tier_transitions WHERE mission_id = ?",
+			)
+			.all("mission-001") as Array<{
+			mission_id: string;
+			from_tier: string | null;
+			to_tier: string;
+			triggered_by: string | null;
+		}>;
+		db.close();
+
+		expect(rows).toHaveLength(1);
+		const row = rows[0]!;
+		expect(row.mission_id).toBe("mission-001");
+		expect(row.from_tier).toBeNull();
+		expect(row.to_tier).toBe("direct");
+		expect(row.triggered_by).toBe("auto-detect");
+	});
+
+	test("updateTier records multiple transitions on upgrade path", () => {
+		store.create(makeMission());
+		store.updateTier("mission-001", "direct", "init");
+		store.updateTier("mission-001", "planned", "escalation");
+		store.updateTier("mission-001", "full", "user-request");
+
+		const db = new Database(dbPath, { readonly: true });
+		const rows = db
+			.prepare(
+				"SELECT from_tier, to_tier, triggered_by FROM mission_tier_transitions WHERE mission_id = ? ORDER BY id",
+			)
+			.all("mission-001") as Array<{
+			from_tier: string | null;
+			to_tier: string;
+			triggered_by: string | null;
+		}>;
+		db.close();
+
+		expect(rows).toHaveLength(3);
+		expect(rows[0]!.from_tier).toBeNull();
+		expect(rows[0]!.to_tier).toBe("direct");
+		expect(rows[1]!.from_tier).toBe("direct");
+		expect(rows[1]!.to_tier).toBe("planned");
+		expect(rows[2]!.from_tier).toBe("planned");
+		expect(rows[2]!.to_tier).toBe("full");
+	});
+
+	test("clearGateStates clears gate state rows", () => {
+		store.create(makeMission());
+		// Insert a gate state via the store API
+		store.ensureGateState("mission-001", "execute:active", 120_000, 3_600_000);
+
+		// Verify gate state exists
+		const db = new Database(dbPath, { readonly: true });
+		const before = db
+			.prepare("SELECT COUNT(*) as cnt FROM mission_gate_state WHERE mission_id = ?")
+			.get("mission-001") as { cnt: number };
+		expect(before.cnt).toBeGreaterThan(0);
+		db.close();
+
+		// Clear and verify
+		store.clearGateStates("mission-001");
+
+		const db2 = new Database(dbPath, { readonly: true });
+		const after = db2
+			.prepare("SELECT COUNT(*) as cnt FROM mission_gate_state WHERE mission_id = ?")
+			.get("mission-001") as { cnt: number };
+		db2.close();
+
+		expect(after.cnt).toBe(0);
+	});
+
+	test("clearCheckpoints clears checkpoint rows", () => {
+		store.create(makeMission());
+		// Insert a checkpoint via the checkpoints accessor
+		store.checkpoints.saveCheckpoint("mission-001", "understand:active", { step: 1 });
+
+		// Verify checkpoint exists
+		const cp = store.checkpoints.getCheckpoint("mission-001", "understand:active");
+		expect(cp).not.toBeNull();
+
+		// Clear and verify
+		store.clearCheckpoints("mission-001");
+
+		const after = store.checkpoints.getCheckpoint("mission-001", "understand:active");
+		expect(after).toBeNull();
+	});
+
+	test("legacy missions created without tier have tier: null", () => {
+		const mission = store.create(makeMission());
+		expect(mission.tier).toBeNull();
+
+		const fetched = store.getById("mission-001");
+		expect(fetched?.tier).toBeNull();
 	});
 });
