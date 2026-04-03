@@ -415,13 +415,29 @@ describe("allowedChildCapabilities", () => {
 		expect(allowedChildCapabilities("execution-director")).toEqual(["lead"]);
 	});
 
-	test("coordinator can spawn leads, scouts, builders, and mission roles", () => {
-		const allowed = allowedChildCapabilities("coordinator");
+	test("coordinator can spawn leads, scouts, builders, and mission roles (full tier)", () => {
+		const allowed = allowedChildCapabilities("coordinator", "full");
 		expect(allowed).toContain("lead");
 		expect(allowed).toContain("scout");
 		expect(allowed).toContain("mission-analyst");
 		expect(allowed).toContain("execution-director");
 		expect(allowed).not.toContain("plan-review-lead");
+	});
+
+	test("coordinator in assess mode cannot spawn anything", () => {
+		expect(allowedChildCapabilities("coordinator-mission", null)).toEqual([]);
+	});
+
+	test("coordinator in direct tier can only spawn leads", () => {
+		const allowed = allowedChildCapabilities("coordinator-mission-direct", "direct");
+		expect(allowed).toEqual(["lead"]);
+	});
+
+	test("coordinator in planned tier cannot spawn architect", () => {
+		const allowed = allowedChildCapabilities("coordinator-mission-planned", "planned");
+		expect(allowed).toContain("lead");
+		expect(allowed).toContain("mission-analyst");
+		expect(allowed).not.toContain("architect");
 	});
 
 	test("unknown capability returns empty array", () => {
@@ -513,19 +529,31 @@ describe("validateHierarchy", () => {
 		).not.toThrow();
 	});
 
-	test("allows execution-director when spawned by coordinator parent session", () => {
+	test("allows execution-director when spawned by coordinator parent session (full tier)", () => {
 		expect(() =>
-			validateHierarchy("coordinator", "execution-director", "test-director", 1, false, [
-				{ agentName: "coordinator", capability: "coordinator" },
-			]),
+			validateHierarchy(
+				"coordinator",
+				"execution-director",
+				"test-director",
+				1,
+				false,
+				[{ agentName: "coordinator", capability: "coordinator" }],
+				"full",
+			),
 		).not.toThrow();
 	});
 
-	test("allows mission-analyst when spawned by coordinator parent session", () => {
+	test("allows mission-analyst when spawned by coordinator parent session (full tier)", () => {
 		expect(() =>
-			validateHierarchy("coordinator", "mission-analyst", "test-analyst", 1, false, [
-				{ agentName: "coordinator", capability: "coordinator" },
-			]),
+			validateHierarchy(
+				"coordinator",
+				"mission-analyst",
+				"test-analyst",
+				1,
+				false,
+				[{ agentName: "coordinator", capability: "coordinator" }],
+				"full",
+			),
 		).not.toThrow();
 	});
 

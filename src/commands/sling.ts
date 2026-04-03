@@ -17,6 +17,7 @@ import { join, resolve } from "node:path";
 import { readEffectiveMaxConcurrent } from "../adaptive/index.ts";
 import { createManifestLoader, resolveMissionCapability } from "../agents/manifest.ts";
 import { createSpawnService, type SpawnDeps } from "../agents/spawn.ts";
+import { isCoordinatorCapability } from "../agents/types.ts";
 import { createCanopyClient } from "../canopy/client.ts";
 import { loadConfig } from "../config.ts";
 import { AgentError, HierarchyError, ValidationError } from "../errors.ts";
@@ -396,12 +397,26 @@ export function resolveParentCapability(
 	return sessions.find((session) => session.agentName === parentAgent)?.capability ?? null;
 }
 
-export function allowedChildCapabilities(parentCapability: string | null): string[] {
+export function allowedChildCapabilities(
+	parentCapability: string | null,
+	tier?: import("../missions/types.ts").MissionTier | null,
+): string[] {
 	if (parentCapability === null) {
 		return ["lead", "scout", "builder", "mission-analyst", "execution-director"];
 	}
 
-	if (parentCapability === "coordinator" || parentCapability === "coordinator-mission") {
+	// Tier-specific coordinator rules (checked before the generic coordinator case)
+	if (isCoordinatorCapability(parentCapability)) {
+		if (tier === null || tier === undefined) {
+			return []; // Assess mode: no spawning until tier is set
+		}
+		if (tier === "direct") {
+			return ["lead"];
+		}
+		if (tier === "planned") {
+			return ["lead", "scout", "builder", "mission-analyst", "execution-director"];
+		}
+		// Full tier: includes architect
 		return ["lead", "scout", "builder", "mission-analyst", "execution-director", "architect", "architecture-review-lead"];
 	}
 
@@ -449,6 +464,7 @@ export function validateHierarchy(
 	_depth: number,
 	forceHierarchy: boolean,
 	sessions: ReadonlyArray<{ agentName: string; capability: string }> = [],
+	tier?: import("../missions/types.ts").MissionTier | null,
 ): void {
 	if (forceHierarchy) {
 		return;
@@ -462,7 +478,7 @@ export function validateHierarchy(
 		);
 	}
 
-	const allowed = allowedChildCapabilities(parentCapability);
+	const allowed = allowedChildCapabilities(parentCapability, tier);
 	if (!allowed.includes(capability)) {
 		const parentLabel =
 			parentAgent === null
@@ -637,15 +653,17 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 	const missionContext = await resolveActiveMissionContext(overstoryDir);
 	const hasMission = missionContext !== null;
 
-	// Resolve mission slug and artifact root for resource isolation and TDD path resolution
+	// Resolve mission slug, artifact root, and tier for resource isolation and capability resolution
 	let missionSlug: string | undefined;
 	let missionArtifactRoot: string | undefined;
+	let missionTier: import("../missions/types.ts").MissionTier | null = null;
 	if (missionContext) {
 		const missionStore = createMissionStore(join(overstoryDir, "sessions.db"));
 		try {
 			const mission = missionStore.getById(missionContext.missionId);
 			missionSlug = mission?.slug;
 			missionArtifactRoot = mission?.artifactRoot ?? undefined;
+			missionTier = mission?.tier ?? null;
 		} finally {
 			missionStore.close();
 		}
@@ -705,7 +723,7 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 	);
 	const manifest = await manifestLoader.load();
 
-	const resolvedCapability = resolveMissionCapability(capability, hasMission);
+	const resolvedCapability = resolveMissionCapability(capability, hasMission, missionTier);
 
 	if (
 		hasMission &&
@@ -739,7 +757,7 @@ export async function slingCommand(taskId: string, opts: SlingOptions): Promise<
 	const { store } = openSessionStore(overstoryDir);
 	try {
 		// 2b. Validate hierarchy using live parent capability data when available.
-		validateHierarchy(parentAgent, capability, name, depth, forceHierarchy, store.getAll());
+		validateHierarchy(parentAgent, capability, name, depth, forceHierarchy, store.getAll(), missionTier);
 
 		// 4a. Resolve run ID: inherit from parent → current-run.txt fallback → create new.
 		// Parent inheritance ensures child agents belong to the same run as their coordinator.

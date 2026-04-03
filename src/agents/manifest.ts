@@ -309,8 +309,14 @@ export function createManifestLoader(manifestPath: string, agentBaseDir: string)
  *   lead → lead-mission (when mission is active)
  *   All others → unchanged
  */
-export function resolveMissionCapability(capability: string, hasMission: boolean): string {
+export function resolveMissionCapability(
+	capability: string,
+	hasMission: boolean,
+	tier?: import("../missions/types.ts").MissionTier | null,
+): string {
 	if (!hasMission) return capability;
+	// Direct tier: no -mission suffix — leads report to coordinator, not ED
+	if (tier === "direct") return capability;
 	const MISSION_VARIANTS: Record<string, string> = {
 		coordinator: "coordinator-mission",
 		lead: "lead-mission",

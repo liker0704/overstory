@@ -26,10 +26,14 @@ export const SUPPORTED_CAPABILITIES = [
 	"merger",
 	"coordinator",
 	"coordinator-mission",
+	"coordinator-mission-assess",
+	"coordinator-mission-direct",
+	"coordinator-mission-planned",
 	"supervisor",
 	"monitor",
 	"lead-mission",
 	"mission-analyst",
+	"mission-analyst-planned",
 	"execution-director",
 	"plan-review-lead",
 	"plan-devil-advocate",
@@ -43,6 +47,11 @@ export const SUPPORTED_CAPABILITIES = [
 
 /** Union type derived from the capabilities constant. */
 export type Capability = (typeof SUPPORTED_CAPABILITIES)[number];
+
+/** Check if a capability string represents any coordinator variant. */
+export function isCoordinatorCapability(cap: string | null): boolean {
+	return cap !== null && (cap === "coordinator" || cap.startsWith("coordinator-mission"));
+}
 
 // === Agent Session ===
 
