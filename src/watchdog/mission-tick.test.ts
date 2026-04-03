@@ -199,7 +199,8 @@ describe("runMissionTick", () => {
 	});
 
 	test("calls engine step and releases lock for an active mission", async () => {
-		missionStore.create({ id: "m-active", slug: "active-mission", objective: "test" });
+		missionStore.create({ id: "m-active", slug: "active-mission", objective: "test", tier: "full" });
+		missionStore.updateCurrentNode("m-active", "understand:active");
 
 		const stepResults: string[] = [];
 		const engineFactory: MissionTickOpts["_startEngine"] = (_mission, _deps, _opts) => {

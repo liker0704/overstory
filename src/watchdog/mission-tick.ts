@@ -12,13 +12,26 @@ import { join } from "node:path";
 import type { OverstoryConfig } from "../config-types.ts";
 import type { EventStore } from "../events/types.ts";
 import type { MailStore } from "../mail/store.ts";
-import type { startLifecycleEngine } from "../missions/engine-wiring.ts";
-import { flattenGraph, nodeId } from "../missions/graph.ts";
+import {
+	buildLifecycleGraph,
+	buildLifecycleHandlers,
+	CELL_REGISTRY,
+	type startLifecycleEngine,
+} from "../missions/engine-wiring.ts";
+import { nodeId } from "../missions/graph.ts";
 import type { SessionStore } from "../sessions/store.ts";
-import type { AgentSession, Mission, MissionGraphNode, MissionStore } from "../types.ts";
+import type {
+	AgentSession,
+	Mission,
+	MissionGraph,
+	MissionGraphEdge,
+	MissionGraphNode,
+	MissionStore,
+	MissionTier,
+} from "../types.ts";
+import { listSessions as listTmuxSessions } from "../worktree/tmux.ts";
 import { evaluateGate } from "./gate-evaluators.ts";
 import { evaluateHealth } from "./health.ts";
-import { listSessions as listTmuxSessions } from "../worktree/tmux.ts";
 
 // === Types ===
 
@@ -49,12 +62,14 @@ const GRACE_OVERRIDES: Record<string, number> = {
 	"await-refactor": 600_000, // 10 min — refactor builders working
 	"await-arch-final": 300_000, // 5 min — architect finalizing
 	summary: 180_000, // 3 min — analyst writing summary
+	"await-leads-done": 600_000, // 10 min — direct-tier leads take time
 };
 
 /** Total wait ceiling overrides. */
 const MAX_TOTAL_WAIT_OVERRIDES: Record<string, number> = {
 	"await-ws-completion": 14_400_000, // 4 hours — real builds take time
 	"await-refactor": 14_400_000, // 4 hours
+	"await-leads-done": 14_400_000, // 4 hours — direct-tier leads
 };
 
 function getGraceMs(nodeName: string, config?: OverstoryConfig): number {
@@ -70,48 +85,64 @@ function getMaxTotalWaitMs(nodeName: string, config?: OverstoryConfig): number {
 }
 
 /**
- * Look up the graph node for a given node ID.
- *
- * Searches phase cell registry, review cell registry, and finally the
- * lifecycle graph (via flattenGraph). Returns undefined if not found.
+ * Find a graph node in a pre-built lifecycle graph (including subgraphs).
+ * Searches top-level nodes, then phase cell subgraphs, then falls back to
+ * CELL_REGISTRY for review cell nodes (plan-review, architecture-review)
+ * which are not embedded in the lifecycle graph.
  */
-async function findGraphNode(
+function findGraphNode(
 	nodeIdStr: string,
+	graph: MissionGraph,
 	mission: Mission,
-): Promise<MissionGraphNode | undefined> {
+): MissionGraphNode | undefined {
+	// Search top-level lifecycle nodes
+	const topLevel = graph.nodes.find((n) => n.id === nodeIdStr);
+	if (topLevel) return topLevel;
+
+	// Search in phase cell subgraphs attached to lifecycle :active nodes
+	for (const node of graph.nodes) {
+		if (node.kind === "lifecycle" && node.subgraph) {
+			const sub = node.subgraph.nodes.find((n) => n.id === nodeIdStr);
+			if (sub) return sub;
+		}
+	}
+
+	// Fallback: review cell nodes (plan-review, architecture-review) are not
+	// embedded in the lifecycle graph. Search CELL_REGISTRY for them.
 	const colonIdx = nodeIdStr.indexOf(":");
-	if (colonIdx === -1) return undefined;
-
-	const prefix = nodeIdStr.slice(0, colonIdx);
-
-	const { PHASE_CELL_REGISTRY, CELL_REGISTRY } = await import("../missions/engine-wiring.ts");
-
-	// Check phase cell registry (understand-phase, plan-phase, etc.)
-	const phaseCell = PHASE_CELL_REGISTRY[prefix];
-	if (phaseCell) {
-		const subgraph = phaseCell.buildSubgraph({
-			missionId: mission.id,
-			artifactRoot: mission.artifactRoot ?? "",
-			projectRoot: "",
-		});
-		return subgraph.nodes.find((n) => n.id === nodeIdStr);
+	if (colonIdx !== -1) {
+		const prefix = nodeIdStr.slice(0, colonIdx);
+		const reviewCell = CELL_REGISTRY[prefix];
+		if (reviewCell) {
+			const subgraph = reviewCell.buildSubgraph({
+				tier: "full",
+				maxRounds: 3,
+				artifactRoot: mission.artifactRoot ?? "",
+			});
+			return subgraph.nodes.find((n) => n.id === nodeIdStr);
+		}
 	}
 
-	// Check review cell registry (plan-review, architecture-review)
-	const reviewCell = CELL_REGISTRY[prefix];
-	if (reviewCell) {
-		const subgraph = reviewCell.buildSubgraph({
-			tier: "full",
-			maxRounds: 3,
-			artifactRoot: mission.artifactRoot ?? "",
-		});
-		return subgraph.nodes.find((n) => n.id === nodeIdStr);
-	}
+	return undefined;
+}
 
-	// Fall back to lifecycle graph
-	const { DEFAULT_MISSION_GRAPH } = await import("../missions/graph.ts");
-	const allNodes = flattenGraph(DEFAULT_MISSION_GRAPH);
-	return allNodes.find((n) => n.id === nodeIdStr);
+/**
+ * Find an edge in a subgraph of the pre-built lifecycle graph.
+ * Used for timeout routing and gate advancement in place of
+ * PHASE_CELL_REGISTRY[cellType].buildSubgraph() lookups.
+ */
+function findSubgraphEdge(
+	graph: MissionGraph,
+	fromNodeId: string,
+	trigger: string,
+): MissionGraphEdge | undefined {
+	for (const node of graph.nodes) {
+		if (node.kind === "lifecycle" && node.subgraph) {
+			const edge = node.subgraph.edges.find((e) => e.from === fromNodeId && e.trigger === trigger);
+			if (edge) return edge;
+		}
+	}
+	return undefined;
 }
 
 // === Dead agent detection ===
@@ -132,10 +163,7 @@ function getMissionRoleSessions(
  * Check if critical mission role agents are dead and record events.
  * Checks tmux liveness + PID liveness via evaluateHealth.
  */
-async function checkAndRecoverDeadAgents(
-	mission: Mission,
-	opts: MissionTickOpts,
-): Promise<void> {
+async function checkAndRecoverDeadAgents(mission: Mission, opts: MissionTickOpts): Promise<void> {
 	const { sessionStore, eventStore } = opts;
 	const tmuxSessions = await listTmuxSessions();
 	const tmuxNames = new Set(tmuxSessions.map((s) => s.name));
@@ -227,6 +255,12 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 	// === Dead agent detection for critical mission roles ===
 	await checkAndRecoverDeadAgents(mission, opts);
 
+	// Skip engine for assess mode (tier=null AND no currentNode yet).
+	// Legacy missions also have tier=null but DO have a currentNode — those keep running as full.
+	if (mission.tier === null && mission.currentNode === null) {
+		return;
+	}
+
 	// Seed checkpoint on first engine tick for this mission (backward compat)
 	const checkpoint = missionStore.checkpoints.getLatestCheckpoint(mission.id);
 	if (!checkpoint) {
@@ -241,40 +275,48 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 	const engineFactory =
 		opts._startEngine ?? (await import("../missions/engine-wiring.ts")).startLifecycleEngine;
 
+	// Build tier-aware graph and handlers ONCE per tick per mission.
+	// Reused by findGraphNode() and findSubgraphEdge() below.
+	const tier: MissionTier = mission.tier ?? "full";
+	const sendMail = opts.mailStore
+		? async (to: string, subject: string, body: string, type: string) => {
+				opts.mailStore?.insert({
+					id: "",
+					from: "engine",
+					to,
+					subject,
+					body,
+					type: type as "status",
+					priority: "normal",
+					threadId: null,
+				});
+			}
+		: undefined;
+	const engineDeps = {
+		checkpointStore: missionStore.checkpoints,
+		missionStore,
+		sendMail,
+		sessionStore: opts.sessionStore,
+	};
+	const tickGraph = buildLifecycleGraph(mission);
+	const tickHandlers = buildLifecycleHandlers(engineDeps, tier);
+
 	// Read mission once — reused for subgraph detection and later as freshMission
 	const latestMission = missionStore.getById(mission.id);
 	const currentMissionNode = latestMission?.currentNode;
 	let startNodeOverride: string | undefined;
-	if (currentMissionNode && currentMissionNode.includes("-phase:")) {
+	if (currentMissionNode?.includes("-phase:")) {
 		const phasePart = currentMissionNode.split("-phase:")[0];
 		if (phasePart) {
 			startNodeOverride = `${phasePart}:active`;
 		}
 	}
 
-	const engine = engineFactory(
-		mission,
-		{
-			checkpointStore: missionStore.checkpoints,
-			missionStore,
-			sendMail: opts.mailStore
-				? async (to, subject, body, type) => {
-						opts.mailStore?.insert({
-							id: "",
-							from: "engine",
-							to,
-							subject,
-							body,
-							type: type as "status",
-							priority: "normal",
-							threadId: null,
-						});
-					}
-				: undefined,
-			sessionStore: opts.sessionStore,
-		},
-		startNodeOverride ? { startNodeId: startNodeOverride } : undefined,
-	);
+	const engine = engineFactory(mission, engineDeps, {
+		...(startNodeOverride ? { startNodeId: startNodeOverride } : {}),
+		graph: tickGraph,
+		handlers: tickHandlers,
+	});
 
 	// Execute one step
 	const result = await engine.step();
@@ -293,11 +335,9 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 		const nodeName = currentNodeId.split(":")[1] ?? "";
 
 		// Look up the current graph node to read per-node timeout overrides
-		const currentGraphNode = await findGraphNode(currentNodeId, mission);
+		const currentGraphNode = findGraphNode(currentNodeId, tickGraph, mission);
 		const nodeGateTimeoutMs =
-			currentGraphNode?.gateTimeout !== undefined
-				? currentGraphNode.gateTimeout * 1000
-				: undefined;
+			currentGraphNode?.gateTimeout !== undefined ? currentGraphNode.gateTimeout * 1000 : undefined;
 
 		// Ensure gate state row exists (uses missionStore's DB connection)
 		// gateTimeout on the node takes priority over config and hardcoded dictionaries
@@ -319,36 +359,22 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 			if (onTimeout) {
 				missionStore.resolveGate(mission.id, currentNodeId, "timeout");
 
-				// Advance the subgraph to the timeout-edge target.
-				// Phase cells use manual checkpoint saves; review cells use engine.advanceNode.
-				const cellType = currentNodeId.split(":")[0] ?? "";
-				const { PHASE_CELL_REGISTRY: registry, CELL_REGISTRY: cellRegistry } =
-					await import("../missions/engine-wiring.ts");
-				const phaseCell = registry[cellType];
-				if (phaseCell) {
-					const subgraph = phaseCell.buildSubgraph({
-						missionId: mission.id,
-						artifactRoot: mission.artifactRoot ?? "",
-						projectRoot: opts.projectRoot,
-					});
-					const edge = subgraph.edges.find(
-						(e) => e.from === currentNodeId && e.trigger === "timeout",
+				// Advance the subgraph to the timeout-edge target using pre-built graph.
+				const timeoutEdge = findSubgraphEdge(tickGraph, currentNodeId, "timeout");
+				if (timeoutEdge) {
+					const phaseName = currentNodeId.split("-phase:")[0] ?? "";
+					const parentNodeId = `${phaseName}:active`;
+					const subgraphCheckpointKey = `${parentNodeId}:${mission.id}`;
+					missionStore.checkpoints.saveStepResult(
+						subgraphCheckpointKey,
+						currentNodeId,
+						timeoutEdge.to,
+						"timeout",
+						null,
 					);
-					if (edge) {
-						const phaseName = cellType.replace("-phase", "");
-						const parentNodeId = `${phaseName}:active`;
-						const subgraphCheckpointKey = `${parentNodeId}:${mission.id}`;
-						missionStore.checkpoints.saveStepResult(
-							subgraphCheckpointKey,
-							currentNodeId,
-							edge.to,
-							"timeout",
-							null,
-						);
-						missionStore.updateCurrentNode(mission.id, edge.to);
-					}
-				} else if (cellRegistry[cellType]) {
-					// Review cells: advance via the engine (same path as normal gate resolution)
+					missionStore.updateCurrentNode(mission.id, timeoutEdge.to);
+				} else {
+					// Top-level or review cell gate — use engine.advanceNode
 					await engine.advanceNode("timeout");
 				}
 
@@ -431,37 +457,22 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 			// Gate resolved — advance
 			missionStore.resolveGate(mission.id, currentNodeId, evalResult.trigger);
 
-			// For subgraph gates, find the target node and advance directly
-			const cellType = currentNodeId.split(":")[0] ?? "";
-			const phaseCell = (await import("../missions/engine-wiring.ts")).PHASE_CELL_REGISTRY[
-				cellType
-			];
-			if (phaseCell) {
-				const subgraph = phaseCell.buildSubgraph({
-					missionId: mission.id,
-					artifactRoot: mission.artifactRoot ?? "",
-					projectRoot: opts.projectRoot,
-				});
-				const edge = subgraph.edges.find(
-					(e) => e.from === currentNodeId && e.trigger === evalResult.trigger,
-				);
-				if (edge) {
-					// Subgraph checkpoints use a prefixed key: "parentNodeId:missionId".
-					// The parent lifecycle node is derived from cellType:
-					//   "understand-phase" → parent "understand:active"
-					const phaseName = cellType.replace("-phase", "");
-					const parentNodeId = `${phaseName}:active`;
-					const subgraphCheckpointKey = `${parentNodeId}:${mission.id}`;
+			// For subgraph gates, find the target node using pre-built graph
+			const advanceEdge = findSubgraphEdge(tickGraph, currentNodeId, evalResult.trigger);
+			if (advanceEdge) {
+				// Subgraph checkpoints use a prefixed key: "parentNodeId:missionId".
+				const phaseName = currentNodeId.split("-phase:")[0] ?? "";
+				const parentNodeId = `${phaseName}:active`;
+				const subgraphCheckpointKey = `${parentNodeId}:${mission.id}`;
 
-					missionStore.checkpoints.saveStepResult(
-						subgraphCheckpointKey,
-						currentNodeId,
-						edge.to,
-						evalResult.trigger,
-						null,
-					);
-					missionStore.updateCurrentNode(mission.id, edge.to);
-				}
+				missionStore.checkpoints.saveStepResult(
+					subgraphCheckpointKey,
+					currentNodeId,
+					advanceEdge.to,
+					evalResult.trigger,
+					null,
+				);
+				missionStore.updateCurrentNode(mission.id, advanceEdge.to);
 			} else {
 				// Top-level gate — use engine.advanceNode
 				await engine.advanceNode(evalResult.trigger);
@@ -487,9 +498,7 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 			}
 		} else if (evalResult.nudgeTarget && evalResult.nudgeMessage) {
 			// Not met — nudge if interval elapsed
-			const lastNudge = gateState.last_nudge_at
-				? new Date(gateState.last_nudge_at).getTime()
-				: 0;
+			const lastNudge = gateState.last_nudge_at ? new Date(gateState.last_nudge_at).getTime() : 0;
 			const sinceLastNudge = now - lastNudge;
 
 			if (sinceLastNudge >= gateState.nudge_interval_ms) {

@@ -338,7 +338,29 @@ export async function evaluateGate(
 			return evaluateArchFinal(mission, stores.mailStore);
 		case "summary":
 			return evaluateSummaryReady(mission, artifactRoot);
+		case "await-leads-done":
+			return evaluateAwaitLeadsDone(mission, stores.mailStore);
 		default:
 			return { met: false, unknown: true };
 	}
+}
+
+/** Direct-tier gate: check coordinator inbox for merge_ready from leads. */
+function evaluateAwaitLeadsDone(mission: Mission, mailStore: MailStore | null): GateEvalResult {
+	if (!mailStore) return { met: false };
+	// Coordinator name is slug-scoped or bare
+	const coordName = mission.slug ? `coordinator-${mission.slug}` : "coordinator";
+	const msgs = mailStore.getAll({ to: coordName });
+	const mergeReady = msgs.find((m) => m.type === "merge_ready");
+	if (mergeReady) {
+		return {
+			met: true,
+			trigger: "lead_done",
+		};
+	}
+	return {
+		met: false,
+		nudgeTarget: coordName,
+		nudgeMessage: "Waiting for lead merge_ready signal. Check lead status.",
+	};
 }

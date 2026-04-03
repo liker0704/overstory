@@ -9,9 +9,16 @@
 
 import type { OverstoryConfig } from "../config-types.ts";
 import type { SessionStore } from "../sessions/store.ts";
-import type { CheckpointStore, Mission, MissionGraph, MissionStore } from "../types.ts";
+import type {
+	CheckpointStore,
+	Mission,
+	MissionGraph,
+	MissionStore,
+	MissionTier,
+} from "../types.ts";
 import { architectureReviewCell } from "./cells/architecture-review.ts";
 import { donePhaseCell } from "./cells/done-phase.ts";
+import { executeDirectPhaseCell } from "./cells/execute-direct-phase.ts";
 import { executePhaseCell } from "./cells/execute-phase.ts";
 import { planPhaseCell } from "./cells/plan-phase.ts";
 import { planReviewCell } from "./cells/plan-review.ts";
@@ -60,6 +67,15 @@ export const PHASE_CELL_REGISTRY: Record<string, PhaseCellDefinition> = {
 	"plan-phase": planPhaseCell,
 	"execute-phase": executePhaseCell,
 	"done-phase": donePhaseCell,
+};
+
+// === Tier-phase mapping ===
+
+/** Which lifecycle phases are active for each mission tier. */
+export const TIER_PHASES: Record<MissionTier, readonly string[]> = {
+	direct: ["execute", "done"],
+	planned: ["understand", "plan", "execute", "done"],
+	full: ["understand", "align", "decide", "plan", "execute", "done"],
 };
 
 // === Bridge functions ===
@@ -221,46 +237,74 @@ export function getCellEngineStatus(mission: Mission, deps: EngineDeps): EngineS
 
 /**
  * Build a merged handler registry from all phase cells + auto-advance handlers.
- * Combines handlers from all registered phase cells into a single registry.
+ * Accepts tier to conditionally swap the execute-phase cell for direct tier.
  */
-function buildLifecycleHandlers(deps: EngineDeps): HandlerRegistry {
+export function buildLifecycleHandlers(
+	deps: EngineDeps,
+	tier: MissionTier = "full",
+): HandlerRegistry {
+	const cellDeps = {
+		mailSend: deps.sendMail ?? (async () => {}),
+		checkpointStore: deps.checkpointStore,
+		missionStore: deps.missionStore,
+		sessionStore: deps.sessionStore,
+	};
 	const phaseHandlers: HandlerRegistry = {};
-	for (const cell of Object.values(PHASE_CELL_REGISTRY)) {
-		const handlers = cell.buildHandlers({
-			mailSend: deps.sendMail ?? (async () => {}),
-			checkpointStore: deps.checkpointStore,
-			missionStore: deps.missionStore,
-			sessionStore: deps.sessionStore,
-		});
-		Object.assign(phaseHandlers, handlers);
+	for (const [key, cell] of Object.entries(PHASE_CELL_REGISTRY)) {
+		// Skip standard execute cell if direct tier (use direct cell instead)
+		if (tier === "direct" && key === "execute-phase") continue;
+		Object.assign(phaseHandlers, cell.buildHandlers(cellDeps));
+	}
+	// Add direct execute handlers if direct tier
+	if (tier === "direct") {
+		Object.assign(phaseHandlers, executeDirectPhaseCell.buildHandlers(cellDeps));
 	}
 	return createHandlerRegistry({ ...autoAdvanceHandlers, ...phaseHandlers });
 }
 
 /**
- * Build an enhanced graph by attaching phase cell subgraphs to :active nodes.
- * Clones the default graph and sets the `subgraph` property on each phase's
- * active node to the corresponding cell's subgraph.
+ * Build a tier-aware lifecycle graph by filtering phases and attaching subgraphs.
+ *
+ * For each tier, only the phases in TIER_PHASES[tier] are included.
+ * Direct tier gets executeDirectPhaseCell instead of standard executePhaseCell.
+ * tier=null missions should never reach this — callers must guard.
  */
-function buildLifecycleGraph(mission: Mission): MissionGraph {
+export function buildLifecycleGraph(mission: Mission): MissionGraph {
+	const tier: MissionTier = mission.tier ?? "full";
+	const allowedPhases = new Set(TIER_PHASES[tier]);
+
 	const config: PhaseCellConfig = {
 		missionId: mission.id,
 		artifactRoot: mission.artifactRoot ?? "",
 		projectRoot: "",
 	};
 
-	// Clone nodes (shallow — subgraph is the only mutation)
-	const nodes = DEFAULT_MISSION_GRAPH.nodes.map((node) => {
-		if (node.kind !== "lifecycle" || node.state !== "active") return node;
+	// Filter nodes to only include phases in this tier
+	const nodes = DEFAULT_MISSION_GRAPH.nodes
+		.filter((node) => {
+			if (node.kind !== "lifecycle") return false;
+			return allowedPhases.has(node.phase);
+		})
+		.map((node) => {
+			if (node.kind !== "lifecycle" || node.state !== "active") return node;
 
-		const cellType = `${node.phase}-phase`;
-		const cell = PHASE_CELL_REGISTRY[cellType];
-		if (!cell) return node;
+			// Tier-aware cell selection: direct tier gets direct execute cell
+			const cell =
+				tier === "direct" && node.phase === "execute"
+					? executeDirectPhaseCell
+					: PHASE_CELL_REGISTRY[`${node.phase}-phase`];
+			if (!cell) return node;
 
-		return { ...node, subgraph: cell.buildSubgraph(config) };
-	});
+			return { ...node, subgraph: cell.buildSubgraph(config) };
+		});
 
-	return { version: 1, nodes, edges: DEFAULT_MISSION_GRAPH.edges };
+	// Collect valid node IDs for edge filtering
+	const nodeIds = new Set(nodes.map((n) => n.id));
+
+	// Filter edges to only include edges between remaining nodes
+	const edges = DEFAULT_MISSION_GRAPH.edges.filter((e) => nodeIds.has(e.from) && nodeIds.has(e.to));
+
+	return { version: 1, nodes, edges };
 }
 
 /**
@@ -293,7 +337,14 @@ export async function transitionMissionViaEngine(
 			error: `Mission ${missionId} has no currentNode`,
 		};
 	}
-	const engine = startLifecycleEngine(mission, deps, { startNodeId: mission.currentNode });
+	const tier: MissionTier = mission.tier ?? "full";
+	const graph = buildLifecycleGraph(mission);
+	const handlers = buildLifecycleHandlers(deps, tier);
+	const engine = startLifecycleEngine(mission, deps, {
+		startNodeId: mission.currentNode,
+		graph,
+		handlers,
+	});
 	return engine.forceAdvance(trigger);
 }
 
@@ -307,10 +358,11 @@ export async function transitionMissionViaEngine(
 export function startLifecycleEngine(
 	mission: Mission,
 	deps: EngineDeps,
-	opts?: { startNodeId?: string },
+	opts?: { startNodeId?: string; graph?: MissionGraph; handlers?: HandlerRegistry },
 ): GraphEngine {
-	const handlers = buildLifecycleHandlers(deps);
-	const graph = buildLifecycleGraph(mission);
+	const tier: MissionTier = mission.tier ?? "full";
+	const graph = opts?.graph ?? buildLifecycleGraph(mission);
+	const handlers = opts?.handlers ?? buildLifecycleHandlers(deps, tier);
 
 	return createGraphEngine({
 		graph,
