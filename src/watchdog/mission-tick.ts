@@ -352,7 +352,56 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 		const enteredAt = new Date(gateState.entered_at).getTime();
 		const elapsed = now - enteredAt;
 
-		// Absolute ceiling check
+		// Evaluate gate FIRST — if already met, advance regardless of elapsed time.
+		// This prevents stale gate states from triggering spurious suspensions when
+		// the gate condition was actually satisfied before the ceiling expired.
+		const artifactRoot = mission.artifactRoot ?? join(opts.overstoryDir, "missions", mission.id);
+		const earlyEval = await evaluateGate(
+			currentNodeId,
+			freshMission ?? mission,
+			{ mailStore: opts.mailStore, sessionStore: opts.sessionStore },
+			artifactRoot,
+		);
+		if (earlyEval.met && earlyEval.trigger) {
+			missionStore.resolveGate(mission.id, currentNodeId, earlyEval.trigger);
+			const advanceEdge = findSubgraphEdge(tickGraph, currentNodeId, earlyEval.trigger);
+			if (advanceEdge) {
+				const phaseName = currentNodeId.split("-phase:")[0] ?? "";
+				const parentNodeId = `${phaseName}:active`;
+				const subgraphCheckpointKey = `${parentNodeId}:${mission.id}`;
+				missionStore.checkpoints.saveStepResult(
+					subgraphCheckpointKey,
+					currentNodeId,
+					advanceEdge.to,
+					earlyEval.trigger,
+					null,
+				);
+				missionStore.updateCurrentNode(mission.id, advanceEdge.to);
+			} else {
+				await engine.advanceNode(earlyEval.trigger);
+			}
+			if (opts.eventStore) {
+				opts.eventStore.insert({
+					runId: mission.runId,
+					agentName: "engine",
+					sessionId: null,
+					eventType: "engine_gate_advanced",
+					toolName: null,
+					toolArgs: null,
+					toolDurationMs: null,
+					level: "info",
+					data: JSON.stringify({
+						kind: "gate_advanced",
+						missionId: mission.id,
+						nodeId: currentNodeId,
+						trigger: earlyEval.trigger,
+					}),
+				});
+			}
+			return;
+		}
+
+		// Absolute ceiling check (only fires if gate NOT met above)
 		if (elapsed > gateState.max_total_wait_ms) {
 			// If the node declares onTimeout, route via timeout edge instead of suspending
 			const onTimeout = currentGraphNode?.onTimeout;
@@ -428,8 +477,8 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 			return; // Within grace, agent is working
 		}
 
-		// Evaluate gate condition (use freshMission for up-to-date phase/state)
-		const artifactRoot = mission.artifactRoot ?? join(opts.overstoryDir, "missions", mission.id);
+		// Evaluate gate condition for nudge path (use freshMission for up-to-date phase/state)
+		// Note: artifactRoot already declared above in the early-eval block
 		const evalResult = await evaluateGate(
 			currentNodeId,
 			freshMission ?? mission,
