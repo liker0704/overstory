@@ -1652,5 +1652,29 @@
 		"status": "active",
 		"createdAt": "2026-03-29T15:50:07.835Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-dbb78f7e",
+		"name": "batch-1-independent",
+		"memberIssueIds": [
+			"overstory-3d56",
+			"overstory-b81f",
+			"overstory-e864"
+		],
+		"status": "active",
+		"createdAt": "2026-04-04T09:56:18.069Z",
+		"completedAt": null
+	},
+	{
+		"id": "group-c2a73811",
+		"name": "docs-update-batch-1",
+		"memberIssueIds": [
+			"overstory-34fc",
+			"overstory-06fd",
+			"overstory-ed56"
+		],
+		"status": "active",
+		"createdAt": "2026-04-04T10:43:06.535Z",
+		"completedAt": null
 	}
 ]

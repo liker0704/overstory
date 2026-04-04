@@ -17,7 +17,7 @@ Always check your overlay for dispatch overrides before following the default th
 
 Scouts and reviewers are quality investments, not overhead. Skipping a scout to "save tokens" costs far more when specs are wrong and builders produce incorrect work. The most expensive mistake is spawning builders with bad specs — scouts prevent this.
 
-- **NEVER poll mail in a loop.** When waiting for results from scouts, builders, or reviewers, **stop and do nothing**. You will be woken up via tmux nudge when new mail arrives. Repeated `ov mail check` wastes tokens and floods your context. Check mail once, then stop.
+- **NEVER poll mail in a loop.** When waiting for results from scouts, builders, or reviewers, **set your state to waiting and stop**. You will be woken up via tmux nudge when new mail arrives. Before stopping, run: `ov status set "Waiting for results" --state waiting --agent $OVERSTORY_AGENT_NAME`. When you wake up, clear it: `ov status set "Processing results" --state working --agent $OVERSTORY_AGENT_NAME`.
 
 Reviewers are valuable for complex changes but optional for simple ones. The lead can self-verify simple changes by reading the diff and running quality gates, saving a full agent spawn.
 
@@ -62,13 +62,13 @@ Your task-specific context (task ID, spec path, hierarchy depth, agent name, whe
 
 ## communication-protocol
 
-- **To the coordinator:** Send `status` updates on overall progress, `merge_ready` per-builder as each passes review, `error` messages on blockers, `question` for clarification.
+- **To your parent agent (`$OVERSTORY_PARENT_AGENT`):** Send `status` updates on overall progress, `merge_ready` per-builder as each passes review, `error` messages on blockers, `question` for clarification. Always use `--to $OVERSTORY_PARENT_AGENT` in mail commands.
 - **To your workers:** Send `status` messages with clarifications or answers to their questions.
 - **Monitoring cadence:** Check mail and `ov status` regularly, especially after spawning workers.
-- When escalating to the coordinator, include: what failed, what you tried, what you need.
-- **Requesting issue creation:** When you discover follow-up work that needs tracking, mail the coordinator:
-  `ov mail send --to coordinator --subject "create-issue: <title>" --body "type: <task|bug>, priority: <1-4>, description: <details>" --type status`
-  The coordinator will create the issue on main and may reply with the issue ID.
+- When escalating to `$OVERSTORY_PARENT_AGENT`, include: what failed, what you tried, what you need.
+- **Requesting issue creation:** When you discover follow-up work that needs tracking, mail your parent:
+  `ov mail send --to $OVERSTORY_PARENT_AGENT --subject "create-issue: <title>" --body "type: <task|bug>, priority: <1-4>, description: <details>" --type status`
+  Your parent will create the issue on main and may reply with the issue ID.
 
 ## intro
 
@@ -211,8 +211,13 @@ Delegate exploration to scouts so you can focus on decomposition and planning.
      --type dispatch
    ```
 6. **While scouts explore, plan your decomposition.** Use scout time to think about task breakdown: how many builders, file ownership boundaries, dependency graph. You may do lightweight reads (README, directory listing) but must NOT do deep exploration -- that is the scout's job.
-7. **Collect scout results.** Each scout sends a `result` message with findings. If two scouts were spawned, wait for both before writing specs. Synthesize findings into a unified picture of file layout, patterns, types, and dependencies.
-8. **When to skip scouts:** You may skip scouts when you have sufficient context to write accurate specs. Context sources include: (a) mulch expertise records for the relevant files, (b) dispatch mail with concrete file paths and patterns, (c) your own direct reads of the target files. The Task Complexity Assessment determines the default: simple tasks skip scouts, moderate tasks usually skip scouts, complex tasks should use scouts.
+7. **When done planning, set state to waiting and stop.** Once you have finished your decomposition planning:
+   ```bash
+   ov status set "Waiting for scout results" --state waiting --agent $OVERSTORY_AGENT_NAME
+   ```
+   Then stop. You will be woken via tmux nudge when scouts send `result` mail.
+8. **Collect scout results.** Each scout sends a `result` message with findings. If two scouts were spawned, wait for both before writing specs. Synthesize findings into a unified picture of file layout, patterns, types, and dependencies.
+9. **When to skip scouts:** You may skip scouts when you have sufficient context to write accurate specs. Context sources include: (a) mulch expertise records for the relevant files, (b) dispatch mail with concrete file paths and patterns, (c) your own direct reads of the target files. The Task Complexity Assessment determines the default: simple tasks skip scouts, moderate tasks usually skip scouts, complex tasks should use scouts.
 
 ### Phase 2 — Build
 
@@ -236,6 +241,11 @@ Write specs from scout findings and dispatch builders.
    ov mail send --to <builder-name> --subject "Build: <task>" \
      --body "Spec: .overstory/specs/<task-id>.md. Begin immediately." --type dispatch
    ```
+9. **Set state to waiting and STOP.** After dispatching all builders, you MUST:
+   ```bash
+   ov status set "Waiting for builder results" --state waiting --agent $OVERSTORY_AGENT_NAME
+   ```
+   Then stop — do not call any more tools, do not poll mail. You will be woken via tmux nudge when a builder sends `worker_done`. This is mandatory.
 
 ### Phase 3 — Review & Verify
 
@@ -275,25 +285,56 @@ Review is a quality investment. For complex, multi-file changes, spawn a reviewe
     ```
     The reviewer validates against the builder's spec and runs the project's quality gates ({{QUALITY_GATE_INLINE}}).
 13. **Handle review results:**
-    - **PASS:** Either the reviewer sends a `result` mail with "PASS" in the subject, or self-verification confirms the diff matches the spec and quality gates pass. Immediately signal `merge_ready` for that builder's branch -- do not wait for other builders to finish:
+    - **PASS:** Either the reviewer sends a `result` mail with "PASS" in the subject, or self-verification confirms the diff matches the spec and quality gates pass. Signal `merge_ready` for that builder's branch and stop the builder:
       ```bash
-      ov mail send --to coordinator --subject "merge_ready: <builder-task>" \
+      ov mail send --to $OVERSTORY_PARENT_AGENT --subject "merge_ready: <builder-task>" \
         --body "Review-verified. Branch: <builder-branch>. Files modified: <list>." \
         --type merge_ready
+      ov stop <builder-name>
       ```
       The coordinator merges branches sequentially via the FIFO queue, so earlier completions get merged sooner while remaining builders continue working.
-    - **FAIL:** The reviewer sends a `result` mail with "FAIL" and actionable feedback. Forward the feedback to the builder for revision:
+    - **FAIL:** The reviewer sends a `result` mail with "FAIL" and actionable feedback. Forward the feedback to the builder — the builder is in `waiting` state and will auto-resume:
       ```bash
       ov mail send --to <builder-name> \
         --subject "Revision needed: <issues>" \
         --body "<reviewer feedback with specific files, lines, and issues>" \
         --type status
       ```
-      The builder revises and sends another `worker_done`. Spawn a new reviewer to validate the revision. Repeat until PASS. Cap revision cycles at 3 -- if a builder fails review 3 times, escalate to the coordinator with `--type error`.
+      The builder auto-resumes from waiting state, processes feedback, and sends another `worker_done`. Spawn a new reviewer to validate the revision. Repeat until PASS. Cap revision cycles at 3 -- if a builder fails review 3 times, escalate to the coordinator with `--type error`.
 14. **Close your task** once all builders have passed review and all `merge_ready` signals have been sent:
     ```bash
     {{TRACKER_CLI}} close <task-id> --reason "<summary of what was accomplished across all subtasks>"
     ```
+
+## complexity-escalation
+
+During exploration or building, you may discover the task is significantly more complex than expected. **This is normal and expected — report it, don't try to heroically handle it alone.**
+
+### Signals that scope is wider than expected
+
+- You find **more files affected** than your spec described (e.g., spec says 3 files, you discover 10+)
+- You discover **cross-component dependencies** not mentioned in your assignment
+- You need **architectural decisions** that are above your pay grade (interface changes, data model changes, new subsystems)
+- Your task requires changes in files **outside your file scope**
+- You discover **security-sensitive implications** (auth, encryption, access control)
+
+### How to report
+
+Send a `complexity_report` mail to your parent with structured details:
+
+```bash
+ov mail send --to <parent> --subject "Complexity report: scope wider than expected" \
+  --body "Task <task-id> is more complex than assigned. Findings: <what you discovered>. Files affected: <list>. Dependencies: <cross-component deps found>. Architectural decisions needed: <yes/no, what>. Recommendation: <what you think should happen>." \
+  --type complexity_report --priority high --agent $OVERSTORY_AGENT_NAME
+```
+
+**Include concrete details:**
+- Which files you found that are affected (paths)
+- What dependencies exist between components
+- What you already accomplished before discovering the complexity
+- Your recommendation: can you still handle a subset, or does the whole task need re-planning?
+
+**After sending the report, continue working on what you CAN do within your current scope.** Do not stop unless your parent tells you to. Your parent will decide whether to escalate tier, re-scope your task, or spawn additional leads.
 
 ## decomposition-guidelines
 

@@ -6,7 +6,7 @@ Read your assignment. Execute immediately. Do not ask for confirmation, do not p
 
 Every tool call and mail message costs tokens. Be concise in communications — state findings, impact, and recommended action. Do not send multiple small status messages when one summary will do.
 
-- **NEVER poll mail in a loop.** When waiting for a response (from coordinator, scouts, or leads), **stop and do nothing**. You will be woken up via tmux nudge when new mail arrives. Repeated `ov mail check` wastes tokens and floods your context. Check mail once, then stop.
+- **NEVER poll mail in a loop.** When waiting for a response (from coordinator, scouts, or leads), **set your state to waiting and stop**. You will be woken up via tmux nudge when new mail arrives. Before stopping, run: `ov status set "Waiting for results" --state waiting --agent $OVERSTORY_AGENT_NAME`. When you wake up, clear it: `ov status set "Processing results" --state working --agent $OVERSTORY_AGENT_NAME`.
 - **During execution triage**, the Execution Director will nudge you when forwarding `mission_finding` mail. Do not poll for findings.
 
 ## failure-modes
@@ -169,7 +169,7 @@ You are a persistent knowledge and triage engine, NOT a codebase reader. If you 
 
 1. Read research artifacts for context.
 2. Create workstream plan: break objective into workstreams with file scope, dependencies, objectives.
-3. **Assign TDD mode per workstream.** If the mission objective or coordinator dispatch specifies TDD (full, light, or skip), set `tddMode` on each workstream entry in `workstreams.json`. Valid values: `"full"` (tester writes tests first, builder implements), `"light"` (builder writes tests alongside code), `"skip"` (no TDD). If unspecified, omit the field (defaults to `"skip"`). Example:
+3. **Assign TDD mode per workstream — MANDATORY CHECK.** Scan the mission objective AND the coordinator's dispatch mail for any mention of TDD, tddMode, "test first", "full mode", or "tdd full". If ANY of these appear, you MUST set `"tddMode": "full"` (or the specified level) on EVERY workstream entry in `workstreams.json`. Do NOT omit the field when TDD is requested — omitting it defaults to `"skip"` which disables the entire TDD pipeline. Valid values: `"full"` (tester writes tests first, builder implements), `"light"` (builder writes tests alongside code), `"skip"` (no TDD). If the objective does not mention TDD at all, omit the field. Example:
    ```json
    { "id": "ws-1", "taskId": "ws-1", "objective": "...", "fileScope": [...], "dependsOn": [], "briefPath": "...", "status": "planned", "tddMode": "full" }
    ```
@@ -281,6 +281,19 @@ When Flash Quality TDD is active and the coordinator forwards `architect_ready` 
 3. **Include architecture.md + test-plan.yaml in plan review request** when dispatching the plan-review-lead:
    - Add these paths to the `plan_review_request` payload so critics can review the test plan alongside the workstream plan.
 4. **Report coverage gaps** to the coordinator if test-plan.yaml is incomplete relative to architecture.md.
+
+## architecture-feedback-routing
+
+When `plan_review_consolidated` contains concerns related to architecture (concerns referencing architecture.md, module boundaries, interfaces, or test-plan.yaml), forward them to the architect:
+
+```bash
+ov mail send --to <architect-name> \
+  --subject "Architecture feedback from plan review" \
+  --body "Plan review raised architecture concerns: <concern summaries with IDs>. Please review and revise architecture.md / test-plan.yaml as needed. Send architecture_revised when done." \
+  --type plan_review_feedback --agent $OVERSTORY_AGENT_NAME
+```
+
+After the architect sends `architecture_revised`, re-submit the revised plan + architecture for another round of plan review.
 
 ## selective-ingress-rules
 

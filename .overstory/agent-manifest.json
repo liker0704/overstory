@@ -560,7 +560,8 @@
 		],
 		"research": [
 			"scout",
-			"mission-analyst"
+			"mission-analyst",
+			"mission-analyst-planned"
 		],
 		"implement": [
 			"builder",
@@ -593,6 +594,9 @@
 			"lead",
 			"coordinator",
 			"coordinator-mission",
+			"coordinator-mission-assess",
+			"coordinator-mission-direct",
+			"coordinator-mission-planned",
 			"execution-director",
 			"lead-mission",
 			"plan-review-lead",
@@ -607,22 +611,35 @@
 		"dispatch": [
 			"coordinator",
 			"coordinator-mission",
+			"coordinator-mission-direct",
+			"coordinator-mission-planned",
 			"execution-director"
 		],
 		"escalate": [
 			"coordinator",
-			"coordinator-mission"
+			"coordinator-mission",
+			"coordinator-mission-direct",
+			"coordinator-mission-planned"
 		],
 		"mission": [
 			"coordinator-mission",
+			"coordinator-mission-assess",
+			"coordinator-mission-direct",
+			"coordinator-mission-planned",
 			"mission-analyst",
+			"mission-analyst-planned",
 			"execution-director"
 		],
+		"assess": [
+			"coordinator-mission-assess"
+		],
 		"analyze": [
-			"mission-analyst"
+			"mission-analyst",
+			"mission-analyst-planned"
 		],
 		"synthesize": [
-			"mission-analyst"
+			"mission-analyst",
+			"mission-analyst-planned"
 		],
 		"execute": [
 			"execution-director"

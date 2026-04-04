@@ -144,7 +144,7 @@ ov agents                 Discover available agent definitions
 ### Persistent Orchestration
 ```
 ov coordinator start|stop|status|send|ask|output|check-complete
-ov mission start|stop|pause|resume|complete|answer|list|show|status|output|graph|update|handoff|refresh-briefs|bundle|extract-learnings|artifacts|holdout|workstream-complete
+ov mission start|stop|pause|resume|complete|answer|list|show|status|output|graph|update|handoff|refresh-briefs|bundle|extract-learnings|artifacts
 ov discover               Brownfield codebase discovery via scout swarm
 ov monitor start|stop|status   Tier 2 continuous fleet patrol
 ```
