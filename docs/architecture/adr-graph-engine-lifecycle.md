@@ -2,7 +2,7 @@
 
 **Status**: Accepted
 
-**Date**: 2026-03-31
+**Date**: 2026-04-04
 
 **Deciders**: Overstory core team
 
@@ -796,6 +796,8 @@ These events are queryable via `ov trace` and visible in `ov dashboard`.
 
 **Architect liveness monitoring**: The engine checks architect liveness on every tick during the entire execute phase, not just at specific gates. This ensures builders can always reach the architect with `architecture_question` mails.
 
+**Direct execution variant**: For tier:direct missions (single-workstream, no persistent agents), src/missions/cells/execute-direct-phase.ts provides a simplified execute phase subgraph that skips ED dispatch and architecture review, running the workstream directly through the lead agent.
+
 ### Done Phase
 
 ```
@@ -996,6 +998,10 @@ Estimated overhead: 5-15ms per active mission per tick. With 1-2 active missions
 - **False-positive gate advancement**: Engine advances past a gate based on stale or misleading signals. Mitigated by corroborating evidence checks (mail + artifact existence).
 - **Checkpoint store growth**: Every engine step writes to `mission_node_checkpoints` and `mission_state_transitions`. For long-running missions with many workstreams, this could grow large. Mitigated by cleanup on mission completion.
 - **Subgraph definitions diverge from actual agent behavior**: As agent prompts evolve, subgraphs may model outdated workflows. Mitigated by keeping subgraphs focused on observable conditions (mail received, file exists, phase changed) rather than internal agent logic.
+
+## Implementation Status
+
+All 12 design decisions documented in this ADR have been verified as implemented and operational (audit 2026-04-04). The graph engine runs as the always-on mission lifecycle controller in production across all mission tiers.
 
 ---
 
