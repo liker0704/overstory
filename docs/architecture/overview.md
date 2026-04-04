@@ -1,7 +1,8 @@
 # Overstory Architecture Overview
 
-Repository review date: 2026-03-22
-Inspected commit: `6359e58`
+Repository review date: 2026-04-04
+Inspected commit: `8f67ed6c`
+Delta from previous review (2026-03-22, `6359e58`): 637 commits, 77.6K insertions, 10.4K deletions
 
 ## 1. What This System Is
 
@@ -22,41 +23,41 @@ Implementation footprint from direct repository inspection:
 
 | Metric | Value |
 | --- | --- |
-| Production TypeScript files | 191 |
-| Test TypeScript files | 157 |
-| Production TypeScript LOC | 59,010 |
-| Test TypeScript LOC | 78,305 |
-| Command modules in `src/commands` | 44 |
-| Mission modules in `src/missions` | 24 |
+| Production TypeScript files | 339 |
+| Test TypeScript files | 251 |
+| Production TypeScript LOC | 88,748 |
+| Test TypeScript LOC | 102,547 |
+| Command modules in `src/commands` | 58 |
+| Mission modules in `src/missions` | 37 |
 | Runtime adapters in `src/runtimes` | 14 |
-| Base agent definitions in `agents/` | 20 |
+| Base agent definitions in `agents/` | 31 |
 
 Large production hotspots:
 
 | File | Approx LOC | Role |
 | --- | ---: | --- |
-| `src/missions/lifecycle.ts` | 1,601 | mission lifecycle operations (extracted from mission.ts) |
-| `src/watchdog/daemon.ts` | 1,316 | tier-0 health loop, escalation, reconciliation |
-| `src/commands/coordinator.ts` | 1,284 | persistent coordinator lifecycle |
-| `src/commands/mail.ts` | 993 | message CLI and delivery flows |
-| `src/commands/sling.ts` | 909 | worker spawn CLI wiring, delegates to SpawnService |
-| `src/missions/workstream-control.ts` | 710 | workstream control operations |
-| `src/config.ts` | 693 | config parsing, loading, migration orchestration |
-| `src/agents/spawn.ts` | 646 | SpawnService — agent spawn orchestration (extracted from sling) |
-| `src/commands/mission.ts` | 281 | mission CLI wiring only, delegates to src/missions/* |
-| `src/commands/dashboard.ts` | 174 | dashboard CLI wiring, delegates to src/dashboard/* |
+| `src/watchdog/daemon.ts` | 2,127 | tier-0 health loop, escalation, reconciliation, mission engine tick |
+| `src/missions/store.ts` | 1,214 | mission records and state inside sessions.db |
+| `src/commands/coordinator.ts` | 1,184 | persistent coordinator lifecycle |
+| `src/commands/completions.ts` | 1,102 | shell completions generation |
+| `src/config.ts` | 1,066 | config parsing, loading, migration orchestration |
+| `src/commands/sling.ts` | 1,062 | worker spawn CLI wiring, delegates to SpawnService |
+| `src/mail/store.ts` | 1,054 | messaging store with migrations and DLQ |
+| `src/commands/mail.ts` | 998 | message CLI and delivery flows |
+| `src/merge/resolver.ts` | 932 | tiered merge conflict resolution |
+| `src/commands/log.ts` | 926 | hook event logging |
 
 High fan-in shared modules:
 
 | Module | Imported by approx files | Meaning |
 | --- | ---: | --- |
-| `src/types.ts` | 139 | barrel re-export of 17 domain type files (see `src/*/types.ts`) |
-| `src/errors.ts` | 103 | global error vocabulary |
-| `src/config.ts` | 50 | global config entry point |
-| `src/events/store.ts` | 36 | common observability store |
-| `src/sessions/store.ts` | 35 | common lifecycle store |
+| `src/types.ts` | 133 | barrel re-export of 29 domain type files (see `src/*/types.ts`) |
+| `src/errors.ts` | 72 | global error vocabulary |
+| `src/config.ts` | 74 | global config entry point |
+| `src/events/store.ts` | 22 | common observability store |
+| `src/sessions/store.ts` | 20 | common lifecycle store |
 
-Note: `src/types.ts` was decomposed from a monolithic shared-kernel schema into a barrel re-export. Actual type definitions now live in 17 domain-specific type files (`src/agents/types.ts`, `src/missions/types.ts`, `src/mail/types.ts`, etc.). New code should import directly from the domain type files.
+Note: `src/types.ts` was decomposed from a monolithic shared-kernel schema into a barrel re-export. Actual type definitions now live in 29 domain-specific type files (`src/agents/types.ts`, `src/missions/types.ts`, `src/mail/types.ts`, etc.). New code should import directly from the domain type files.
 
 ## 3. Architectural Categories
 
@@ -117,6 +118,27 @@ State model style:
 | Doctor checks | `src/doctor/*` | setup and consistency diagnostics |
 | Eval framework | `src/eval/*`, `evals/` | scenario-based system evaluation |
 | Review contour | `src/review/*` | deterministic scoring of sessions, handoffs, specs, missions |
+
+### 3.6 Additional Subsystems
+
+| Category | Primary paths | Responsibility |
+| --- | --- | --- |
+| Adaptive scaling | `src/adaptive/*` | dynamic parallelism policy and signal collection |
+| Artifact classification | `src/artifact-status/*` | mission artifact staleness classification |
+| Compatibility gates | `src/compat/*` | type surface extraction, compatibility analysis, merge gate |
+| Project context | `src/context/*` | codebase analysis, rendering, and caching for agent overlays |
+| Schema migrations | `src/db/*` | shared SQLite migration framework (PRAGMA user_version) |
+| Ecosystem bootstrap | `src/ecosystem/*` | sibling tool initialization and onboarding |
+| Headroom/quota | `src/headroom/*` | API rate-limit polling, throttle priority, quota guards |
+| Notifications | `src/notifications/*` | dashboard notification detection and rendering |
+| Observability pipeline | `src/observability/*` | async span export pipeline with bounded queue |
+| Process utilities | `src/process/*` | shared process/file helpers (extracted from watchdog) |
+| Quickstart wizard | `src/quickstart/*` | guided project setup, state detection, step engine |
+| Reminders | `src/reminders/*` | completion trends, domain coverage, mulch signals |
+| Research | `src/research/*` | MCP-based research runner, report parsing, output formatting |
+| Resilience | `src/resilience/*` | circuit breaker, retry with backoff, reroute decisions |
+| Web server | `src/webserver/*` | HTTP daemon, SSE connections, action routing |
+| Workflow import | `src/workflow/*` | workflow manifest CRUD, markdown parsing, drift detection |
 
 ## 4. Bounded Context View
 
@@ -191,14 +213,17 @@ Top-level command groups by architectural responsibility:
 
 | Group | Commands |
 | --- | --- |
-| Bootstrap and install | `init`, `hooks`, `update`, `upgrade`, `ecosystem`, `completions` |
+| Bootstrap and install | `init`, `hooks`, `update`, `upgrade`, `ecosystem`, `completions`, `quickstart` |
 | Agent lifecycle | `sling`, `stop`, `attach`, `resume`, `recover`, `snapshot`, `worktree`, `agents` |
 | Persistent orchestration | `coordinator`, `discover`, `monitor`, `supervisor` |
-| Mission mode | `mission` |
+| Mission mode | `mission`, `mission-tier`, `mission-workstream-complete` |
 | Messaging and control | `mail`, `nudge`, `spec`, `group`, `run`, `prime`, `log` |
+| Configuration | `config`, `adaptive`, `compat`, `health-policy`, `rate-limits` |
 | Delivery | `merge` |
+| Context and research | `context`, `research`, `compact`, `export` |
 | Observability | `status`, `dashboard`, `inspect`, `trace`, `replay`, `feed`, `logs`, `errors`, `costs`, `metrics` |
 | Operational quality | `review`, `health`, `next-improvement`, `doctor`, `eval`, `clean`, `watch` |
+| Infrastructure | `webserver`, `workflow` |
 
 Important interpretation:
 
