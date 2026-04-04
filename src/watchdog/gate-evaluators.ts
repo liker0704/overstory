@@ -371,6 +371,16 @@ export async function evaluateGate(
 			return evaluateSummaryReady(mission, artifactRoot);
 		case "await-leads-done":
 			return evaluateAwaitLeadsDone(mission, stores.mailStore);
+		case "review":
+			return evaluatePlanReviewComplete(mission, stores.mailStore);
+		case "review-stuck":
+			return evaluateReviewStuck(mission, stores.mailStore);
+		case "collect-verdicts":
+			return evaluateCollectVerdicts(mission, stores.mailStore);
+		case "frozen":
+			// Human gates are resolved by ov mission answer, not by evaluators.
+			// Return met:false without unknown flag to suppress missing-evaluator warnings.
+			return { met: false };
 		default:
 			return { met: false, unknown: true };
 	}
@@ -394,4 +404,57 @@ function evaluateAwaitLeadsDone(mission: Mission, mailStore: MailStore | null): 
 		nudgeTarget: coordName,
 		nudgeMessage: "Waiting for lead merge_ready signal. Check lead status.",
 	};
+}
+
+/** Plan-phase review gate: check if plan review converged with APPROVE verdict. */
+function evaluatePlanReviewComplete(
+	mission: Mission,
+	mailStore: MailStore | null,
+): GateEvalResult {
+	if (!mailStore) return { met: false };
+	const analystName = mission.slug ? `mission-analyst-${mission.slug}` : "mission-analyst";
+	const msgs = mailStore.getAll({ to: analystName });
+	const approved = msgs.find(
+		(m) =>
+			m.type === "plan_review_consolidated" &&
+			(m.subject?.toLowerCase().includes("approve") ?? false),
+	);
+	if (approved) {
+		return { met: true, trigger: "approved" };
+	}
+	const stuck = msgs.find(
+		(m) =>
+			m.type === "plan_review_consolidated" &&
+			(m.subject?.toLowerCase().includes("stuck") ?? false),
+	);
+	if (stuck) {
+		return { met: true, trigger: "stuck" };
+	}
+	return { met: false };
+}
+
+/** Plan-phase review-stuck gate: check if stuck review was resolved. */
+function evaluateReviewStuck(
+	mission: Mission,
+	mailStore: MailStore | null,
+): GateEvalResult {
+	if (!mailStore) return { met: false };
+	if (mission.phase !== "plan") {
+		return { met: true, trigger: "override" };
+	}
+	return { met: false };
+}
+
+/** Review cell collect-verdicts gate: check if any critic verdicts arrived. */
+function evaluateCollectVerdicts(
+	mission: Mission,
+	mailStore: MailStore | null,
+): GateEvalResult {
+	if (!mailStore) return { met: false };
+	const reviewLeadMsgs = mailStore.getAll({ to: "plan-review-lead" });
+	const hasVerdicts = reviewLeadMsgs.some((m) => m.type === "plan_critic_verdict");
+	if (hasVerdicts) {
+		return { met: true, trigger: "verdicts_collected" };
+	}
+	return { met: false };
 }

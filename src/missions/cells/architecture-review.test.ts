@@ -5,8 +5,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import type { CheckpointStore, MissionStore } from "../../types.ts";
 import { validateGraph } from "../graph.ts";
-import { createMockCheckpointStore, createMockMissionStore } from "../test-mocks.ts";
 import type { HandlerContext } from "../types.ts";
 import {
 	architectureReviewCell,
@@ -16,7 +16,207 @@ import {
 import type { ArchitectureCriticVerdictPayload } from "./architecture-review.ts";
 import type { ReviewCellConfig, ReviewCellDeps } from "./types.ts";
 
-// Mock stores imported from test-mocks.ts
+// === Mock stores (same pattern as plan-review.test.ts) ===
+
+interface StoredCheckpoint {
+	data: unknown;
+	version: number;
+	schemaVersion: number;
+}
+
+interface StoredTransition {
+	fromNode: string;
+	toNode: string;
+	trigger: string;
+	createdAt: string;
+	error?: string;
+}
+
+function createMockCheckpointStore(): CheckpointStore & { transitions: StoredTransition[] } {
+	const checkpoints = new Map<string, StoredCheckpoint>();
+	const transitions: StoredTransition[] = [];
+
+	const key = (missionId: string, nodeId: string) => `${missionId}:${nodeId}`;
+
+	return {
+		transitions,
+
+		saveCheckpoint(missionId: string, nodeId: string, data: unknown): void {
+			const k = key(missionId, nodeId);
+			const existing = checkpoints.get(k);
+			checkpoints.set(k, {
+				data,
+				version: (existing?.version ?? 0) + 1,
+				schemaVersion: 1,
+			});
+		},
+
+		getCheckpoint(
+			missionId: string,
+			nodeId: string,
+		): { data: unknown; version: number; schemaVersion: number } | null {
+			return checkpoints.get(key(missionId, nodeId)) ?? null;
+		},
+
+		getLatestCheckpoint(
+			missionId: string,
+		): { nodeId: string; data: unknown; version: number } | null {
+			const prefix = `${missionId}:`;
+			let latest: { nodeId: string; data: unknown; version: number } | null = null;
+			for (const [k, cp] of checkpoints) {
+				if (k.startsWith(prefix)) {
+					const nodeId = k.slice(prefix.length);
+					if (!latest || cp.version >= latest.version) {
+						latest = { nodeId, data: cp.data, version: cp.version };
+					}
+				}
+			}
+			return latest;
+		},
+
+		listCheckpoints(
+			missionId: string,
+		): Array<{ nodeId: string; version: number; createdAt: string }> {
+			const prefix = `${missionId}:`;
+			const result: Array<{ nodeId: string; version: number; createdAt: string }> = [];
+			for (const [k, cp] of checkpoints) {
+				if (k.startsWith(prefix)) {
+					result.push({ nodeId: k.slice(prefix.length), version: cp.version, createdAt: "" });
+				}
+			}
+			return result;
+		},
+
+		recordTransition(
+			_missionId: string,
+			fromNode: string,
+			toNode: string,
+			trigger: string,
+			_data?: unknown,
+			error?: string,
+		): void {
+			transitions.push({ fromNode, toNode, trigger, createdAt: new Date().toISOString(), error });
+		},
+
+		getTransitionHistory(_missionId: string): Array<{
+			fromNode: string;
+			toNode: string;
+			trigger: string;
+			createdAt: string;
+			error?: string;
+		}> {
+			return [...transitions];
+		},
+
+		saveStepResult(
+			missionId: string,
+			fromNode: string,
+			toNode: string,
+			trigger: string,
+			checkpointData: unknown,
+		): void {
+			this.saveCheckpoint(missionId, toNode, checkpointData);
+			this.recordTransition(missionId, fromNode, toNode, trigger);
+		},
+
+		deleteCheckpoints(_missionId: string): void {
+			checkpoints.clear();
+		},
+	};
+}
+
+function createMockMissionStore(): MissionStore {
+	const noop = () => {};
+	return {
+		getById: (id: string) => ({
+			id,
+			slug: "test",
+			objective: "test",
+			runId: null,
+			state: "active" as const,
+			phase: "understand" as const,
+			firstFreezeAt: null,
+			pendingUserInput: false,
+			pendingInputKind: null,
+			pendingInputThreadId: null,
+			reopenCount: 0,
+			artifactRoot: null,
+			pausedWorkstreamIds: [],
+			analystSessionId: null,
+			executionDirectorSessionId: null,
+			coordinatorSessionId: null,
+			architectSessionId: null,
+			pausedLeadNames: [],
+			pauseReason: null,
+			currentNode: null,
+			startedAt: null,
+			completedAt: null,
+			createdAt: "",
+			updatedAt: "",
+			learningsExtracted: false,
+			tier: null,
+		}),
+		getBySlug: () => null,
+		getActive: () => null,
+		getActiveList: () => [],
+		create: (m) => ({
+			...m,
+			runId: m.runId ?? null,
+			state: "active" as const,
+			phase: "understand" as const,
+			firstFreezeAt: null,
+			pendingUserInput: false,
+			pendingInputKind: null,
+			pendingInputThreadId: null,
+			reopenCount: 0,
+			artifactRoot: m.artifactRoot ?? null,
+			pausedWorkstreamIds: [],
+			analystSessionId: null,
+			executionDirectorSessionId: null,
+			coordinatorSessionId: null,
+			architectSessionId: null,
+			pausedLeadNames: [],
+			pauseReason: null,
+			currentNode: null,
+			startedAt: m.startedAt ?? null,
+			completedAt: null,
+			createdAt: "",
+			updatedAt: "",
+			learningsExtracted: false,
+			tier: null,
+		}),
+		list: () => [],
+		delete: noop,
+		updateState: noop,
+		updatePhase: noop,
+		freeze: noop,
+		unfreeze: noop,
+		updatePausedWorkstreams: noop,
+		updateArtifactRoot: noop,
+		bindSessions: noop,
+		bindCoordinatorSession: noop,
+		updatePausedLeads: noop,
+		updatePauseReason: noop,
+		start: noop,
+		completeMission: noop,
+		updateSlug: noop,
+		updateObjective: noop,
+		updateCurrentNode: noop,
+		markLearningsExtracted: noop,
+		checkpoints: createMockCheckpointStore(),
+		acquireTickLock: () => true,
+		releaseTickLock: noop,
+		ensureGateState: () => ({ entered_at: new Date().toISOString(), nudge_count: 0, last_nudge_at: null, respawn_count: 0, grace_ms: 120000, nudge_interval_ms: 60000, max_nudges: 3, max_total_wait_ms: 3600000 }),
+		incrementNudgeCount: noop,
+		resolveGate: noop,
+		updateWorkstreamStatus: noop,
+		transaction: <T>(fn: () => T): T => fn(),
+		updateTier: noop,
+		clearGateStates: noop,
+		clearCheckpoints: noop,
+		close: noop,
+	};
+}
 
 const defaultConfig: ReviewCellConfig = {
 	tier: "full",
