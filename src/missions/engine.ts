@@ -175,6 +175,12 @@ export function createGraphEngine(opts: GraphEngineOpts): GraphEngine {
 				};
 			}
 			if (subResult.status !== "completed") {
+				// Update currentNode to the subgraph's gated position so gate evaluators
+				// can find and evaluate the correct subgraph node.
+				const subCurrentNode = subResult.currentNodeId;
+				if (subCurrentNode && opts.missionStore) {
+					opts.missionStore.updateCurrentNode(opts.missionId, subCurrentNode);
+				}
 				return { status: "gate", fromNodeId: nodeId, toNodeId: nodeId, trigger: null };
 			}
 		}
