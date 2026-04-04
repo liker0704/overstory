@@ -304,6 +304,25 @@ export function buildLifecycleGraph(mission: Mission): MissionGraph {
 	// Filter edges to only include edges between remaining nodes
 	const edges = DEFAULT_MISSION_GRAPH.edges.filter((e) => nodeIds.has(e.from) && nodeIds.has(e.to));
 
+	// Add direct phase_advance edges between consecutive tier phases.
+	// DEFAULT_MISSION_GRAPH has edges like understand→align→decide→plan→execute.
+	// When tiers skip phases (e.g., planned skips align/decide), the edges are lost.
+	// We need direct edges: understand:active → plan:active for planned tier.
+	const tierPhaseList = TIER_PHASES[tier];
+	for (let i = 0; i < tierPhaseList.length - 1; i++) {
+		const fromPhase = tierPhaseList[i];
+		const toPhase = tierPhaseList[i + 1];
+		if (!fromPhase || !toPhase) continue;
+		const fromId = `${fromPhase}:active`;
+		const toId = `${toPhase}:active`;
+		// Check if a phase_advance/handoff edge already exists between these phases
+		const trigger = fromPhase === "plan" && toPhase === "execute" ? "handoff" : "phase_advance";
+		const exists = edges.some((e) => e.from === fromId && e.to === toId && e.trigger === trigger);
+		if (!exists && nodeIds.has(fromId) && nodeIds.has(toId)) {
+			edges.push({ from: fromId, to: toId, trigger, weight: 10 });
+		}
+	}
+
 	return { version: 1, nodes, edges };
 }
 
