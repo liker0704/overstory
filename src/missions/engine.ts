@@ -208,7 +208,9 @@ export function createGraphEngine(opts: GraphEngineOpts): GraphEngine {
 			}
 		}
 
-		// No handler: auto-trigger from single outgoing edge
+		// No handler: auto-trigger from outgoing edges.
+		// Single edge → use it. Multiple edges → use highest-weight edge (phase_advance
+		// has weight=10, which takes priority over freeze/suspend/stop/fail edges).
 		if (trigger === null) {
 			const edges = edgeMap.get(nodeId) ?? [];
 			if (edges.length === 0) {
@@ -218,8 +220,15 @@ export function createGraphEngine(opts: GraphEngineOpts): GraphEngine {
 			if (edges.length === 1 && edges[0]) {
 				trigger = edges[0].trigger;
 			} else {
-				// Multiple edges, no handler to choose — gate
-				return { status: "gate", fromNodeId: nodeId, toNodeId: nodeId, trigger: null };
+				// Multiple edges — pick highest weight if one exists
+				const sorted = [...edges].sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0));
+				const best = sorted[0];
+				if (best && (best.weight ?? 0) > 0) {
+					trigger = best.trigger;
+				} else {
+					// All edges have equal/zero weight, no handler to choose — gate
+					return { status: "gate", fromNodeId: nodeId, toNodeId: nodeId, trigger: null };
+				}
 			}
 		}
 
