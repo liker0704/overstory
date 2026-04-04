@@ -63,16 +63,32 @@ export function evaluateUnderstandReady(
 	if (mission.phase !== "understand") {
 		return { met: true, trigger: "ready" };
 	}
-	// Auto-resolve if "Plan complete" mail arrived (analyst finished planning)
-	// This means coordinator has implicitly moved past understand phase.
 	if (mailStore) {
 		const coordName = mission.slug ? `coordinator-${mission.slug}` : "coordinator";
 		const msgs = mailStore.getAll({ to: coordName });
+
+		// Auto-resolve if "Plan complete" mail arrived (analyst finished planning)
 		const planComplete = msgs.find(
 			(m) => m.type === "result" && m.subject?.toLowerCase().includes("plan complete"),
 		);
 		if (planComplete) {
 			return { met: true, trigger: "ready" };
+		}
+
+		// If analyst has been dispatched for planning, suppress nudge — work is in progress.
+		// Check for "Planning phase" dispatch from coordinator to analyst.
+		const analystName = mission.slug
+			? `mission-analyst-${mission.slug}`
+			: "mission-analyst";
+		const allMsgs = mailStore.getAll({ to: analystName });
+		const planningDispatched = allMsgs.find(
+			(m) =>
+				m.type === "dispatch" &&
+				m.subject?.toLowerCase().includes("planning phase"),
+		);
+		if (planningDispatched) {
+			// Analyst is working on the plan — don't nudge coordinator, just wait
+			return { met: false };
 		}
 	}
 	return {
