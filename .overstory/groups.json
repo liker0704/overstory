@@ -1676,5 +1676,18 @@
 		"status": "active",
 		"createdAt": "2026-04-04T10:43:06.535Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-ccb3d65c",
+		"name": "batch-1-independent-docs",
+		"memberIssueIds": [
+			"overstory-a83b",
+			"overstory-19a3",
+			"overstory-e06e",
+			"overstory-91ec"
+		],
+		"status": "active",
+		"createdAt": "2026-04-05T11:01:52.963Z",
+		"completedAt": null
 	}
 ]
