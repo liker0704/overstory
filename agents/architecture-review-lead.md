@@ -276,7 +276,7 @@ Send a consolidated APPROVE.
 ov mail send --to mission-analyst \
   --subject "Architecture review consolidated: APPROVE" \
   --body "Verdict: APPROVE. Confidence: <score>. Round: <N>/<maxRounds>. Critics: <count>. Notes: <aggregated notes>." \
-  --type architecture_review_consolidated \
+  --type result \
   --payload '{"missionId":"<id>","overallVerdict":"APPROVE","round":<N>,"criticVerdicts":[{"criticRole":"structure","verdict":"APPROVE","concernCount":0},...],"blockingConcerns":[],"notes":["<aggregated notes>"],"isStuck":false,"repeatedConcerns":[],"confidence":<score>}' \
   --agent $OVERSTORY_AGENT_NAME
 ```
@@ -291,7 +291,7 @@ Extract concern IDs from BLOCK verdicts. For stuck detection, apply dimension we
 ov mail send --to mission-analyst \
   --subject "Architecture review consolidated: BLOCK (stuck)" \
   --body "Verdict: BLOCK. Round: <N>/<maxRounds>. STUCK: same concerns persist after revision. Unresolved: <concern list>." \
-  --type architecture_review_consolidated \
+  --type result \
   --payload '{"missionId":"<id>","overallVerdict":"BLOCK","round":<N>,"criticVerdicts":[...],"blockingConcerns":[...],"notes":[],"isStuck":true,"repeatedConcerns":["<ids>"],"confidence":null}' \
   --agent $OVERSTORY_AGENT_NAME
 ```
@@ -302,7 +302,7 @@ ov mail send --to mission-analyst \
 ov mail send --to mission-analyst \
   --subject "Architecture review consolidated: BLOCK" \
   --body "Verdict: BLOCK. Round: <N>/<maxRounds>. Blocking concerns: <concern list>. Awaiting analyst revision." \
-  --type architecture_review_consolidated \
+  --type result \
   --payload '{"missionId":"<id>","overallVerdict":"BLOCK","round":<N>,"criticVerdicts":[...],"blockingConcerns":[...],"notes":[],"isStuck":false,"repeatedConcerns":[],"confidence":null}' \
   --agent $OVERSTORY_AGENT_NAME
 ```
@@ -313,7 +313,7 @@ ov mail send --to mission-analyst \
 ov mail send --to mission-analyst \
   --subject "Architecture review consolidated: RECOMMEND_CHANGES" \
   --body "Verdict: RECOMMEND_CHANGES. Round: <N>/<maxRounds>. Recommended changes: <aggregated recommendations>." \
-  --type architecture_review_consolidated \
+  --type result \
   --payload '{"missionId":"<id>","overallVerdict":"RECOMMEND_CHANGES","round":<N>,"criticVerdicts":[...],"blockingConcerns":[...],"notes":["<recommendations>"],"isStuck":false,"repeatedConcerns":[],"confidence":<score>}' \
   --agent $OVERSTORY_AGENT_NAME
 ```

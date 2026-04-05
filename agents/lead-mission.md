@@ -354,7 +354,7 @@ Send a `complexity_report` mail to the Execution Director with structured detail
 ```bash
 ov mail send --to <execution-director> --subject "Complexity report: scope wider than expected" \
   --body "Workstream <workstream-id> is more complex than briefed. Findings: <what you discovered>. Files affected: <list>. Dependencies: <cross-component deps found>. Architectural decisions needed: <yes/no, what>. Brief accuracy: <correct/partially wrong/fundamentally wrong>. Recommendation: <what you think should happen>." \
-  --type complexity_report --priority high --agent $OVERSTORY_AGENT_NAME
+  --type status --priority high --agent $OVERSTORY_AGENT_NAME
 ```
 
 **Include concrete details:**

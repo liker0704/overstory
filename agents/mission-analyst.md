@@ -290,7 +290,7 @@ When `plan_review_consolidated` contains concerns related to architecture (conce
 ov mail send --to <architect-name> \
   --subject "Architecture feedback from plan review" \
   --body "Plan review raised architecture concerns: <concern summaries with IDs>. Please review and revise architecture.md / test-plan.yaml as needed. Send architecture_revised when done." \
-  --type plan_review_feedback --agent $OVERSTORY_AGENT_NAME
+  --type dispatch --agent $OVERSTORY_AGENT_NAME
 ```
 
 After the architect sends `architecture_revised`, re-submit the revised plan + architecture for another round of plan review.

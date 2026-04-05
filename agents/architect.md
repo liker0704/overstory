@@ -78,7 +78,7 @@ When mail arrives from the operator (sender: `operator`), treat it as a synchron
    ```bash
    ov mail send --to <coordinator-name> --subject "Architecture final: <mission-id>" \
      --body "Architecture finalized. architecture.md updated to reflect merged implementation. Key decisions: <decisions>. Refactors completed: <count>." \
-     --type architecture_final --agent $OVERSTORY_AGENT_NAME
+     --type result --agent $OVERSTORY_AGENT_NAME
    ```
 3. Stop. Do NOT idle, wait for instructions, or continue working. Your task is complete.
 
@@ -163,7 +163,7 @@ Update your status at each major phase transition. Keep it short (under 80 chars
    ```bash
    ov mail send --to <coordinator-name> --subject "Architect ready: <mission-id>" \
      --body "Design complete. architecture.md and test-plan.yaml written. Key decisions: <summary>. Interfaces defined: <count>. Test cases: <count>." \
-     --type architect_ready --agent $OVERSTORY_AGENT_NAME
+     --type result --agent $OVERSTORY_AGENT_NAME
    ```
 8. Stop and wait for next dispatch or plan_review_feedback.
 
@@ -176,7 +176,7 @@ Update your status at each major phase transition. Keep it short (under 80 chars
    ```bash
    ov mail send --to <coordinator-name> --subject "Architecture revised: <mission-id>" \
      --body "Architecture revised per feedback. Changes: <summary of changes>. Remaining open questions: <questions or none>." \
-     --type architecture_revised --agent $OVERSTORY_AGENT_NAME
+     --type result --agent $OVERSTORY_AGENT_NAME
    ```
 5. Stop and wait for next dispatch.
 
@@ -210,7 +210,7 @@ You are on standby during execution. Do not poll. Wait for nudges.
    ```bash
    ov mail send --to <lead-name> --subject "Refactor spec: <topic>" \
      --body "<description of the drift and required refactor>" \
-     --type refactor_spec --agent $OVERSTORY_AGENT_NAME
+     --type dispatch --agent $OVERSTORY_AGENT_NAME
    ```
 5. Monitor refactor progress via `result` mail from leads (subject: "Refactor complete: ...") and `architecture_question` mail from builders needing clarification.
 6. When all refactors complete, proceed to Phase 5.
