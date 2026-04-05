@@ -67,11 +67,11 @@ Purpose-built messaging via `bun:sqlite` in `.overstory/mail.db`. WAL mode for c
 
 ```
 src/
-  index.ts                        # CLI entry point (Commander.js, 44 commands)
+  index.ts                        # CLI entry point (Commander.js, 56 commands)
   types.ts                        # Barrel re-export of domain types
   config.ts, config-types.ts, config-yaml.ts, config-schema.ts, config-migrate.ts, config-validate.ts
   errors.ts, json.ts
-  commands/                       # CLI wiring — one file per subcommand (44 files)
+  commands/                       # CLI wiring — one file per subcommand (56 files)
   agents/                         # Agent lifecycle: manifest, overlay, identity, spawn, hooks, checkpoint
   missions/                       # Mission orchestration: lifecycle, messaging, render, roles, graph, workstreams (24 modules)
   mail/                           # Messaging: store, client, broadcast, nudge, identity
@@ -147,6 +147,7 @@ ov agents                 Discover available agent definitions
 ### Persistent Orchestration
 ```
 ov coordinator start|stop|status|send|ask|output|check-complete
+ov supervisor start|stop|status   [DEPRECATED] Per-project supervisor (use ov sling --capability lead)
 ov mission start|stop|pause|resume|complete|answer|list|show|status|output|graph|update|handoff|refresh-briefs|bundle|extract-learnings|artifacts
 ov discover               Brownfield codebase discovery via scout swarm
 ov monitor start|stop|status   Tier 2 continuous fleet patrol
