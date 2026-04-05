@@ -20,6 +20,40 @@ Use `ov mission` for larger tasks where you want the system to:
 Use the fast-path `ov coordinator` flow when the task is already clear and you
 do not need mission-level freeze / handoff discipline.
 
+## Mission Tiers
+
+Missions run at one of three tiers. The tier determines which phases are active
+and which roles are spawned.
+
+| Tier | Phases | Roles Spawned | When To Use |
+|------|--------|---------------|-------------|
+| **direct** | execute → done | Coordinator + Leads (no analyst, no ED) | Task is already clear. Skip understanding and planning. Coordinator dispatches leads directly. |
+| **planned** | understand → plan → execute → done | Coordinator + Analyst | Moderate complexity. System explores and plans before executing. |
+| **full** | understand → align → decide → plan → execute → done | Coordinator + Analyst + Execution Director + (optional) Architect | Complex or ambiguous. Full phase discipline with alignment and decision steps. |
+
+### Tier Selection Guidance
+
+- **direct**: objective already decomposed, no research needed, fastest path
+- **planned**: needs exploration, standard mission flow with analyst
+- **full**: ambiguous, multi-subsystem, needs alignment, architectural decisions
+
+### Assess Mode
+
+New missions start in assess mode (`tier=null`). The coordinator evaluates
+complexity and selects a tier:
+
+```bash
+ov mission tier show
+ov mission tier show --json
+ov mission tier set planned
+```
+
+Tiers can only escalate upward (`direct` → `planned` → `full`), never downward.
+Escalation kills active leads, clears gate states and checkpoints, and restarts
+from the appropriate phase.
+
+---
+
 ## Core Lifecycle
 
 ### 1. Start a mission
@@ -198,8 +232,64 @@ ov review mission <mission-id-or-slug>
 
 ## Graph Engine & Waiting State
 
-The mission graph engine runs inside the watchdog daemon and monitors mission
-progress. It nudges stuck agents and auto-resumes waiting agents.
+The mission graph engine runs inside the watchdog daemon (`ov watch`), one tick
+per interval. It is the runtime controller for automated phase transitions and
+agent lifecycle management.
+
+**What it does:**
+
+- Evaluates graph gates each tick and auto-advances phases when conditions are
+  met (e.g., scout finishes → advance to next step)
+- Nudges stuck agents when their grace period expires
+- Detects dead agents (zombie tmux sessions) and auto-resumes them
+- Enforces timeout ceilings (`maxTotalWaitMs`) and escalates when exceeded
+
+**Configuration in `config.yaml`:**
+
+```yaml
+mission:
+  graphExecution: true          # Enable/disable engine (default: true)
+  maxConcurrent: 1              # Max active missions (default: 1)
+  freezeTimeoutMs: 1800000      # Frozen mission auto-unfreeze (default: 30 min)
+```
+
+Set `graphExecution: false` to disable automatic phase transitions and rely on
+manual advancement instead.
+
+**Grace period overrides:**
+
+The engine waits a grace period before nudging a stuck agent. Defaults range
+from 2 minutes (general) to 10 minutes (long-running gates). Override in config:
+
+```yaml
+mission:
+  gates:
+    gracePeriods:
+      await-plan: 300000        # 5 min
+      await-ws-completion: 600000  # 10 min
+    maxTotalWaitMs:
+      await-ws-completion: 14400000  # 4 hours
+```
+
+### Phase Subgraphs
+
+Each lifecycle phase has an internal subgraph that automates its step-by-step
+flow. Gates are either `async` (resolved by mail/artifact detection) or `human`
+(resolved by operator via `ov mission answer`).
+
+- **understand-phase**: ensure-coordinator → await-research → evaluate →
+  (frozen if user input needed) → complete
+- **plan-phase**: dispatch-planning → await-plan → check-tdd →
+  (optional architect-design) → review → await-handoff → complete
+- **execute-phase** (planned/full): ensure-ed → dispatch-ready →
+  await-ws-completion → update-status → check-remaining → (loop or complete).
+  Includes optional architecture review path for TDD missions.
+- **execute-direct-phase** (direct tier only): dispatch-leads → await-leads-done
+  → merge-all → (loop or complete). Simplified — no Execution Director.
+- **done-phase**: summary → holdout → cleanup → complete
+
+For architecture-level graph engine internals, see
+`docs/architecture/adr-graph-engine-lifecycle.md`.
 
 ### Agent Waiting State
 

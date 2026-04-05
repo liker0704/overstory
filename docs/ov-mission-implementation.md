@@ -932,3 +932,73 @@ The criteria remain listed here as the regression contract for `v1`:
 
 `ov mission v1` now satisfies this definition of done and should be treated as
 the real mission mode for complex tasks.
+
+---
+
+## 21. Mission Tiers And Graph Engine Implementation
+
+### TIER_PHASES Mapping
+
+The active phases for each tier are declared in `src/missions/engine-wiring.ts`:
+
+```typescript
+export const TIER_PHASES: Record<MissionTier, readonly string[]> = {
+  direct: ["execute", "done"],
+  planned: ["understand", "plan", "execute", "done"],
+  full: ["understand", "align", "decide", "plan", "execute", "done"],
+};
+```
+
+The graph engine uses this mapping to determine which phase cells to activate
+when a mission transitions tiers.
+
+### Cell Registries
+
+Two separate registries exist in `src/missions/engine-wiring.ts`:
+
+- **`CELL_REGISTRY`** — review cells: `plan-review`, `architecture-review`
+- **`PHASE_CELL_REGISTRY`** — phase cells: `understand-phase`, `plan-phase`,
+  `execute-phase`, `done-phase`
+
+For `direct` tier missions, `execute-phase` is swapped for
+`executeDirectPhaseCell` from `src/missions/cells/execute-direct-phase.ts`.
+
+### Execute-Direct Phase
+
+`src/missions/cells/execute-direct-phase.ts` implements the simplified execute
+subgraph used only for `direct` tier missions.
+
+Flow:
+
+```
+dispatch-leads → await-leads-done → merge-all → (loop or complete)
+```
+
+- `await-leads-done` is an `async` gate with a 4-hour timeout
+- No Execution Director is involved
+- Coordinator dispatches leads directly
+- Used only when `tier = 'direct'`
+
+### Key Implementation Files
+
+| File | Purpose |
+|------|---------|
+| `src/missions/engine-wiring.ts` | `TIER_PHASES`, `CELL_REGISTRY`, `buildLifecycleGraph()`, `buildLifecycleHandlers()` |
+| `src/missions/cells/execute-direct-phase.ts` | Direct tier execute cell |
+| `src/missions/cells/execute-phase.ts` | Standard execute cell (planned/full) |
+| `src/missions/cells/understand-phase.ts` | Understand phase cell |
+| `src/missions/cells/plan-phase.ts` | Plan phase cell |
+| `src/missions/cells/done-phase.ts` | Done phase cell |
+| `src/watchdog/mission-tick.ts` | Engine tick, grace periods, dead agent recovery |
+| `src/commands/mission-tier.ts` | CLI for `ov mission tier show/set` |
+
+### Tier Transition Mechanics
+
+Tier transitions are handled by `src/commands/mission-tier.ts`:
+
+- Only upward transitions are allowed (`TIER_ORDER` enforced:
+  `direct < planned < full`)
+- Escalation kills active leads, clears gate states and checkpoints
+- Sets the start phase: `direct` → `execute`; `planned`/`full` → `understand`
+- Spawns analyst for `planned`/`full`; spawns Execution Director for `full`
+- Sends a tier-specific prompt to coordinator via tmux
