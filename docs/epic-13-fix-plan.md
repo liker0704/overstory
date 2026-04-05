@@ -1,5 +1,9 @@
 # Epic #13 Fix Plan
 
+> **Historical Document** — Last Updated: 2026-04-05. See status annotations per phase below.
+>
+> **Overall: 4/8 phases COMPLETE, 1 PARTIALLY COMPLETE, 2 IN PROGRESS, 1 NOT STARTED**
+
 Date: 2026-03-13
 
 Related docs:
@@ -57,7 +61,7 @@ Rationale:
 
 ## Phase 1: Shared Mission Context Recovery
 
-Status: planned
+Status: COMPLETE — src/missions/runtime-context.ts exists with resolveActiveMissionContext(). Callers in sling.ts and mail.ts use the shared resolver. Commits: a5b9e4b2, 8db0003f.
 
 Goal:
 
@@ -117,7 +121,7 @@ Dependencies:
 
 ## Phase 2: Runtime Hierarchy Enforcement For Execution Director
 
-Status: planned
+Status: COMPLETE — src/commands/sling.ts has resolveParentCapability and allowedChildCapabilities. ED → lead only enforced. Commit: 892d755d.
 
 Goal:
 
@@ -176,7 +180,7 @@ Dependencies:
 
 ## Phase 3: Stale-Spec Hardening
 
-Status: planned
+Status: PARTIALLY COMPLETE — workstream-control.ts has specMetaBlocking logic. The spec→meta validation path exists. workstreamRequiresCurrentSpec helper name differs from spec but core mechanism is present. May not match all acceptance criteria verbatim.
 
 Goal:
 
@@ -240,7 +244,7 @@ Dependencies:
 
 ## Phase 4: Canonical Task Bridge Wiring
 
-Status: planned
+Status: COMPLETE — src/missions/workstreams.ts has ensureCanonicalWorkstreamTasks and persistCanonicalTaskIds. workstreams.test.ts line 458 asserts --skip-task-check is NOT in handoff dispatch commands.
 
 Goal:
 
@@ -294,7 +298,7 @@ Dependencies:
 
 ## Phase 5: Selective Ingress Enforcement In Routing
 
-Status: planned
+Status: COMPLETE — src/missions/ingress.ts exists with validateMissionIngress. src/commands/mail.ts imports and uses it. ingress.test.ts exists.
 
 Goal:
 
@@ -345,7 +349,7 @@ Dependencies:
 
 ## Phase 6: Shared Mission Surfaces Completion
 
-Status: planned
+Status: IN PROGRESS — status and dashboard commands exist but role-presence rendering in these surfaces was not verified as complete. No specific commits found for role-presence fields.
 
 Goal:
 
@@ -396,7 +400,7 @@ Dependencies:
 
 ## Phase 7: Review CLI Functional Proof
 
-Status: planned
+Status: NOT STARTED — No 'review missions' or 'review mission' string found in src/commands/review.ts. No functional proof tests match the phase spec.
 
 Goal:
 
@@ -445,7 +449,7 @@ Dependencies:
 
 ## Phase 8: Phase 13 Recovery And Terminal Proof
 
-Status: planned
+Status: IN PROGRESS — runtime-context.ts provides the recovery foundation. mission.e2e.test.ts references resolveActiveMissionContext. Full crash/recovery e2e scenarios (lost pointer files, stopped terminal path) not confirmed as complete.
 
 Goal:
 

@@ -1,5 +1,7 @@
 # Mission Monitoring Protocol
 
+Last Updated: 2026-04-05
+
 Guide for AI agents (orchestrator sessions) monitoring `ov mission` runs.
 
 ## Identity
@@ -34,8 +36,18 @@ sleep 120 && ov mail check --agent operator && echo "===" && ov status 2>&1 | gr
 **What to watch:**
 - `ov mail check --agent operator` — coordinator sends questions here, must answer to unfreeze
 - `ov status` — agent count, phase, pending state
-- Mission phases: `understand → align → decide → plan → execute → done`
+- Mission phases vary by tier (see Tier-Specific Phases below)
 - When `Pending: question` + `frozen` — coordinator is waiting for your answer
+
+## Tier-Specific Phases
+
+Mission phases depend on the tier configured for the mission (see `src/missions/engine-wiring.ts` TIER_PHASES):
+
+| Tier | Phases |
+|------|--------|
+| direct | execute → done |
+| planned | understand → plan → execute → done |
+| full | understand → align → decide → plan → execute → done |
 
 ## Answering Questions
 
@@ -57,6 +69,8 @@ This unfreezes the mission. Common questions:
 - Don't interfere with execution — the mission is autonomous
 
 ## Typical Mission Timeline
+
+> This timeline describes the **full** tier. For planned tier, skip align and decide phases. For direct tier, only execute and done phases run.
 
 1. **understand** (5-15 min) — analyst scouts codebase, coordinator reads spec
 2. **plan review** (10-20 min) — plan-review-lead spawns critics (devil-advocate, performance-critic, second-opinion), may run multiple rounds
