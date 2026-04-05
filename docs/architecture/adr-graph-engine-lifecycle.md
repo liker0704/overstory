@@ -1,6 +1,6 @@
 # ADR: Graph Execution Engine as Mission Lifecycle Controller
 
-**Status**: Proposed
+**Status**: Accepted
 
 **Date**: 2026-04-04
 
@@ -28,13 +28,13 @@ Mission `auth-mock-v2` had 2 sequential workstreams: `shared-auth` (no deps) the
 
 1. **No automatic phase transitions.** `understand -> plan -> execute` requires the coordinator agent to manually call `ov mission handoff` (`src/missions/lifecycle.ts`). If coordinator dies before this, the mission is permanently stuck.
 
-2. **No workstream status updates after merge.** `persistWorkstreamsFile()` exists (`src/missions/workstreams.ts:367`) but is never called with status updates after a merge completes. `packageHandoffs()` (`src/missions/workstreams.ts:477`) checks `status === "completed"` to determine which workstreams are dispatchable, but nothing ever writes `"completed"`. The function that could enable sequential dispatch exists but is never fed the data it needs.
+2. **No workstream status updates after merge.** `persistWorkstreamsFile()` exists (`src/missions/workstreams.ts:368`) but is never called with status updates after a merge completes. `packageHandoffs()` (`src/missions/workstreams.ts:546`) checks `status === "completed"` to determine which workstreams are dispatchable, but nothing ever writes `"completed"`. The function that could enable sequential dispatch exists but is never fed the data it needs.
 
 3. **No dead agent recovery.** When a persistent agent (coordinator, analyst, exec-director) dies, `evaluateHealth()` (`src/watchdog/health.ts`) marks it as `zombie` but this triggers no mission-level action. The watchdog daemon (`src/watchdog/daemon.ts`) has progressive escalation (levels 0-3) for individual agents, but no concept of mission-level impact when a critical role agent dies.
 
 ### Existing Infrastructure
 
-The graph execution engine already exists but is disabled behind `config.mission.graphExecution`:
+The graph execution engine already exists but is controlled by `config.mission.graphExecution`:
 
 | Component | Location | Status |
 |---|---|---|
@@ -52,7 +52,7 @@ The graph execution engine already exists but is disabled behind `config.mission
 | Resilience engine | `src/resilience/engine.ts` | Done -- `handleTaskFailure()`, `calculateBackoff()`, `shouldRetry()` |
 | Workstream packaging | `src/missions/workstreams.ts` | Done -- `packageHandoffs()`, `slingArgsFromHandoff()` |
 
-The `shouldUseEngine()` function (`src/missions/engine-wiring.ts:45`) currently returns `config.mission?.graphExecution === true`, defaulting to disabled.
+The `shouldUseEngine()` function (`src/missions/engine-wiring.ts:86`) returns `config.mission?.graphExecution !== false`, defaulting to enabled.
 
 ---
 

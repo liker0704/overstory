@@ -10,6 +10,7 @@ Quick read:
 - [overview.md](./overview.md) — architecture categories, layers, bounded contexts, state surfaces, runtime map, command map.
 - [workflows.md](./workflows.md) — end-to-end workflows, sequence diagrams, and how the command families fit together.
 - [review.md](./review.md) — architectural review, strengths, risks, and refactor priorities.
+- [adr-graph-engine-lifecycle.md](./adr-graph-engine-lifecycle.md) — graph execution engine design: lifecycle controller, gate evaluators, dead agent recovery.
 
 Current architectural summary:
 
