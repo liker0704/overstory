@@ -930,8 +930,15 @@ The criteria remain listed here as the regression contract for `v1`:
 - mission review contour can score completed/stopped missions
 - current fast-path `ov coordinator` behavior still works
 
-`ov mission v1` now satisfies this definition of done and should be treated as
-the real mission mode for complex tasks.
+`ov mission v1` satisfies the majority of this definition of done and is
+the real mission mode for complex tasks. Known gaps documented in the
+[verification review](./epic-13-verification-review.md):
+
+- **Stale-spec safety** (partial): spec freshness checks are gated on the
+  `--spec` flag and `current-mission.txt` pointer; if the pointer is lost or
+  builders are spawned without `--spec`, the guard is bypassed.
+- **Mission review CLI** (improved): functional tests exist but command-level
+  proof is lighter than the rest of the flow.
 
 ---
 
@@ -959,6 +966,11 @@ Two separate registries exist in `src/missions/engine-wiring.ts`:
 - **`CELL_REGISTRY`** — review cells: `plan-review`, `architecture-review`
 - **`PHASE_CELL_REGISTRY`** — phase cells: `understand-phase`, `plan-phase`,
   `execute-phase`, `done-phase`
+
+> Note: `align` and `decide` phases do **not** have dedicated cell files.
+> They use auto-advance handlers defined in `src/missions/handlers/auto-advance.ts`
+> and registered via `autoAdvancePhases` in `src/missions/graph.ts`. These phases
+> immediately trigger `phase_advance` and are only active in the `full` tier.
 
 For `direct` tier missions, `execute-phase` is swapped for
 `executeDirectPhaseCell` from `src/missions/cells/execute-direct-phase.ts`.

@@ -12,6 +12,8 @@ Current references:
 Current status:
 
 - `ov mission v1` is implemented and considered real after Epic #13.
+- Known v1 gaps are documented in the
+  [verification review](./epic-13-verification-review.md).
 - This document remains the design / RFC reference, not the day-to-day
   operator manual.
 
