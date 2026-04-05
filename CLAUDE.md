@@ -122,11 +122,14 @@ Run `ov <command> --help` for full options. Global flags: `--json`, `--verbose`,
 ### Bootstrap & Setup
 ```
 ov init                   Initialize .overstory/ and bootstrap ecosystem tools
+ov quickstart             Guided first-run wizard for new users
 ov hooks install|uninstall|status   Manage orchestrator hooks
 ov update                 Refresh managed files from installed package
 ov upgrade                Upgrade overstory (--all for all ecosystem tools)
 ov ecosystem              Show os-eco tool versions and health
 ov completions            Shell completions
+ov config list|get|set|reset   View and modify configuration
+ov context generate|show|invalidate   Manage project context cache
 ```
 
 ### Agent Lifecycle
@@ -147,6 +150,7 @@ ov coordinator start|stop|status|send|ask|output|check-complete
 ov mission start|stop|pause|resume|complete|answer|list|show|status|output|graph|update|handoff|refresh-briefs|bundle|extract-learnings|artifacts
 ov discover               Brownfield codebase discovery via scout swarm
 ov monitor start|stop|status   Tier 2 continuous fleet patrol
+ov research start|stop|status|list|output   Deep research sessions
 ```
 
 ### Messaging & Control
@@ -154,6 +158,7 @@ ov monitor start|stop|status   Tier 2 continuous fleet patrol
 ov mail send|check|list|read|reply|purge|dlq|retry
 ov nudge <agent>          Send text nudge via tmux
 ov spec write <task-id>   Write task specification
+ov workflow import|sync   Import and sync workflows from task directory
 ov group create|status|add|remove|list   Batch coordination
 ov run list|show|complete Manage runs
 ov prime                  Load orchestrator/agent context
@@ -163,6 +168,7 @@ ov log <event>            Log hook event (tool-start, tool-end, session-end)
 ### Delivery
 ```
 ov merge                  Merge agent branches (--branch, --all, --into, --dry-run)
+ov compat check <branch>  Check branch compatibility against canonical
 ```
 
 ### Observability
@@ -176,18 +182,24 @@ ov feed                   Unified real-time event stream (--follow)
 ov logs                   Query NDJSON logs (--agent, --level, --follow)
 ov errors                 Aggregated error view
 ov costs                  Token/cost analysis (--live, --self, --by-capability)
+ov rate-limits            Rate-limit headroom (--live, --runtime)
 ov metrics                Session metrics
+ov adaptive               Adaptive parallelism state and scaling
+ov export status|flush|test   Observability export pipeline
+ov webserver start|stop|status|register|discover   HTTP webserver
 ```
 
 ### Quality & Operations
 ```
 ov review sessions|session|handoffs|specs|stale   Deterministic quality review
 ov health                 Operational health score
+ov health-policy          Health policy rules (--execute, history, enable/disable)
 ov next-improvement       Top recommendation from health scoring
 ov doctor                 Health checks (--fix, --category)
 ov eval run|show|list|compare   Scenario-based evaluation
 ov watch                  Start watchdog daemon (Tier 0)
 ov clean                  Wipe runtime state (--all, --mail, --sessions, etc.)
+ov compact [domain]       Compact mulch expertise records
 ```
 
 ## Development Patterns
