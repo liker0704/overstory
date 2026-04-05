@@ -8,8 +8,9 @@ Welcome to Overstory — a project-agnostic swarm system for Claude Code agent o
 
 1. [CLI Commands by Workflow](#cli-commands-by-workflow)
 2. [Agent Capabilities and Hierarchy](#agent-capabilities-and-hierarchy)
-3. [Mission Lifecycle](#mission-lifecycle)
-4. [Quick Start Checklist](#quick-start-checklist)
+3. [Agent Tool/Model Reference](#agent-toolmodel-reference)
+4. [Mission Lifecycle](#mission-lifecycle)
+5. [Quick Start Checklist](#quick-start-checklist)
 
 ---
 
@@ -75,6 +76,8 @@ Overstory uses a custom SQLite mail system (`mail.db`) for inter-agent communica
 | `ov mail read <id>` | Read a specific message |
 | `ov mail reply <id>` | Reply to a message thread |
 | `ov mail purge` | Purge old messages |
+| `ov mail dlq` | View dead-letter queue |
+| `ov mail retry` | Retry failed messages |
 
 **Message types:** `status`, `result`, `question`, `error`, `dispatch`, `merge_ready`, `worker_done`
 
@@ -121,7 +124,15 @@ Merges are handled sequentially by the coordinator to avoid conflicts. Agents ne
 | `ov errors` | Aggregated error view across all agents |
 | `ov costs` | Token and cost analysis (use `--live`, `--by-capability`) |
 | `ov health` | Operational health score |
+| `ov health-policy` | Health policy rules (use `--execute`) |
+| `ov next-improvement` | Top recommendation from health scoring |
 | `ov doctor` | Health checks with optional `--fix` |
+| `ov rate-limits` | Rate-limit headroom (use `--live`, `--runtime`) |
+| `ov metrics` | Session metrics |
+| `ov adaptive` | Adaptive parallelism state and scaling |
+| `ov replay` | Interleaved multi-agent replay |
+| `ov export` | Observability export pipeline |
+| `ov webserver` | HTTP webserver for remote access |
 
 ---
 
@@ -141,6 +152,14 @@ Merges are handled sequentially by the coordinator to avoid conflicts. Agents ne
 | `ov mission complete` | Mark a mission complete |
 | `ov mission list` | List all missions |
 | `ov mission graph` | Show the phase graph |
+| `ov mission show` | Show details for a specific mission |
+| `ov mission artifacts` | Show mission artifacts |
+| `ov mission bundle` | Bundle mission data |
+| `ov mission extract-learnings` | Extract learnings from mission |
+| `ov mission holdout` | Mission holdout management |
+| `ov mission refresh-briefs` | Refresh workstream briefs |
+| `ov mission update` | Update mission parameters |
+| `ov mission stop` | Stop a running mission |
 
 ---
 
@@ -219,6 +238,158 @@ Writes and runs tests, often in TDD workflows. In full TDD mode the tester write
 
 ---
 
+#### Plan Review Lead
+
+Coordinates a panel of specialist critics to review a plan before execution. Spawns devil's advocate, security critic, performance critic, second-opinion, and simulator agents, then synthesizes their findings into a consolidated review report.
+
+**When to use:** Spawn via `ov sling task-id --capability plan-review-lead` for any mission plan that warrants multi-angle scrutiny before committing to execution.
+
+---
+
+#### Plan Devils Advocate
+
+Challenges plans by finding risks, gaps, and blind spots. Reviews the plan with a contrarian lens and reports issues without bias toward approval.
+
+**When to use:** Spawned by the plan review lead.
+
+---
+
+#### Plan Security Critic
+
+Reviews plans for security vulnerabilities, including auth gaps, secret exposure, injection surfaces, and trust boundary issues.
+
+**When to use:** Spawned by the plan review lead when the plan touches auth, data handling, or external integrations.
+
+---
+
+#### Plan Performance Critic
+
+Reviews plans for performance and scalability issues, including N+1 queries, missing indexes, unbounded memory growth, and hot-path concerns.
+
+**When to use:** Spawned by the plan review lead when the plan involves database access, large data processing, or performance-sensitive paths.
+
+---
+
+#### Plan Second Opinion
+
+Provides independent validation of a plan without access to prior context or the original reviewer's conclusions. Prevents confirmation bias in plan approval.
+
+**When to use:** Spawned by the plan review lead for high-stakes or architecturally significant plans.
+
+---
+
+#### Plan Simulator
+
+Tests a plan against multiple scenarios: happy path, edge cases, and failure paths. Identifies gaps before implementation begins.
+
+**When to use:** Spawned by the plan review lead to stress-test execution assumptions.
+
+---
+
+#### Architecture Review Lead
+
+Coordinates architecture-focused review of system designs and code changes. Can spawn architecture critics and synthesizes their findings.
+
+**When to use:** Spawn for reviews that require deep architectural analysis across multiple subsystems.
+
+---
+
+#### Plan Architecture Critic
+
+Reviews plans and designs for architectural integrity, scalability, maintainability, and alignment with existing system patterns.
+
+**When to use:** Spawned by the architecture review lead.
+
+---
+
+#### Research Lead
+
+Coordinates a team of researchers on deep research tasks. Owns the research plan, dispatches individual researchers, and synthesizes findings into a structured output.
+
+**When to use:** Spawn via `ov sling task-id --capability research-lead` for broad research that benefits from parallel investigation.
+
+---
+
+#### Researcher
+
+Performs deep research using web search, documentation fetching, and code analysis tools. Reports findings back to the research lead.
+
+**When to use:** Spawned by the research lead. Runs without a worktree — purely a knowledge-gathering agent.
+
+---
+
+#### Architect
+
+Designs system architecture, creates ADRs (Architecture Decision Records), produces diagrams and design documents, and records architectural decisions for future reference.
+
+**When to use:** Spawn when a task requires upfront architecture design before builders can proceed. The architect produces artifacts that builders implement against.
+
+---
+
+#### Architecture Sync
+
+Synchronizes architecture knowledge across the project. Reads current code state and updates architecture documentation to reflect reality.
+
+**When to use:** Spawn after significant refactors to keep architecture docs current.
+
+---
+
+#### Coordinator Mission (Full)
+
+A mission-aware coordinator that manages all mission phases from understand through done. Has full authority to spawn leads, analysts, and directors for any tier.
+
+**When to use:** Automatically spawned by `ov mission start` for `full` tier missions.
+
+---
+
+#### Coordinator Mission Assess
+
+Evaluates a new mission's complexity and selects the appropriate tier (`direct`, `planned`, or `full`). Runs once at mission start.
+
+**When to use:** Automatically used during assess mode when a new mission is created.
+
+---
+
+#### Coordinator Mission Direct
+
+Manages `direct` tier missions where the task is already fully decomposed. Skips understand/plan phases and goes straight to execution.
+
+**When to use:** Used for `direct` tier missions.
+
+---
+
+#### Coordinator Mission Planned
+
+Manages `planned` tier missions through understand → plan → execute → done phases.
+
+**When to use:** Used for `planned` tier missions.
+
+---
+
+#### Mission Analyst Planned
+
+Knowledge owner for `planned` tier missions. Explores the codebase, produces briefs and workstream decompositions, and provides context to the coordinator.
+
+**When to use:** Automatically spawned by the coordinator for `planned` tier missions.
+
+---
+
+#### Lead Mission
+
+A mission-aware team lead that understands mission context, workstream boundaries, and brief artifacts. Operates like a standard lead but with access to mission state.
+
+**When to use:** Spawned by the execution director during mission execute phase.
+
+---
+
+#### Monitor
+
+A read-only fleet patrol agent that checks agent health, detects stalls, and reports anomalies. Part of the Tier 2 monitoring system.
+
+**When to use:** Started via `ov monitor start`. Runs continuously in the background alongside the watchdog.
+
+---
+
 #### Mission Analyst
 
 The knowledge owner for a mission. The analyst synthesizes research across phases, produces mission artifacts (briefs, findings, decision summaries), triages incoming findings, and provides context to the coordinator and execution director.
@@ -232,6 +403,43 @@ The knowledge owner for a mission. The analyst synthesizes research across phase
 Manages workstream dispatch during the `execute` phase of a `full` tier mission. Owns lead-level coordination so the mission coordinator can focus on mission-contract decisions rather than workstream details.
 
 **When to use:** Automatically spawned at `ov mission handoff` for `full` tier missions.
+
+---
+
+## Agent Tool/Model Reference
+
+All 27 agent specializations registered in `buildAgentManifest()` (`src/commands/init.ts`):
+
+| Agent | Model | Tools | Can Spawn | Constraints |
+|-------|-------|-------|-----------|-------------|
+| scout | Haiku | Read, Glob, Grep, Bash | No | read-only |
+| builder | Sonnet | Read, Write, Edit, Glob, Grep, Bash | No | — |
+| reviewer | Sonnet | Read, Glob, Grep, Bash | No | read-only |
+| lead | Opus | Read, Write, Edit, Glob, Grep, Bash, Task | Yes | — |
+| merger | Sonnet | Read, Write, Edit, Glob, Grep, Bash | No | — |
+| tester | Sonnet | Read, Write, Edit, Glob, Grep, Bash | No | — |
+| coordinator | Opus | Read, Glob, Grep, Bash | Yes | read-only, no-worktree |
+| coordinator-mission | Opus | Read, Glob, Grep, Bash | Yes | read-only, no-worktree |
+| coordinator-mission-assess | Opus | Read, Glob, Grep, Bash | No | read-only, no-worktree |
+| coordinator-mission-direct | Opus | Read, Glob, Grep, Bash | Yes | read-only, no-worktree |
+| coordinator-mission-planned | Opus | Read, Glob, Grep, Bash | Yes | read-only, no-worktree |
+| mission-analyst | Opus | Read, Glob, Grep, Bash | Yes | read-only, no-worktree |
+| mission-analyst-planned | Opus | Read, Glob, Grep, Bash | Yes | read-only, no-worktree |
+| execution-director | Opus | Read, Glob, Grep, Bash | Yes | read-only, no-worktree |
+| lead-mission | Opus | Read, Write, Edit, Glob, Grep, Bash, Task | Yes | — |
+| plan-review-lead | Opus | Read, Glob, Grep, Bash | Yes | read-only, no-worktree |
+| plan-devil-advocate | Sonnet | Read, Glob, Grep, Bash | No | read-only, no-worktree |
+| plan-security-critic | Sonnet | Read, Glob, Grep, Bash | No | read-only, no-worktree |
+| plan-performance-critic | Sonnet | Read, Glob, Grep, Bash | No | read-only, no-worktree |
+| plan-second-opinion | Sonnet | Read, Glob, Grep, Bash | No | read-only, no-worktree |
+| plan-simulator | Sonnet | Read, Glob, Grep, Bash | No | read-only, no-worktree |
+| monitor | Sonnet | Read, Glob, Grep, Bash | No | read-only, no-worktree |
+| research-lead | Opus | Read, Write, Glob, Grep, Bash, Agent | Yes | no-worktree |
+| researcher | Opus | Read, Glob, Grep, Bash, MCP | No | read-only |
+| architect | Opus | Read, Write, Glob, Grep, Bash | Yes | no-worktree |
+| architecture-review-lead | Opus | Read, Glob, Grep, Bash | Yes | read-only, no-worktree |
+| plan-architecture-critic | Sonnet | Read, Glob, Grep, Bash | No | read-only, no-worktree |
+| architecture-sync | Sonnet | Read, Glob, Grep, Bash | No | read-only, no-worktree |
 
 ---
 
