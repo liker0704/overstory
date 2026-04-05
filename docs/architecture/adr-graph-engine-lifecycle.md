@@ -827,6 +827,52 @@ These events are queryable via `ov trace` and visible in `ov dashboard`.
 
 ---
 
+## Tier-Aware Execution
+
+The graph engine handles missions at three tiers, each running a different subset of lifecycle phases.
+
+### Tier Definitions
+
+`TIER_PHASES` in `src/missions/engine-wiring.ts:75-79` maps each tier to its active phases:
+
+| Tier | Active phases |
+|---|---|
+| `direct` | `execute`, `done` |
+| `planned` | `understand`, `plan`, `execute`, `done` |
+| `full` | `understand`, `align`, `decide`, `plan`, `execute`, `done` |
+
+### Graph Construction
+
+`buildLifecycleGraph()` in `src/missions/engine-wiring.ts` filters the full lifecycle graph to include only the nodes for the mission's active phases. Phases not in the tier's list are skipped entirely. When a phase is skipped, the edges that would have connected it to its neighbors are reconstructed to link the preceding active phase directly to the next active phase, preserving graph validity.
+
+This means a `direct` mission's lifecycle graph contains only `execute:active` and `done:active` nodes — the graph engine never sees `understand`, `align`, `decide`, or `plan` nodes.
+
+### Execute-Direct-Phase Cell
+
+For `direct` tier missions, `src/missions/cells/execute-direct-phase.ts` provides a simplified execute phase subgraph (`CELL_TYPE="execute-phase"`) that replaces the standard execute-phase subgraph. It skips persistent-agent orchestration (no execution-director, no architecture review):
+
+```
+Nodes:
+  dispatch-leads    (handler)
+  await-leads-done  (async gate, timeout: 14400s)
+  merge-all         (handler)
+  complete          (terminal)
+
+Edges:
+  dispatch-leads   --dispatched-->  await-leads-done
+  await-leads-done --lead_done-->   merge-all
+  merge-all        --more_leads-->  await-leads-done   (LOOP: batch remaining leads)
+  merge-all        --all_merged-->  complete
+```
+
+`dispatch-leads` reads the mission's workstreams and dispatches lead agents directly (no ED intermediary). `await-leads-done` is an async gate that resolves when a lead sends `worker_done` mail. `merge-all` calls `ov merge` for the completed lead's branch and loops back if more leads remain unmerged.
+
+### Engine Wiring
+
+`CELL_REGISTRY` in `src/missions/engine-wiring.ts` maps `"execute-phase"` to either the standard execute-phase subgraph or `execute-direct-phase.ts`, selected based on `mission.tier`. The `startLifecycleEngine()` function wires the correct cell into `buildLifecycleGraph()` before handing the graph to the engine.
+
+---
+
 ## Addressing Review Concerns
 
 ### C1: Tick-level mutual exclusion (CRITICAL)
@@ -1017,6 +1063,7 @@ All 12 design decisions documented in this ADR have been verified as implemented
 - `src/missions/engine-wiring.ts`: Engine bridge + cell registry
 - `src/missions/cells/plan-review.ts`: Plan review cell (reused as plan:review subgraph)
 - `src/missions/cells/architecture-review.ts`: Architecture review cell (reused as execute:arch-review subgraph)
+- `src/missions/cells/execute-direct-phase.ts`: Direct-tier execute phase cell (dispatch-leads → await-leads-done → merge-all → complete)
 - `src/watchdog/daemon.ts`: Watchdog daemon (`runDaemonTick`)
 - `src/watchdog/health.ts`: Health evaluation (`evaluateHealth`, ZFC principle)
 - `src/watchdog/triage.ts`: Tier 1 AI triage (`triageAgent`)

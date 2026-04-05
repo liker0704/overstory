@@ -1,15 +1,15 @@
 # Overstory Architecture Review
 
-Repository review date: 2026-03-22
-Inspected commit: `6359e58`
+Repository review date: 2026-04-05
+Inspected commit: `e370026`
 
 This is an architectural review of the repository as implemented today.
 
-## Post-Refactoring Status (2026-03-22)
+## Post-Refactoring Status (2026-04-05)
 
-Ten commits across Phases 0-4 addressed several findings from the original review:
+Ten commits across Phases 0-4 addressed several findings from the original review. Additional refactoring since 2026-03-22 has addressed further items:
 
-- **P1 Command concentration**: Partially resolved. `mission.ts` reduced from 3,146 to 281 LOC (91% reduction, logic moved to `src/missions/*`). `dashboard.ts` reduced from 1,222 to 174 LOC (86% reduction, extracted to `src/dashboard/*`). `sling.ts` reduced from 1,294 to 909 LOC (30% reduction, SpawnService extracted to `src/agents/spawn.ts`). `config.ts` reduced from 1,066 to 693 LOC (35% reduction, split into `config-yaml.ts` + `config-types.ts`). `coordinator.ts` at 1,284 LOC remains outstanding.
+- **P1 Command concentration**: Partially resolved. `mission.ts` reduced from 3,146 to 281 LOC (91% reduction, logic moved to `src/missions/*`). `dashboard.ts` reduced from 1,222 to 174 LOC (86% reduction, extracted to `src/dashboard/*`). `sling.ts` reduced from 1,294 to 909 LOC (30% reduction, SpawnService extracted to `src/agents/spawn.ts`). `config.ts` reduced from 1,066 to 693 LOC (35% reduction, split into `config-yaml.ts` + `config-types.ts`). `coordinator.ts` at 1,284 LOC remains outstanding. `lifecycle.ts` fully split: was 1,900 LOC, now a 23-line barrel re-export with logic distributed across `lifecycle-helpers.ts`, `lifecycle-ops.ts`, `lifecycle-start.ts`, `lifecycle-suspend.ts`, `lifecycle-terminate.ts`, and `lifecycle-types.ts`.
 - **P1 Shared kernel**: Resolved. `src/types.ts` decomposed into 17 domain-specific type files (`src/agents/types.ts`, `src/missions/types.ts`, `src/mail/types.ts`, etc.) with `src/types.ts` retained as a barrel re-export for backward compatibility.
 - **P2 Boundary leak**: Resolved. `isProcessRunning` and `tailReadLines` moved to `src/process/util.ts`, removing the watchdog-to-commands dependency.
 - **P2 Store schema migrations**: Resolved. Unified migration framework introduced in `src/db/migrate.ts`, adopted by all 6 SQLite stores.
@@ -229,6 +229,17 @@ The combination of:
 - health scoring
 
 is unusually strong for a CLI orchestrator. This is one of the most valuable parts of the architecture and should be preserved.
+
+### 6. Graph engine provides mission-level resilience
+
+The graph execution engine (`src/missions/engine.ts`) runs as an always-on lifecycle controller inside the watchdog daemon tick. It provides:
+
+- **Tier-aware execution**: three tiers (`direct`, `planned`, `full`) with different phase subsets and role sets, handled by `buildLifecycleGraph()` in `src/missions/engine-wiring.ts`
+- **Dead agent recovery**: cause-based response (wait for rate-limited agents, respawn after context overflow, circuit breaker on repeated crashes)
+- **Stuck agent nudging**: grace period system with activity-based extension and an absolute `maxTotalWaitMs` ceiling
+- **Gate state persistence**: `mission_gate_state` table tracks entered_at, nudge counts, respawn counts per `(mission_id, node_id)`
+
+This means mission progress is no longer entirely dependent on LLM agents staying alive. The engine detects stalls and recovers them mechanically, elevating to operator attention only when the circuit breaker trips.
 
 ## Recommended Refactor Order
 
