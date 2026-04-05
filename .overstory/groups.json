@@ -1699,5 +1699,19 @@
 		"status": "active",
 		"createdAt": "2026-04-05T14:06:04.192Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-530c222f",
+		"name": "full-docs-audit-batch1",
+		"memberIssueIds": [
+			"overstory-f761",
+			"overstory-bc31",
+			"overstory-4e6e",
+			"overstory-aa90",
+			"overstory-ac74"
+		],
+		"status": "active",
+		"createdAt": "2026-04-05T15:47:56.987Z",
+		"completedAt": null
 	}
 ]
