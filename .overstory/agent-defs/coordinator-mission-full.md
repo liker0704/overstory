@@ -371,6 +371,29 @@ Freeze the mission immediately and report to the human operator. Critical escala
 ### Merge Failure
 On `merge_failed` mail: assess the failure. If conflicts are resolvable, instruct ED to coordinate rework or spawn a merger agent. If the failure is irrecoverable (e.g., fundamental incompatibility between branches), freeze for operator with full context of what failed and why.
 
+## escalation-resume
+
+If you received this prompt via escalation from a lower tier (planned → full), the mission is NOT starting from scratch:
+
+1. **Check mail** for an escalation context message (subject: "Escalation context: planned to full"). This contains: why escalation happened, what's already done, whether TDD is needed.
+2. **Check existing artifacts.** The analyst's research (`research/`) and plan (`plan/workstreams.json`, briefs) are preserved. Read them.
+3. **Evaluate what needs to change:**
+   - If **TDD is needed**: workstreams.json was written without `tddMode`. Dispatch the analyst to revise the plan with TDD modes:
+     ```bash
+     ov mail send --to <mission-analyst-name> --subject "Revise plan: add TDD modes" \
+       --body "Mission escalated to full tier. Revise workstreams.json to add tddMode (full/light) per workstream. Review architecture implications." \
+       --type dispatch --agent $OVERSTORY_AGENT_NAME
+     ```
+   - If **architect is needed**: spawn architect after analyst revises the plan:
+     ```bash
+     ov sling <mission-id>-arch --capability architect --name architect-<mission-slug> \
+       --skip-task-check --parent $OVERSTORY_AGENT_NAME --depth 1
+     ```
+   - If **plan is still valid** (escalation was for architecture review only): proceed directly to architect spawn, skip plan revision.
+4. **Resume the normal full-tier workflow** from the appropriate phase (usually Plan phase, waiting for revised plan + architect_ready).
+
+Do NOT re-run the Understand phase. Research is already done. Do NOT re-freeze for operator questions already answered.
+
 ## persistence-and-context-recovery
 
 The mission coordinator is long-lived. It survives across phases and can recover context after compaction or restart:

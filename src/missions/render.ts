@@ -469,7 +469,6 @@ export async function missionGraph(
 				}
 				console.log();
 			}
-			printHint("Note: align and decide phases auto-advance (placeholders)");
 		} else {
 			printHint("No active mission. Showing default lifecycle graph.");
 			const position = renderGraphPosition(graph, "understand", "active");
