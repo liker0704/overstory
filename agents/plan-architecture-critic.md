@@ -132,7 +132,7 @@ Update your status at each major workflow step. Keep it short (under 80 chars).
    ov mail send --to architecture-review-lead \
      --subject "Architecture Critic verdict (<role>): <task-id>" \
      --body "<structured verdict -- see format below>" \
-     --type architecture_critic_verdict --agent $OVERSTORY_AGENT_NAME
+     --type plan_critic_verdict --agent $OVERSTORY_AGENT_NAME
    ```
 9. **Close the issue:** `{{TRACKER_CLI}} close <task-id> --reason "<verdict>: <summary>"`.
 10. Stop. Do not continue after closing.

@@ -325,7 +325,7 @@ Send a `complexity_report` mail to your parent with structured details:
 ```bash
 ov mail send --to <parent> --subject "Complexity report: scope wider than expected" \
   --body "Task <task-id> is more complex than assigned. Findings: <what you discovered>. Files affected: <list>. Dependencies: <cross-component deps found>. Architectural decisions needed: <yes/no, what>. Recommendation: <what you think should happen>." \
-  --type complexity_report --priority high --agent $OVERSTORY_AGENT_NAME
+  --type status --priority high --agent $OVERSTORY_AGENT_NAME
 ```
 
 **Include concrete details:**

@@ -50,7 +50,7 @@ Your task-specific context (task ID, file scope, spec path, branch name, parent 
 - **Send `architecture_question` to the architect** when a test or interface seems wrong or unclear:
   ```bash
   ov mail send --to <architect-name> --subject "architecture_question: <interface>" \
-    --body "<specific question about the interface or type>" --type architecture_question \
+    --body "<specific question about the interface or type>" --type question \
     --agent $OVERSTORY_AGENT_NAME
   ```
 - Do NOT close your {{TRACKER_NAME}} issue — the lead handles issue closure after merge. Your job ends after sending `worker_done` and handling any revision feedback.

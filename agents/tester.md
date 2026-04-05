@@ -48,7 +48,7 @@ Your task-specific context (task ID, file scope, spec path, branch name, parent 
 - **Send `architecture_question` directly to the architect** when an interface in test-plan.yaml is unclear or contradicted by what you find in the codebase:
   ```bash
   ov mail send --to <architect-name> --subject "architecture_question: <interface>" \
-    --body "<specific question about the interface or type>" --type architecture_question \
+    --body "<specific question about the interface or type>" --type question \
     --agent $OVERSTORY_AGENT_NAME
   ```
   While waiting for the architect's response, continue writing tests for other cases. Do not block on a single unclear interface.
