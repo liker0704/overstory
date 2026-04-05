@@ -1,5 +1,9 @@
 # Global Swarm Recovery Root Hooks Isolation Fix Plan
 
+> **Historical Document** — Last Updated: 2026-04-05. See status annotations below.
+>
+> **Overall: Phases 1-3 FIXED, Phase 4 OPEN, Phase 5 COMPLETE, Phase 6 NOT IMPLEMENTED**
+
 Date: 2026-03-21
 Revision: 4 (post-simulation)
 
@@ -220,7 +224,7 @@ Rationale:
 
 ## Phase 1: Shared-Root Identity Model + Session-Scoped Env Files + Safety Patches + Capability Classification
 
-Status: planned
+Status: FIXED — Shipped atomically with Phases 2-3 per C10. Commit: 6359e58d 'fix(hooks): shared-root identity isolation for concurrent persistent agents'. Implements ENV_GUARD v2 with OVERSTORY_RUNTIME_SESSION_ID discriminator, session-scoped .agent-env.{sessionId} files, capability classification for coordinator-mission/execution-director/plan-review-lead, plan-review-lead added to PERSISTENT_CAPABILITIES, OVERSTORY_CAPABILITY + OVERSTORY_RUNTIME_SESSION_ID propagation, and scoped stopPersistentAgent file removal. Follow-up: 0bb85bcc (test fix), cb450ad5 (gitignore fix).
 
 Goal:
 
@@ -321,7 +325,7 @@ Risks:
 
 ## Phase 2: Dynamic Shared-Root Base Hooks
 
-Status: planned
+Status: FIXED — Shipped atomically with Phases 1 and 3 per C10. See Phase 1 commit (6359e58d).
 
 Goal:
 
@@ -394,7 +398,7 @@ Risks:
 
 ## Phase 3: Dynamic Capability Guards (Option B)
 
-Status: planned
+Status: FIXED — Shipped atomically with Phases 1 and 2 per C10. See Phase 1 commit (6359e58d).
 
 Goal:
 
@@ -470,7 +474,7 @@ Risks:
 
 ## Phase 4: Remove `.agent-env` Fallback
 
-Status: planned (may be deferred)
+Status: OPEN — No evidence of env-survival test or removal of .agent-env fallback. Conditional on env-survival proof per plan; may be deferred.
 
 Goal:
 
@@ -514,7 +518,7 @@ Risks:
 
 ## Phase 5: Regression Coverage
 
-Status: planned (Priority 1 tests written alongside Phases 1-3)
+Status: COMPLETE (Priority 1) — Tests shipped alongside the Phase 1-3 commit. agent-env-file tests fixed in 0bb85bcc.
 
 ### Priority 1: Tests That Reproduce the Live Failure
 
@@ -552,7 +556,7 @@ Acceptance criteria:
 
 ## Phase 6: Live Mission Recovery Path
 
-Status: planned (design phase — decisions below, implementation follows)
+Status: NOT IMPLEMENTED — No 'ov mission repair' command found in src/commands/. No grep hits for 'mission repair'.
 
 Goal:
 
