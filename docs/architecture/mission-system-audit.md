@@ -1,3 +1,15 @@
+> **Superseded — 2026-04-05**
+>
+> This audit was written against the pre-engine codebase. Key findings have since been addressed:
+>
+> - **F-01**: The graph execution engine is now the authoritative mission lifecycle controller, running inside the watchdog daemon tick via `runMissionTick()` in `src/watchdog/mission-tick.ts`.
+> - **F-03**: `lifecycle.ts` has been fully split from 1,900 LOC into a 23-line barrel re-export (`lifecycle.ts`) with logic distributed across `lifecycle-helpers.ts`, `lifecycle-ops.ts`, `lifecycle-start.ts`, `lifecycle-suspend.ts`, `lifecycle-terminate.ts`, and `lifecycle-types.ts`.
+> - **F-04**: Phase cells are now tested; the `execute-direct-phase.ts` cell and existing `plan-review.ts` / `architecture-review.ts` cells all have coverage.
+> - **F-05**: Auto-advance behavior for `align` and `decide` phases is documented in the ADR.
+> - **F-06**: ADR status is Accepted (previously Proposed).
+>
+> See [`adr-graph-engine-lifecycle.md`](adr-graph-engine-lifecycle.md) for the full architecture decision and [`workflows.md`](workflows.md) for the updated workflow diagrams.
+
 # Mission System Audit
 
 Date: 2026-04-02
