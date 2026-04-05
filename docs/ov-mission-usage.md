@@ -126,6 +126,9 @@ Runtime requirements enforced by `v1`:
 - `execution-director` can spawn only `lead`
 - mission `builder` / `reviewer` dispatch requires `--spec`
 - stale or missing mission spec metadata blocks spawn / resume
+  (Caveat: this guard is bypassed when `current-mission.txt` is missing or
+  when builders are spawned without `--spec`. See
+  [verification review](./epic-13-verification-review.md) finding #2.)
 
 After handoff, monitor the mission with:
 

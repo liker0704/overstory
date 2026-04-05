@@ -19,9 +19,11 @@ for (let i = 0; i < workingPhases.length - 1; i++) {
 ```
 
 **BUG-1 (Medium): Phase-advance edges originate exclusively from `active` state.**
+**Status: FIXED** — graph.ts now includes phase-advance edges from both active and frozen states
 The graph has no edge `<phase>:frozen → <nextPhase>:active` for any phase. Every phase-advance edge has the form `<phase>:active → <nextPhase>:active`. This means there is no graph path for advancing a phase while frozen, so any code that attempts this will generate a `graph_transition_warning` event (advisory mode) rather than failing hard. Confirmed by `adviseGraphTransition` at lifecycle.ts:119 — warnings are logged, not hard-blocked.
 
 **BUG-2 (Medium): No `stop` edge from `suspended` state.**
+**Status: FIXED** — graph.ts now includes stop edge from suspended state
 The loop at graph.ts:101-111 adds `stop` edges only from `active` and `frozen`:
 ```typescript
 edges.push({ from: nodeId(phase, "active"), to: nodeId("done", "stopped"), trigger: "stop" });
@@ -30,6 +32,7 @@ edges.push({ from: nodeId(phase, "frozen"), to: nodeId("done", "stopped"), trigg
 There is no `<phase>:suspended → done:stopped` edge. In `missionStop()` at lifecycle.ts:1228, when `--kill` is passed with a suspended mission, it calls `terminalizeMission()` which calls `adviseGraphTransition(overstoryDir, missionStore, mission, "done", "stopped")` (lifecycle.ts:429). Since no `suspended → stopped` edge exists in the graph, this fires a `graph_transition_warning`. The mission does end up in the correct terminal state because the advisory layer does not block the transition, but the graph is inaccurate.
 
 **BUG-3 (Low): No `fail` edge from `frozen` or `suspended` states.**
+**Status: FIXED** — graph.ts now includes fail edges from frozen and suspended states
 Lines 113-118 add fail edges only from `active`:
 ```typescript
 edges.push({ from: nodeId(phase, "active"), to: nodeId("done", "failed"), trigger: "fail" });
@@ -52,6 +55,7 @@ missionStore.updatePhase(mission.id, "execute");
 `adviseGraphTransition` calls `validateTransition(DEFAULT_MISSION_GRAPH, mission.phase, mission.state, "execute", "active")` (lifecycle.ts:119-125). This validates the edge based on `(fromPhase, fromState) → (toPhase, toState)` matching, not trigger name. The trigger label appears in `GraphTransitionResult.reason` ("Legal transition via 'handoff'"). Trigger name is not separately verified by the advisory layer, so this is internally consistent.
 
 **BUG-4 (Medium): `missionHandoff` does not check current phase before advancing.**
+**Status: FIXED** — workstream-control.ts now validates mission.phase === "plan" before handoff
 `missionHandoff()` only checks `mission.pendingUserInput`, `mission.firstFreezeAt`, and whether the execution director is already running (workstream-control.ts:477-507). It does NOT verify `mission.phase === "plan"`. If called when `mission.phase` is `"understand"`, `"align"`, `"decide"`, or even `"execute"`, the function proceeds, `adviseGraphTransition(... "execute", "active")` logs a warning for any phase other than `plan:active`, and then unconditionally sets `missionStore.updatePhase(mission.id, "execute")` (workstream-control.ts:634). Because `adviseGraphTransition` is advisory-only, execution proceeds regardless of starting phase.
 
 ### 1.4 Weight consistency
@@ -63,12 +67,15 @@ The `weight: 10` values appear only on phase-advance edges and the `execute:acti
 `validateGraph()` (graph.ts:229-306) checks: edge source/target existence, at least one terminal, BFS reachability, non-empty handler keys, cell node ID prefix convention, subgraph-not-terminal invariant, and recursive subgraph validation.
 
 **BUG-5 (Low): `validateGraph` does not detect duplicate node IDs.**
+**Status: FIXED** — graph.ts validateGraph() now checks for duplicate node IDs via Set
 There is no check that `graph.nodes` contains unique IDs. If two nodes share an ID, the BFS marks the ID reachable on first visit and the second node appears as a duplicate-but-reachable. `nodeMap` in the engine (engine.ts:81-86) silently overwrites the first node with the second.
 
 **BUG-6 (Low): `validateGraph` does not check for duplicate edge `(from, to, trigger)` tuples.**
+**Status: FIXED** — graph.ts validateGraph() now detects duplicate edges via composite key
 No uniqueness constraint. `performAdvance` at engine.ts:117 uses `edges.find(...)` and would silently use the first matching edge if duplicates existed.
 
 **BUG-7 (Low): Subgraph start node inferred from `nodes[0]?.id`.**
+**Status: FIXED** — graph.ts subgraph start-node inference improved
 At graph.ts:293-296, if a subgraph is empty, `startNodeId` is undefined and `validateGraph` defaults to `"understand:active"` as the start. That node almost certainly does not exist in a cell subgraph, causing a misleading "Start node not found" error.
 
 ---
@@ -106,6 +113,7 @@ The following direct store operations are not routed through `adviseGraphTransit
 - `missionStore.completeMission(...)` — store.ts:576-589 updates `state = 'completed'` without touching `current_node`. The `terminalizeMission` code calls `adviseGraphTransition` first (lifecycle.ts:417), which sets `current_node = "done:completed"` via `updateCurrentNode`, then calls `completeMission` which does not reset `current_node`. Consistent end state.
 
 **BUG-8 (High): `freeze()` and `unfreeze()` in the store bypass `adviseGraphTransition` entirely.**
+**Status: OPEN** — store-level freeze/unfreeze still bypass adviseGraphTransition; by design for store layer but creates two-path system
 The `freeze()` and `unfreeze()` statements compute `current_node` from the current `phase` column value via SQL, with no graph validation and no `graph_transition_warning` event recorded. Any direct store caller gets `current_node` updated silently.
 
 ### 2.3 `missionStart()` initial node
@@ -119,6 +127,7 @@ This correctly sets `current_node = "understand:active"`. The graph's BFS defaul
 ### 2.4 Freeze/unfreeze graph consistency
 
 **BUG-9 (Medium): `missionAnswer()` calls `adviseGraphTransition` before `unfreeze()`.**
+**Status: FIXED** — lifecycle-ops.ts no longer double-writes current_node during unfreeze
 At lifecycle.ts:986-987:
 ```typescript
 adviseGraphTransition(overstoryDir, missionStore, mission, mission.phase, "active");
@@ -127,6 +136,7 @@ missionStore.unfreeze(missionId);
 `adviseGraphTransition` calls `missionStore.updateCurrentNode(mission.id, "<phase>:active")` (lifecycle.ts:127). Then `unfreeze()` immediately overwrites `current_node` again with `phase || ':active'` via SQL (store.ts:486). Both compute the same value so the end state is identical, but `current_node` is written twice.
 
 **BUG-10 (Medium): Double-unfreeze is possible without guard.**
+**Status: FIXED** — store.ts unfreeze now includes WHERE state = 'frozen' guard
 If `missionAnswer()` is called twice concurrently (two CLI processes), both read `mission.pendingUserInput === true` before either write commits, both pass the guard at lifecycle.ts:966, and both call `missionStore.unfreeze()`. Since `unfreezeStmt` has only `WHERE id = $id` with no `WHERE state = 'frozen'` guard, the second call succeeds and increments `reopen_count` a second time.
 
 ### 2.5 `terminalizeMission()` from all states
@@ -153,6 +163,7 @@ export function shouldUseEngine(mission: Mission, config: OverstoryConfig): bool
 The `mission` parameter is explicitly discarded. This is a pure config flag. In `missionStart()` (lifecycle.ts:775), the engine flag check only records an event — it does not gate any actual engine calls. All lifecycle transitions (freeze, unfreeze, phase advance, complete, stop) go through `adviseGraphTransition` regardless of the engine flag. The engine is only wired to cell sub-workflows (`plan-review`, `architecture-review`) via `startCellEngine`/`advanceCellGate`.
 
 **BUG-11 (Medium): `shouldUseEngine()` is checked in `missionStart()` but the engine is not used for lifecycle transitions.**
+**Status: OPEN** — shouldUseEngine() flag only records events; engine is cell-scoped, not lifecycle-scoped
 The `if (shouldUseEngine(mission, config))` block at lifecycle.ts:775-782 only records an informational event. Enabling `config.mission.graphExecution` does not change the lifecycle transition path.
 
 ### 3.2 Engine `step()` — all node types
@@ -167,6 +178,7 @@ The `if (shouldUseEngine(mission, config))` block at lifecycle.ts:775-782 only r
 7. No handler + multiple edges → returns `"gate"` (line 201)
 
 **BUG-12 (Medium): Subgraph error propagated as `gate`, discarding error details.**
+**Status: FIXED** — engine.ts now returns error status with details for subgraph errors
 At engine.ts:155-158:
 ```typescript
 if (subResult.status !== "completed") {
@@ -177,6 +189,7 @@ if (subResult.status !== "completed") {
 If the subgraph errors (`subResult.status === "error"`), the parent step returns `"gate"`, not `"error"`. The error message from the subgraph is dropped. The caller's `run()` loop treats this as a normal gate and pauses execution with no error indication.
 
 **BUG-13 (Low): Subgraph engine shares `missionId` with parent engine, causing checkpoint collision.**
+**Status: FIXED** — engine.ts uses checkpoint key prefix to namespace subgraph checkpoints
 At engine.ts:146-154, the subgraph engine is created with `missionId: opts.missionId`. `resolveStartNodeId()` reads `getLatestCheckpoint(missionId)` (checkpoint.ts:80-85), which returns the latest checkpoint row by `rowid DESC` for that `missionId`. If the parent engine has checkpoints (e.g., `"plan:active"`), the subgraph engine resolves its start node to `"plan:active"`, which does not exist in the cell subgraph's `nodeMap`. `getNode(id)` at engine.ts:108-112 throws `"Node 'plan:active' not found in graph"`. This exception is caught by `run()`'s try/catch (engine.ts:213-218), returning `status: "error"`.
 
 ### 3.3 Checkpoint consistency on crash
@@ -198,6 +211,7 @@ state.currentNodeId = edge.to;
 All prepared statement executions are individual SQLite writes. Related field updates (e.g., `adviseGraphTransition` then `updateState` then `updatePhase`) are three separate writes with no transaction wrapping at the lifecycle layer.
 
 **BUG-14 (High): Multi-step termination in `terminalizeMission` is not wrapped in a transaction.**
+**Status: FIXED** — lifecycle-terminate.ts wraps multi-step termination in database transaction
 At lifecycle.ts:416-430:
 ```typescript
 if (targetState === "completed") {
@@ -249,6 +263,7 @@ In `terminalizeMission` for `completed` path (lifecycle.ts:417-427): `adviseGrap
 - The function proceeds to spawn the execution director and advance to `execute`
 
 **BUG-15 (Medium): `missionHandoff` does not guard against `suspended` state.**
+**Status: FIXED** — workstream-control.ts now explicitly checks for suspended state in handoff
 A direct `--mission <suspended-id>` invocation bypasses all state guards and spawns agents on a suspended mission.
 
 ### 5.3 Concurrent `answer` and `complete` calls
@@ -266,6 +281,7 @@ return ws.dependsOn.every((depId) => completedIds.has(depId));
 With a cycle, none of the cycle participants ever have all dependencies in `completedIds`. `packageHandoffs()` silently excludes them with no warning. The handoff call succeeds with the remaining non-cyclic workstreams, but cyclic ones are silently dropped.
 
 **BUG-16 (Medium): Circular `dependsOn` in workstreams silently drops workstreams from dispatch without error.**
+**Status: FIXED** — workstreams.ts implements DFS-based cycle detection with error reporting
 No cycle detection in `validateWorkstreams` (workstreams.ts:140-196) or `packageHandoffs` (workstreams.ts:366-385).
 
 ---

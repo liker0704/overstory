@@ -25,6 +25,7 @@ Excluded from review target as unrelated local changes:
 ### High
 
 1. `Execution Director` is not runtime-enforced to spawn leads only.
+   **Status: FIXED** — sling.ts now enforces ED can only spawn leads (sling.ts:423-425)
 
    Impact:
 
@@ -45,6 +46,7 @@ Excluded from review target as unrelated local changes:
    - `docs/ov-mission-implementation.md:499`
 
 2. Stale-spec safety does not meet the document's required guarantee level.
+   **Status: OPEN** — spec freshness guard still bypassed when mission pointer is lost or --spec omitted
 
    Impact:
 
@@ -80,6 +82,7 @@ Excluded from review target as unrelated local changes:
 ### Medium
 
 3. Workstream-to-task bridge is not fully wired into the production handoff path.
+   **Status: FIXED** — ensureCanonicalWorkstreamTasks called in handoff path (workstream-control.ts:646)
 
    Impact:
 
@@ -104,6 +107,7 @@ Excluded from review target as unrelated local changes:
    - `docs/ov-mission-implementation.md:353`
 
 4. Selective ingress is implemented as a helper, not as runtime routing enforcement.
+   **Status: FIXED** — validateMissionIngress enforced in mail routing (mail.ts:276-292)
 
    Impact:
 
@@ -126,6 +130,7 @@ Excluded from review target as unrelated local changes:
 ### Low
 
 5. Shared `status` and `dashboard` surfaces do not fully match the Phase 10 mission strip requirement.
+   **Status: FIXED** — dashboard now renders role presence inline (render.ts:624)
 
    Impact:
 
@@ -141,6 +146,7 @@ Excluded from review target as unrelated local changes:
    - `docs/ov-mission-implementation.md:673`
 
 6. `ov review missions` and `ov review mission <id>` have weaker proof than the rest of the mission flow.
+   **Status: IMPROVED** — functional tests added (review.test.ts:177-222), but CLI proof still lighter than rest of flow
 
    Impact:
 
@@ -162,13 +168,13 @@ Excluded from review target as unrelated local changes:
 | mission can be started, inspected, answered, and stopped through `ov mission` | yes | Implemented and covered by command/e2e tests. `mission answer` replies in-thread and unfreezes mission. Evidence: `src/commands/mission.ts:390`, `src/commands/mission.ts:564`, `src/commands/mission.ts:709`, `src/commands/mission.ts:1548`, `src/commands/mission.e2e.test.ts:213` |
 | mission-owned run is created immediately and terminalized correctly | yes | Run is created during `mission start`; terminal path completes/stops run and clears mission/run pointers. Evidence: `src/commands/mission.ts:430`, `src/commands/mission.ts:467`, `src/commands/mission.ts:319`, `src/commands/mission.e2e.test.ts:168`, `src/commands/mission.e2e.test.ts:270` |
 | mission analyst lifecycle is deterministic and mission-scoped | yes | Analyst starts on mission start, binds to mission/run, and stops on terminalize. Evidence: `src/commands/mission.ts:469`, `src/commands/mission.ts:482`, `src/commands/mission.ts:276`, `src/commands/coordinator.test.ts:2771` |
-| execution director can dispatch leads through the real runtime | partial | Handoff generates real runtime-shaped `ov sling` commands and payloads, but runtime does not enforce "ED spawns only leads". Evidence: `src/commands/mission.ts:929`, `src/types.ts:439`, `src/commands/mission.e2e.test.ts:227`, `src/commands/sling.ts:398` |
-| each workstream has a canonical `taskId` | partial | `taskId` exists in schema and handoff, but canonical tracker bridge is not enforced on production handoff path. Evidence: `src/missions/workstreams.ts:103`, `src/missions/workstreams.ts:248`, `src/commands/mission.ts:1025` |
+| execution director can dispatch leads through the real runtime | yes | Runtime enforcement added in sling.ts:423-425. Evidence: `src/commands/mission.ts:929`, `src/types.ts:439`, `src/commands/mission.e2e.test.ts:227`, `src/commands/sling.ts:398` |
+| each workstream has a canonical `taskId` | yes | ensureCanonicalWorkstreamTasks wired into handoff. Evidence: `src/missions/workstreams.ts:103`, `src/missions/workstreams.ts:248`, `src/commands/mission.ts:1025` |
 | brief refresh can invalidate/regenerate lead specs safely | no | Missing-meta, missing-pointer, and no-`--spec` paths bypass the intended safety model. Evidence: `src/missions/brief-refresh.ts:123`, `src/missions/workstream-control.ts:179`, `src/commands/sling.ts:592` |
 | selective pause works at mission-layer state | yes | Pause/resume state lives in mission state and control mail, without changing `AgentState`. Evidence: `src/commands/mission.ts:1144`, `src/commands/mission.ts:1267`, `src/commands/mission.e2e.test.ts:243` |
-| mission status and dashboard surfaces show mission lifecycle correctly | partial | Lifecycle, pending, and paused state are visible, but shared surfaces do not show role presence inline as Phase 10 requires. Evidence: `src/commands/status.ts:301`, `src/commands/dashboard.ts:1018`, `src/commands/status.test.ts:237`, `src/commands/dashboard.test.ts:246` |
+| mission status and dashboard surfaces show mission lifecycle correctly | yes | Role presence now shown inline. Evidence: `src/commands/status.ts:301`, `src/commands/dashboard.ts:1018`, `src/commands/status.test.ts:237`, `src/commands/dashboard.test.ts:246` |
 | mission result bundle is exported on terminal states | yes | Terminalizer exports bundle; complete path proves it end-to-end. Evidence: `src/commands/mission.ts:333`, `src/commands/mission.ts:359`, `src/missions/bundle.ts:58`, `src/commands/mission.e2e.test.ts:264` |
-| mission review contour can score completed/stopped missions | partial | Analyzer/generator and terminal materialization exist, but CLI subcommand proof is weaker than the rest of the flow. Evidence: `src/commands/mission.ts:347`, `src/commands/review.ts:425`, `src/commands/review.ts:495`, `src/missions/review.test.ts:142` |
+| mission review contour can score completed/stopped missions | improved | Functional tests added. Evidence: `src/commands/mission.ts:347`, `src/commands/review.ts:425`, `src/commands/review.ts:495`, `src/missions/review.test.ts:142` |
 | current fast-path `ov coordinator` behavior still works | yes | Mandatory coordinator regression suite passed, including run/pointer semantics and persistent-root behavior. Evidence: `src/commands/coordinator.test.ts:488`, `src/commands/coordinator.test.ts:1030`, `src/commands/coordinator.test.ts:2748` |
 
 ## Evidence
