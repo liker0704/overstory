@@ -42,6 +42,29 @@ Core principle:
 understand -> align -> decide -> plan -> execute
 ```
 
+Mission tiers (`direct`, `planned`, `full`) allow the operator to select how
+much phase discipline a mission uses. The `TIER_PHASES` mapping determines which
+phases are active for each tier. The `direct` tier skips understanding and
+planning entirely, starting at `execute`. The `planned` tier uses the standard
+four-phase flow. The `full` tier adds `align` and `decide` phases for maximum
+rigor. New missions start in assess mode (`tier=null`) until the coordinator
+selects a tier.
+
+### Graph Execution Engine
+
+The graph execution engine is the runtime controller for phase transitions. It
+runs inside the watchdog daemon tick — not as a separate process — which keeps
+it observable and co-located with agent health monitoring.
+
+Design rationale: phase transitions should be automatic and observable, not
+manually triggered. The engine evaluates gate conditions each tick, nudges stuck
+agents when grace periods expire, and recovers dead agents. This means an
+operator can leave a mission running overnight and trust that the system will
+advance phases, escalate blockers, and surface failures without intervention.
+
+Reference: `docs/architecture/adr-graph-engine-lifecycle.md` contains the full
+design and implementation decisions for the graph engine.
+
 The main product value of `ov mission` is to combine:
 
 - the phase discipline from `orchestrate`
