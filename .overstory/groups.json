@@ -1689,5 +1689,15 @@
 		"status": "active",
 		"createdAt": "2026-04-05T11:01:52.963Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-98160bbd",
+		"name": "onboarding-docs-batch",
+		"memberIssueIds": [
+			"overstory-9fa3"
+		],
+		"status": "active",
+		"createdAt": "2026-04-05T14:06:04.192Z",
+		"completedAt": null
 	}
 ]
