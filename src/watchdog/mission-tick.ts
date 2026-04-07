@@ -356,11 +356,18 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 		// This prevents stale gate states from triggering spurious suspensions when
 		// the gate condition was actually satisfied before the ceiling expired.
 		const artifactRoot = mission.artifactRoot ?? join(opts.overstoryDir, "missions", mission.id);
+		// Use resolved_at as the filter baseline when re-entering a node (loop-back).
+		// On first entry resolved_at is null, so entered_at is used.
+		// On loop-back, INSERT OR IGNORE keeps the original entered_at but resolved_at
+		// reflects when the gate last fired — filtering from that point avoids
+		// re-triggering on already-processed mail.
+		const gateFilterTime = gateState.resolved_at ?? gateState.entered_at;
 		const earlyEval = await evaluateGate(
 			currentNodeId,
 			freshMission ?? mission,
 			{ mailStore: opts.mailStore, sessionStore: opts.sessionStore },
 			artifactRoot,
+			gateFilterTime,
 		);
 		if (earlyEval.met && earlyEval.trigger) {
 			missionStore.resolveGate(mission.id, currentNodeId, earlyEval.trigger);
@@ -484,6 +491,7 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 			freshMission ?? mission,
 			{ mailStore: opts.mailStore, sessionStore: opts.sessionStore },
 			artifactRoot,
+			gateFilterTime,
 		);
 
 		if (evalResult.unknown) {

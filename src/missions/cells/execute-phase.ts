@@ -4,10 +4,10 @@
  * Subgraph with dispatch loop:
  *   ensure-ed → dispatch-ready → await-ws-completion (async)
  *   await-ws-completion --ws_merged--> update-status → check-remaining
- *   check-remaining --more_ws--> dispatch-ready (LOOP)
+ *   check-remaining --more_ws--> dispatch-ready (LOOP, reserved for future batch dispatch)
  *   check-remaining --waiting--> await-ws-completion (LOOP)
  *   check-remaining --all_done--> complete (terminal)
- *   check-remaining --all_done_tdd--> arch-review-dispatch → arch-review (async)
+ *   check-remaining --all_done_tdd--> arch-review-dispatch → arch-review (async, reserved for TDD)
  *   arch-review --approved--> check-refactor → await-refactor? → await-arch-final → complete
  */
 
@@ -184,7 +184,7 @@ function buildSubgraph(_config: PhaseCellConfig): MissionGraph {
 	};
 }
 
-function buildHandlers(_deps: PhaseCellDeps): HandlerRegistry {
+function buildHandlers(deps: PhaseCellDeps): HandlerRegistry {
 	return {
 		"ensure-ed": async (ctx) => {
 			const mission = ctx.getMission();
@@ -207,22 +207,37 @@ function buildHandlers(_deps: PhaseCellDeps): HandlerRegistry {
 		},
 
 		"update-status": async (_ctx) => {
-			// Gate evaluator in mission-tick calls updateWorkstreamStatus() before advancing.
-			// This handler confirms the status was updated.
 			return { trigger: "status_updated" };
 		},
 
 		"check-remaining": async (ctx) => {
-			// Gate evaluator populates checkpoint with remaining workstream info
-			const data = ctx.checkpoint as {
-				allDone?: boolean;
-				hasTdd?: boolean;
-				moreDispatchable?: boolean;
-			} | null;
+			const mission = ctx.getMission();
+			if (!mission) return { trigger: "waiting" };
 
-			if (data?.allDone && data.hasTdd) return { trigger: "all_done_tdd" };
-			if (data?.allDone) return { trigger: "all_done" };
-			if (data?.moreDispatchable) return { trigger: "more_ws" };
+			// Determine completion by checking lead session states.
+			// Each workstream has a lead agent parented to the ED.
+			const sessionStore = deps.sessionStore;
+			if (!sessionStore) return { trigger: "waiting" };
+
+			const edName = `execution-director-${mission.slug}`;
+			const allSessions = sessionStore.getAll();
+			const leadSessions = allSessions.filter(
+				(s) => s.capability === "lead" && s.parentAgent === edName && s.runId === mission.runId,
+			);
+
+			// No leads dispatched yet — wait for dispatch
+			if (leadSessions.length === 0) return { trigger: "waiting" };
+
+			const terminalStates = new Set(["completed", "zombie"]);
+			const activeLeads = leadSessions.filter((s) => !terminalStates.has(s.state));
+
+			if (activeLeads.length === 0) {
+				// All dispatched leads are done.
+				// TDD detection requires workstream file access — handled by arch-review
+				// dispatch if needed. Default to all_done for now.
+				return { trigger: "all_done" };
+			}
+
 			return { trigger: "waiting" };
 		},
 

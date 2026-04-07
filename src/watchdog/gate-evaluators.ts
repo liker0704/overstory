@@ -77,14 +77,10 @@ export function evaluateUnderstandReady(
 
 		// If analyst has been dispatched for planning, suppress nudge — work is in progress.
 		// Check for "Planning phase" dispatch from coordinator to analyst.
-		const analystName = mission.slug
-			? `mission-analyst-${mission.slug}`
-			: "mission-analyst";
+		const analystName = mission.slug ? `mission-analyst-${mission.slug}` : "mission-analyst";
 		const allMsgs = mailStore.getAll({ to: analystName });
 		const planningDispatched = allMsgs.find(
-			(m) =>
-				m.type === "dispatch" &&
-				m.subject?.toLowerCase().includes("planning phase"),
+			(m) => m.type === "dispatch" && m.subject?.toLowerCase().includes("planning phase"),
 		);
 		if (planningDispatched) {
 			// Analyst is working on the plan — don't nudge coordinator, just wait
@@ -173,22 +169,25 @@ export function evaluateAwaitHandoff(mission: Mission): GateEvalResult {
 	};
 }
 
-/** Check if any active workstream has been merged. */
+/** Check if any active workstream has been merged since the gate was entered. */
 export function evaluateWsCompletion(
 	mission: Mission,
 	mailStore: MailStore | null,
+	gateEnteredAt?: string,
 ): GateEvalResult {
 	if (!mailStore) return { met: false };
 
-	// Check for 'merged' mail sent to execution director or coordinator
+	// Check for 'merged' mail sent to execution director, filtering by gate entry time
+	// to avoid re-triggering on the same mail when the node loops back to itself.
 	const edName = `execution-director-${mission.slug}`;
 	const msgs = mailStore.getAll({ to: edName });
-	const mergedMail = msgs.find((m) => m.type === "merged");
+	const mergedMail = msgs.find(
+		(m) => m.type === "merged" && (!gateEnteredAt || m.createdAt >= gateEnteredAt),
+	);
 	if (mergedMail) {
 		return {
 			met: true,
 			trigger: "ws_merged",
-			// Pass merged workstream info via nudgeMessage for the handler
 			nudgeMessage: mergedMail.body,
 		};
 	}
@@ -339,6 +338,7 @@ export async function evaluateGate(
 		sessionStore: SessionStore;
 	},
 	artifactRoot: string,
+	gateEnteredAt?: string,
 ): Promise<GateEvalResult> {
 	// Node IDs follow cellType:nodeName convention
 	const parts = nodeId.split(":");
@@ -358,7 +358,7 @@ export async function evaluateGate(
 		case "await-handoff":
 			return evaluateAwaitHandoff(mission);
 		case "await-ws-completion":
-			return evaluateWsCompletion(mission, stores.mailStore);
+			return evaluateWsCompletion(mission, stores.mailStore, gateEnteredAt);
 		case "arch-review-dispatch":
 			return evaluateArchReviewDispatch(mission, stores.mailStore);
 		case "arch-review":
@@ -407,10 +407,7 @@ function evaluateAwaitLeadsDone(mission: Mission, mailStore: MailStore | null): 
 }
 
 /** Plan-phase review gate: check if plan review converged with APPROVE verdict. */
-function evaluatePlanReviewComplete(
-	mission: Mission,
-	mailStore: MailStore | null,
-): GateEvalResult {
+function evaluatePlanReviewComplete(mission: Mission, mailStore: MailStore | null): GateEvalResult {
 	if (!mailStore) return { met: false };
 	const analystName = mission.slug ? `mission-analyst-${mission.slug}` : "mission-analyst";
 	const msgs = mailStore.getAll({ to: analystName });
@@ -434,10 +431,7 @@ function evaluatePlanReviewComplete(
 }
 
 /** Plan-phase review-stuck gate: check if stuck review was resolved. */
-function evaluateReviewStuck(
-	mission: Mission,
-	mailStore: MailStore | null,
-): GateEvalResult {
+function evaluateReviewStuck(mission: Mission, mailStore: MailStore | null): GateEvalResult {
 	if (!mailStore) return { met: false };
 	if (mission.phase !== "plan") {
 		return { met: true, trigger: "override" };
@@ -446,10 +440,7 @@ function evaluateReviewStuck(
 }
 
 /** Review cell collect-verdicts gate: check if any critic verdicts arrived. */
-function evaluateCollectVerdicts(
-	mission: Mission,
-	mailStore: MailStore | null,
-): GateEvalResult {
+function evaluateCollectVerdicts(mission: Mission, mailStore: MailStore | null): GateEvalResult {
 	if (!mailStore) return { met: false };
 	const reviewLeadMsgs = mailStore.getAll({ to: "plan-review-lead" });
 	const hasVerdicts = reviewLeadMsgs.some((m) => m.type === "plan_critic_verdict");

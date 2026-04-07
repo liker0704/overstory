@@ -109,6 +109,18 @@ describe("evaluateHealth", () => {
 		expect(check.reconciliationNote).toBeNull();
 	});
 
+	// --- Waiting agents: tmux dead is expected (agent exited after dispatching sub-agents) ---
+
+	test("waiting agent with dead tmux → stays waiting, no terminate (mail-resume path handles it)", () => {
+		const session = makeSession({ state: "waiting" });
+		const check = evaluateHealth(session, false, THRESHOLDS);
+
+		expect(check.state).toBe("waiting");
+		expect(check.action).toBe("none");
+		expect(check.processAlive).toBe(false);
+		expect(check.reconciliationNote).toContain("waiting for sub-agent");
+	});
+
 	// --- ZFC Rule 2: tmux alive + sessions.json says zombie → investigate ---
 
 	test("ZFC: tmux alive + sessions.json says zombie → investigate (don't auto-kill)", () => {

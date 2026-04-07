@@ -433,7 +433,12 @@ export interface MissionStore {
 	updateObjective(id: string, objective: string): void;
 	updateCurrentNode(id: string, nodeId: string): void;
 	markLearningsExtracted(id: string): void;
-	updateWorkstreamStatus(missionId: string, workstreamId: string, status: string, updatedBy: string): void;
+	updateWorkstreamStatus(
+		missionId: string,
+		workstreamId: string,
+		status: string,
+		updatedBy: string,
+	): void;
 	/** Access the checkpoint store backed by the same db connection. */
 	checkpoints: CheckpointStore;
 	/** Wrap multiple store operations in a single SQLite transaction. */
@@ -456,6 +461,7 @@ export interface MissionStore {
 		nudge_interval_ms: number;
 		max_nudges: number;
 		max_total_wait_ms: number;
+		resolved_at: string | null;
 	};
 	incrementNudgeCount(missionId: string, nodeId: string): void;
 	resolveGate(missionId: string, nodeId: string, trigger: string): void;

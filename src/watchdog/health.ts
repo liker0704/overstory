@@ -281,6 +281,20 @@ export function evaluateHealth(
 
 	// === TUI/tmux path ===
 
+	// Waiting agents have dispatched sub-agents and intentionally exited.
+	// Their tmux is expected to be dead. The mail-send resume path will
+	// respawn them when a worker_done arrives — do NOT mark zombie.
+	if (!tmuxAlive && session.state === "waiting") {
+		return {
+			...base,
+			processAlive: false,
+			state: "waiting",
+			action: "none",
+			reconciliationNote:
+				"Agent is waiting for sub-agent results — tmux dead is expected, skipping zombie escalation",
+		};
+	}
+
 	// ZFC Rule 1: tmux dead → zombie immediately, regardless of recorded state.
 	// Observable state says the process is gone.
 	if (!tmuxAlive) {

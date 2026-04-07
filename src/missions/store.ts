@@ -999,11 +999,13 @@ export function createMissionStore(dbPath: string): MissionStore {
 					nudge_interval_ms: number;
 					max_nudges: number;
 					max_total_wait_ms: number;
+					resolved_at: string | null;
 				},
 				{ $missionId: string; $nodeId: string }
 			>(
 				`SELECT entered_at, nudge_count, last_nudge_at, respawn_count,
-				        grace_ms, nudge_interval_ms, max_nudges, max_total_wait_ms
+				        grace_ms, nudge_interval_ms, max_nudges, max_total_wait_ms,
+				        resolved_at
 				 FROM mission_gate_state
 				 WHERE mission_id = $missionId AND node_id = $nodeId`,
 			);

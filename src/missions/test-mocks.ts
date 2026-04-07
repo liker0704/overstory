@@ -219,6 +219,7 @@ export function createMockMissionStore(): MissionStore & { currentNode: string |
 			nudge_interval_ms: 60_000,
 			max_nudges: 3,
 			max_total_wait_ms: 3_600_000,
+			resolved_at: null,
 		}),
 		incrementNudgeCount: noop,
 		resolveGate: noop,

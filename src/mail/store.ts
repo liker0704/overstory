@@ -101,7 +101,7 @@ export interface MailStore {
 	purgeDlq(options?: { olderThanMs?: number; agent?: string }): number;
 
 	/** Delete messages matching the given criteria. Returns the number of messages deleted. */
-	purge(options: { all?: boolean; olderThanMs?: number; agent?: string }): number;
+	purge(options: { all?: boolean; olderThanMs?: number; agent?: string; to?: string }): number;
 
 	/** Record a mail check timestamp for debounce tracking. */
 	recordMailCheck(agent: string): void;
@@ -989,7 +989,7 @@ export function createMailStore(dbPath: string): MailStore {
 			return deleted.length;
 		},
 
-		purge(options: { all?: boolean; olderThanMs?: number; agent?: string }): number {
+		purge(options: { all?: boolean; olderThanMs?: number; agent?: string; to?: string }): number {
 			if (options.all) {
 				const sql = "DELETE FROM messages RETURNING id";
 				let stmt = stmtCache.get(sql);
@@ -1012,6 +1012,11 @@ export function createMailStore(dbPath: string): MailStore {
 			if (options.agent !== undefined) {
 				conditions.push("(from_agent = $agent OR to_agent = $agent)");
 				params.$agent = options.agent;
+			}
+
+			if (options.to !== undefined) {
+				conditions.push("to_agent = $toAgent");
+				params.$toAgent = options.to;
 			}
 
 			if (conditions.length === 0) {

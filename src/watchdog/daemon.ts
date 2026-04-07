@@ -1258,6 +1258,50 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 				}
 			}
 
+			// Invariant: waiting agent with unread mail → nudge to wake up.
+			// Catches race conditions where worker_done arrived while agent was
+			// still working (nudgeIfIdle skipped), lost nudges, or any other
+			// edge case where mail was delivered but agent wasn't woken.
+			if (
+				mailStore &&
+				session.state === "waiting" &&
+				tmuxAlive &&
+				session.tmuxSession !== ""
+			) {
+				try {
+					const unread = mailStore.getUnread(session.agentName);
+					if (unread.length > 0) {
+						const subjects = unread
+							.slice(0, 3)
+							.map((m) => m.subject)
+							.join("; ");
+						await nudge(
+							root,
+							session.agentName,
+							`[WATCHDOG] ${unread.length} unread message(s) while waiting: ${subjects}`,
+							true,
+						);
+						store.updateLastActivity(session.agentName);
+						session.lastActivity = new Date().toISOString();
+						store.updateState(session.agentName, "working");
+						session.state = "working";
+						recordEvent(eventStore, {
+							runId,
+							agentName: session.agentName,
+							eventType: "custom",
+							level: "info",
+							data: {
+								type: "waiting_agent_mail_nudge",
+								unreadCount: unread.length,
+								subjects,
+							},
+						});
+					}
+				} catch {
+					// Non-fatal: nudge failure shouldn't break watchdog
+				}
+			}
+
 			if (
 				session.tmuxSession !== "" &&
 				!tmuxAlive &&

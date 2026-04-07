@@ -206,7 +206,7 @@ async function handleClean(
 					for (const branch of cleaned) {
 						const session = sessions.find((s) => s.branchName === branch);
 						if (session) {
-							mailPurged += mailStore.purge({ agent: session.agentName });
+							mailPurged += mailStore.purge({ to: session.agentName });
 						}
 					}
 				} finally {

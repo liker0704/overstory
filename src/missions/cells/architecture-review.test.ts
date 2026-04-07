@@ -8,12 +8,12 @@ import { describe, expect, test } from "bun:test";
 import type { CheckpointStore, MissionStore } from "../../types.ts";
 import { validateGraph } from "../graph.ts";
 import type { HandlerContext } from "../types.ts";
+import type { ArchitectureCriticVerdictPayload } from "./architecture-review.ts";
 import {
 	architectureReviewCell,
 	validateVerdictSender,
 	weightedSeverity,
 } from "./architecture-review.ts";
-import type { ArchitectureCriticVerdictPayload } from "./architecture-review.ts";
 import type { ReviewCellConfig, ReviewCellDeps } from "./types.ts";
 
 // === Mock stores (same pattern as plan-review.test.ts) ===
@@ -206,7 +206,17 @@ function createMockMissionStore(): MissionStore {
 		checkpoints: createMockCheckpointStore(),
 		acquireTickLock: () => true,
 		releaseTickLock: noop,
-		ensureGateState: () => ({ entered_at: new Date().toISOString(), nudge_count: 0, last_nudge_at: null, respawn_count: 0, grace_ms: 120000, nudge_interval_ms: 60000, max_nudges: 3, max_total_wait_ms: 3600000 }),
+		ensureGateState: () => ({
+			entered_at: new Date().toISOString(),
+			nudge_count: 0,
+			last_nudge_at: null,
+			respawn_count: 0,
+			grace_ms: 120000,
+			nudge_interval_ms: 60000,
+			max_nudges: 3,
+			max_total_wait_ms: 3600000,
+			resolved_at: null,
+		}),
 		incrementNudgeCount: noop,
 		resolveGate: noop,
 		updateWorkstreamStatus: noop,
@@ -547,9 +557,9 @@ describe("validateVerdictSender", () => {
 	});
 
 	test("returns false when checkpoint has no agents field", () => {
-		expect(
-			validateVerdictSender("arch-structure-critic", { dispatched: true, round: 1 }),
-		).toBe(false);
+		expect(validateVerdictSender("arch-structure-critic", { dispatched: true, round: 1 })).toBe(
+			false,
+		);
 	});
 });
 

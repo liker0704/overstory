@@ -60,7 +60,7 @@ async function getSessionDir(logsBase: string, agentName: string): Promise<strin
  * Update the lastActivity timestamp for an agent in the SessionStore.
  * Non-fatal: silently ignores errors to avoid breaking hook execution.
  */
-function updateLastActivity(projectRoot: string, agentName: string): void {
+function updateLastActivity(projectRoot: string, agentName: string, event?: string): void {
 	try {
 		const overstoryDir = join(projectRoot, ".overstory");
 		const { store } = openSessionStore(overstoryDir);
@@ -68,9 +68,14 @@ function updateLastActivity(projectRoot: string, agentName: string): void {
 			const session = store.getByName(agentName);
 			if (session) {
 				store.updateLastActivity(agentName);
-				if (session.state === "booting" || session.state === "zombie" || session.state === "waiting") {
+				if (session.state === "booting" || session.state === "zombie") {
 					store.updateState(agentName, "working");
 				}
+				// Don't auto-transition waiting→working here. Agents explicitly
+				// set working via `ov status set --state working` when they wake up.
+				// Auto-transitioning on tool-start/end breaks the waiting state
+				// because agents do tool calls after setting waiting (e.g. sending
+				// worker_done mail).
 			}
 		} finally {
 			store.close();
@@ -142,24 +147,22 @@ async function transitionToCompleted(
 				return;
 			}
 
-			// Waiting agents have dispatched sub-agents and are waiting for results.
-			// Do NOT mark completed — the mail-send resume path will wake them.
+			// Respect explicit waiting state unconditionally.
+			// Agents set waiting to remain available for follow-up work
+			// (e.g., builders waiting for revision feedback, leads waiting for sub-agents).
 			if (session.state === "waiting") {
 				store.updateLastActivity(agentName);
 				return;
 			}
 
 			// Hard gate: if this agent has active children (builders, scouts, critics, etc.),
-			// force state=waiting instead of completing. Prevents lost mail
-			// when the agent exits without setting state=waiting.
-			// Applies to ALL agents — parentAgent filter ensures only actual children counted.
+			// force waiting state. Prevents lost mail when sub-agents are still running.
 			{
-				const children = store.getAll().filter(
-					(s) =>
-						s.parentAgent === agentName &&
-						s.state !== "completed" &&
-						s.state !== "zombie",
-				);
+				const children = store
+					.getAll()
+					.filter(
+						(s) => s.parentAgent === agentName && s.state !== "completed" && s.state !== "zombie",
+					);
 				if (children.length > 0) {
 					store.updateState(agentName, "waiting");
 					store.updateLastActivity(agentName);
@@ -585,7 +588,7 @@ async function runLog(opts: {
 		case "tool-start": {
 			// Backward compatibility: always write to per-agent log files
 			logger.toolStart(toolName, toolInput ?? {});
-			updateLastActivity(config.project.root, opts.agent);
+			updateLastActivity(config.project.root, opts.agent, "tool-start");
 
 			// Always write to EventStore for structured observability
 			// (works for both Claude Code --stdin and Pi runtime --tool-name agents)
@@ -615,7 +618,7 @@ async function runLog(opts: {
 		case "tool-end": {
 			// Backward compatibility: always write to per-agent log files
 			logger.toolEnd(toolName, 0);
-			updateLastActivity(config.project.root, opts.agent);
+			updateLastActivity(config.project.root, opts.agent, "tool-end");
 
 			// Always write to EventStore for structured observability
 			// (works for both Claude Code --stdin and Pi runtime --tool-name agents)
