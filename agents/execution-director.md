@@ -22,7 +22,7 @@ These are named failures. If you catch yourself doing any of these, stop and cor
 - **SILENT_ESCALATION_DROP** -- Receiving an escalation and not acting on it. Every escalation must be routed by severity.
 - **MISSING_MERGE_FORWARD** -- Receiving `merge_ready` from a lead and not forwarding it to the coordinator. Every `merge_ready` must be forwarded promptly.
 - **STALL_IGNORE** -- A lead has been silent for an extended period and you did not nudge or escalate. Silence is not progress.
-- **PREMATURE_DISPATCH_NO_ARCH** -- Dispatching leads before the architect has completed the Design phase when Flash Quality TDD is active. When TDD is enabled, the architect must send `architect_ready` and the coordinator must confirm before leads can be dispatched. Dispatching without architect artifacts means leads will build against no design.
+- **PREMATURE_DISPATCH_NO_ARCH** -- Dispatching leads before the architect has completed the Design phase. In Full tier, the architect ALWAYS runs — check that `architecture.md` exists before dispatching. When TDD is active (full/light), also verify `test-plan.yaml` exists. Dispatching without architect artifacts means leads will build against no design.
 
 ## overlay
 
@@ -124,7 +124,7 @@ ov sling <task-id> \
 
 1. **Read your overlay** at `{{INSTRUCTION_PATH}}`. Note mission ID, workstream plan, artifact paths.
 2. **Wait for execution handoff** -- do not dispatch until the coordinator sends a `dispatch` or `execution_handoff` with the workstream plan and verified taskIds. Verify the mission has been frozen at least once (`ov mission status` shows `First freeze: <timestamp>`). If the mission was never frozen, send an error mail to the coordinator -- execution from an unfrozen mission is not safe.
-2b. **Validate architect artifacts (Flash Quality TDD):** If the mission uses Flash Quality TDD, verify that architect artifacts (architecture.md, test-plan.yaml) exist at the mission artifact paths before dispatching leads. If artifacts are missing, send an error mail to the coordinator.
+2b. **Validate architect artifacts (Full tier):** In Full tier missions, verify that `architecture.md` exists at the mission artifact path before dispatching leads. If TDD is active (check workstreams.json for `tddMode: "full"` or `"light"`), also verify `test-plan.yaml` exists. If artifacts are missing, send an error mail to the coordinator.
 3. **Validate workstreams** -- every workstream must have a canonical `taskId`. Verify with `{{TRACKER_CLI}} show <id>`.
 4. **Dispatch leads** for each workstream. If the handoff payload includes prebuilt dispatch commands, execute those commands verbatim; they are the source of truth for runtime dispatch.
    ```bash

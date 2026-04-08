@@ -36,36 +36,9 @@ import type { AgentSession, AgentState, HealthCheck } from "../types.ts";
 
 export { isProcessRunning } from "../process/util.ts";
 
-/**
- * Agent capabilities that run as persistent interactive sessions.
- * These agents are expected to have long idle periods (e.g. coordinator waiting
- * for worker mail) and should NOT be flagged stale/zombie based on lastActivity.
- * Only tmux/pid liveness checks apply to them.
- *
- * Shared concept with src/commands/log.ts:PERSISTENT_CAPABILITIES.
- */
-const PERSISTENT_CAPABILITIES = new Set([
-	"coordinator",
-	"coordinator-mission",
-	"coordinator-mission-assess",
-	"coordinator-mission-direct",
-	"coordinator-mission-planned",
-	"mission-analyst",
-	"execution-director",
-	"monitor",
-	"plan-review-lead",
-	"architecture-review-lead",
-]);
+import { PERSISTENT_CAPABILITIES } from "../agents/capabilities.ts";
 
-/** Numeric ordering for forward-only state transitions. */
-const STATE_ORDER: Record<AgentState, number> = {
-	booting: 0,
-	working: 1,
-	waiting: 2,
-	completed: 3,
-	stalled: 4,
-	zombie: 5,
-};
+import { validateTransition } from "../agents/state-machine.ts";
 
 /**
  * Detect whether a session is a headless agent.
@@ -352,19 +325,16 @@ export function evaluateHealth(
 /**
  * Compute the next agent state based on a health check.
  *
- * State transitions are strictly forward-only using the ordering:
- *   booting(0) → working(1) → stalled(2) → zombie(3)
+ * Uses the DAG-based transition graph (agents/state-machine.ts) instead of
+ * the old linear STATE_ORDER. Health evaluation already embodies ZFC principles
+ * (observable state wins), so all transitions use force:true.
  *
- * A state can only advance forward, never move backwards.
- * For example, a zombie can never become working again.
- *
- * Exception (ZFC): When the health check action is "investigate", the state
- * is NOT advanced. This allows a human or higher-tier agent to review the
- * conflicting signals before making a state change.
+ * Exception: When action is "investigate", the state is NOT changed.
+ * This allows a human or higher-tier agent to review conflicting signals.
  *
  * @param currentState - The agent's current state
  * @param check - The latest health check result
- * @returns The new state (always >= currentState in ordering)
+ * @returns The new state (may differ from currentState in any direction)
  */
 export function transitionState(currentState: AgentState, check: HealthCheck): AgentState {
 	// ZFC: investigate means signals conflict — hold state until reviewed
@@ -372,13 +342,16 @@ export function transitionState(currentState: AgentState, check: HealthCheck): A
 		return currentState;
 	}
 
-	const currentOrder = STATE_ORDER[currentState];
-	const checkOrder = STATE_ORDER[check.state];
+	const result = validateTransition(
+		currentState,
+		check.state,
+		{
+			agentName: check.agentName,
+			capability: "",
+			reason: check.reconciliationNote ?? check.action,
+		},
+		{ force: true },
+	); // health eval uses ZFC semantics — always allowed
 
-	// Only move forward — never regress
-	if (checkOrder > currentOrder) {
-		return check.state;
-	}
-
-	return currentState;
+	return result.success ? result.to : currentState;
 }

@@ -592,11 +592,24 @@ async function cleanSingleAgent(
 			result.branchDeleted = await deleteBranch(projectRoot, session.branchName);
 		}
 
-		// Mark completed
+		// Mark completed (cleanup action — force:true)
 		if (session.state !== "completed") {
-			store.updateState(agentName, "completed");
-			store.updateLastActivity(agentName);
-			result.markedCompleted = true;
+			const { validateTransition } = await import("../agents/state-machine.ts");
+			const vr = validateTransition(
+				session.state,
+				"completed",
+				{
+					agentName,
+					capability: session.capability,
+					reason: "ov clean",
+				},
+				{ force: true },
+			);
+			if (vr.success) {
+				store.updateState(agentName, "completed");
+				store.updateLastActivity(agentName);
+				result.markedCompleted = true;
+			}
 		}
 	} finally {
 		store.close();

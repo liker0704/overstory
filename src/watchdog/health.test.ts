@@ -469,7 +469,7 @@ describe("transitionState", () => {
 		expect(transitionState("working", check)).toBe("stalled");
 	});
 
-	test("never regresses from stalled to working", () => {
+	test("allows stalled → working (DAG: recovery)", () => {
 		const check = {
 			state: "working" as const,
 			agentName: "a",
@@ -481,10 +481,10 @@ describe("transitionState", () => {
 			action: "none" as const,
 			reconciliationNote: null,
 		};
-		expect(transitionState("stalled", check)).toBe("stalled");
+		expect(transitionState("stalled", check)).toBe("working");
 	});
 
-	test("never regresses from zombie to booting", () => {
+	test("allows zombie → booting (DAG: respawn)", () => {
 		const check = {
 			state: "booting" as const,
 			agentName: "a",
@@ -496,7 +496,7 @@ describe("transitionState", () => {
 			action: "none" as const,
 			reconciliationNote: null,
 		};
-		expect(transitionState("zombie", check)).toBe("zombie");
+		expect(transitionState("zombie", check)).toBe("booting");
 	});
 
 	test("same state stays the same", () => {

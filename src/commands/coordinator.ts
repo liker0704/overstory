@@ -614,7 +614,20 @@ async function sendToCoordinator(
 
 		const alive = await tmux.isSessionAlive(session.tmuxSession);
 		if (!alive) {
-			store.updateState(COORDINATOR_NAME, "zombie");
+			const { validateTransition } = await import("../agents/state-machine.ts");
+			const vr = validateTransition(
+				session.state,
+				"zombie",
+				{
+					agentName: COORDINATOR_NAME,
+					capability: session.capability,
+					reason: "coordinator send: tmux dead, marking zombie",
+				},
+				{ force: true },
+			);
+			if (vr.success) {
+				store.updateState(COORDINATOR_NAME, "zombie");
+			}
 			store.updateLastActivity(COORDINATOR_NAME);
 			throw new AgentError(`Coordinator tmux session "${session.tmuxSession}" is not alive`, {
 				agentName: COORDINATOR_NAME,
@@ -707,7 +720,20 @@ export async function askCoordinator(
 
 		const alive = await tmux.isSessionAlive(session.tmuxSession);
 		if (!alive) {
-			store.updateState(COORDINATOR_NAME, "zombie");
+			const { validateTransition } = await import("../agents/state-machine.ts");
+			const vr = validateTransition(
+				session.state,
+				"zombie",
+				{
+					agentName: COORDINATOR_NAME,
+					capability: session.capability,
+					reason: "coordinator ask: tmux dead, marking zombie",
+				},
+				{ force: true },
+			);
+			if (vr.success) {
+				store.updateState(COORDINATOR_NAME, "zombie");
+			}
 			store.updateLastActivity(COORDINATOR_NAME);
 			throw new AgentError(`Coordinator tmux session "${session.tmuxSession}" is not alive`, {
 				agentName: COORDINATOR_NAME,

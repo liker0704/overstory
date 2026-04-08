@@ -186,7 +186,20 @@ async function checkAndRecoverDeadAgents(mission: Mission, opts: MissionTickOpts
 
 		if (check.state === "zombie") {
 			// Mark zombie and attempt resume for mission role agents
-			sessionStore.updateState(session.agentName, "zombie");
+			const { validateTransition } = await import("../agents/state-machine.ts");
+			const vr = validateTransition(
+				session.state,
+				"zombie",
+				{
+					agentName: session.agentName,
+					capability: session.capability,
+					reason: "mission-tick: health check detected zombie",
+				},
+				{ force: true },
+			);
+			if (vr.success) {
+				sessionStore.updateState(session.agentName, "zombie");
+			}
 
 			// Try to resume the dead agent via ov resume
 			let resumed = false;

@@ -459,18 +459,26 @@ async function checkL2InterfaceExports(
 }
 
 function checkL2TddCompliance(sessionDbPath: string, artifactRoot: string): HoldoutCheck {
-	const archPath = join(artifactRoot, "architecture.md");
-	if (!existsSync(archPath)) {
-		return makeCheck(
-			"l2-tdd-compliance",
-			2,
-			"TDD Compliance",
-			"skip",
-			"No architecture.md found — skipping TDD compliance check",
-		);
+	// Primary: check workstreams.json for TDD mode (canonical source)
+	const wsPath = join(artifactRoot, "plan", "workstreams.json");
+	let hasTddFull = false;
+	if (existsSync(wsPath)) {
+		try {
+			const content = readFileSync(wsPath, "utf8");
+			const parsed = JSON.parse(content) as { workstreams?: Array<{ tddMode?: string }> };
+			hasTddFull = parsed.workstreams?.some((ws) => ws.tddMode === "full") ?? false;
+		} catch {
+			// Fallback to architecture.md scan below
+		}
 	}
-	const content = readFileSync(archPath, "utf8");
-	const hasTddFull = content.includes("tddMode: full") || content.includes("TDD Mode: Full");
+	// Fallback: scan architecture.md for TDD indicators
+	if (!hasTddFull) {
+		const archPath = join(artifactRoot, "architecture.md");
+		if (existsSync(archPath)) {
+			const archContent = readFileSync(archPath, "utf8");
+			hasTddFull = archContent.includes("tddMode: full") || archContent.includes("TDD Mode: Full");
+		}
+	}
 	if (!hasTddFull) {
 		return makeCheck(
 			"l2-tdd-compliance",

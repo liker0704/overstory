@@ -40,6 +40,7 @@ import {
 import { createIdentity, loadIdentity } from "./identity.ts";
 import { createManifestLoader, resolveModel } from "./manifest.ts";
 import { BEACON_POLL_INTERVAL_MS, pollForStateChange } from "./spawn.ts";
+import { validateTransition } from "./state-machine.ts";
 
 // === Dependency Injection Interfaces ===
 
@@ -189,11 +190,25 @@ export async function startPersistentAgent(
 			const tmuxAlive = sessionState === "alive";
 			const processRunning = existing.pid !== null && isProcessRunning(existing.pid);
 
+			const forceComplete = () => {
+				const vr = validateTransition(
+					existing.state,
+					"completed",
+					{
+						agentName,
+						capability,
+						reason: "persistent-root cleanup on restart",
+					},
+					{ force: true },
+				);
+				if (vr.success) store.updateState(agentName, "completed");
+			};
+
 			if (existing.state === "completed" || existing.state === "zombie") {
 				if (tmuxAlive) {
 					await tmux.killSession(existing.tmuxSession);
 				}
-				store.updateState(agentName, "completed");
+				forceComplete();
 			} else if (tmuxAlive) {
 				// Tmux session exists — check whether the process inside is still running.
 				// A crashed process leaves a zombie tmux pane that blocks retries.
@@ -206,7 +221,7 @@ export async function startPersistentAgent(
 				if (!processRunning) {
 					// Zombie: kill the empty session and reclaim the slot.
 					await tmux.killSession(existing.tmuxSession);
-					store.updateState(agentName, "completed");
+					forceComplete();
 				} else {
 					throw new AgentError(
 						`${capability} agent '${agentName}' is already running (tmux: ${existing.tmuxSession}, since: ${existing.startedAt})`,
@@ -215,7 +230,7 @@ export async function startPersistentAgent(
 				}
 			} else {
 				// Session is dead or tmux server is not running — clean up stale entry.
-				store.updateState(agentName, "completed");
+				forceComplete();
 			}
 		}
 
@@ -346,7 +361,17 @@ export async function startPersistentAgent(
 		if (!tuiReady) {
 			const alive = await tmux.isSessionAlive(tmuxSession);
 			if (!alive) {
-				store.updateState(agentName, "completed");
+				const vr = validateTransition(
+					session.state,
+					"completed",
+					{
+						agentName,
+						capability,
+						reason: "tmux died during startup",
+					},
+					{ force: true },
+				);
+				if (vr.success) store.updateState(agentName, "completed");
 				const state = await tmux.checkSessionState(tmuxSession);
 				const detail =
 					state === "no_server"
@@ -358,7 +383,17 @@ export async function startPersistentAgent(
 				);
 			}
 			await tmux.killSession(tmuxSession);
-			store.updateState(agentName, "completed");
+			const vr2 = validateTransition(
+				session.state,
+				"completed",
+				{
+					agentName,
+					capability,
+					reason: "TUI not ready during startup",
+				},
+				{ force: true },
+			);
+			if (vr2.success) store.updateState(agentName, "completed");
 			throw new AgentError(
 				`${capability} tmux session "${tmuxSession}" did not become ready during startup. Claude Code may still be waiting on an interactive dialog or initializing too slowly.`,
 				{ agentName },
@@ -437,8 +472,18 @@ export async function stopPersistentAgent(
 		// leaving other active root roles' files intact.
 		removeAgentEnvFile(opts.projectRoot, session.runtimeSessionId ?? undefined);
 
-		// Update session state
-		store.updateState(agentName, "completed");
+		// Update session state (explicit stop — force:true)
+		const stopVr = validateTransition(
+			session.state,
+			"completed",
+			{
+				agentName,
+				capability: session.capability,
+				reason: "persistent-root stop",
+			},
+			{ force: true },
+		);
+		if (stopVr.success) store.updateState(agentName, "completed");
 		store.updateLastActivity(agentName);
 
 		// Record successful stop in resilience circuit breaker
@@ -451,7 +496,9 @@ export async function stopPersistentAgent(
 			} finally {
 				resStore.close();
 			}
-		} catch { /* resilience recording is non-fatal */ }
+		} catch {
+			/* resilience recording is non-fatal */
+		}
 
 		// Resolve runId: prefer session field, fall back to current-run.txt
 		const currentRunPath = join(overstoryDir, "current-run.txt");
@@ -541,7 +588,17 @@ export async function getPersistentAgentStatus(
 
 		// Reconcile state: if session says active but tmux is dead, mark as zombie
 		if (!alive) {
-			store.updateState(agentName, "zombie");
+			const zVr = validateTransition(
+				session.state,
+				"zombie",
+				{
+					agentName,
+					capability: session.capability,
+					reason: "tmux dead on status check",
+				},
+				{ force: true },
+			);
+			if (zVr.success) store.updateState(agentName, "zombie");
 			store.updateLastActivity(agentName);
 			session.state = "zombie";
 		}

@@ -7,7 +7,7 @@
  *   check-remaining --more_ws--> dispatch-ready (LOOP, reserved for future batch dispatch)
  *   check-remaining --waiting--> await-ws-completion (LOOP)
  *   check-remaining --all_done--> complete (terminal)
- *   check-remaining --all_done_tdd--> arch-review-dispatch → arch-review (async, reserved for TDD)
+ *   check-remaining --all_done_tdd--> arch-review-dispatch → arch-review (async, full tier arch review)
  *   arch-review --approved--> check-refactor → await-refactor? → await-arch-final → complete
  */
 
@@ -132,13 +132,13 @@ function buildSubgraph(_config: PhaseCellConfig): MissionGraph {
 				to: `${CELL_TYPE}:await-ws-completion`,
 				trigger: "waiting",
 			},
-			// All done (no TDD)
+			// All done (direct/planned tier — skip arch review)
 			{
 				from: `${CELL_TYPE}:check-remaining`,
 				to: `${CELL_TYPE}:complete`,
 				trigger: "all_done",
 			},
-			// All done (TDD — need arch review)
+			// All done (full tier — post-merge architecture review)
 			{
 				from: `${CELL_TYPE}:check-remaining`,
 				to: `${CELL_TYPE}:arch-review-dispatch`,
@@ -233,8 +233,10 @@ function buildHandlers(deps: PhaseCellDeps): HandlerRegistry {
 
 			if (activeLeads.length === 0) {
 				// All dispatched leads are done.
-				// TDD detection requires workstream file access — handled by arch-review
-				// dispatch if needed. Default to all_done for now.
+				// Full tier always has architect → needs post-merge architecture review.
+				if (mission.tier === "full") {
+					return { trigger: "all_done_tdd" };
+				}
 				return { trigger: "all_done" };
 			}
 

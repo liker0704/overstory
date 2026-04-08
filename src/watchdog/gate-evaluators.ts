@@ -118,7 +118,30 @@ export async function evaluateAwaitPlan(
 	};
 }
 
-/** Check if architect has completed design: architect_ready mail + files exist. */
+/**
+ * Check if any workstream in the mission has TDD mode active (full or light).
+ * Reads workstreams.json from the mission artifact root.
+ */
+async function isTddActive(artifactRoot: string): Promise<boolean> {
+	try {
+		const path = `${artifactRoot}/plan/workstreams.json`;
+		const file = Bun.file(path);
+		if (!(await file.exists())) return false;
+		const content = await file.json();
+		const ws = content?.workstreams;
+		if (!Array.isArray(ws)) return false;
+		return ws.some((w: { tddMode?: string }) => w.tddMode !== undefined && w.tddMode !== "skip");
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Check if architect has completed design: architect_ready mail + required files exist.
+ * Adapts artifact requirements based on TDD mode:
+ *   - TDD active: architecture.md + test-plan.yaml required
+ *   - TDD inactive: architecture.md only (no test-plan.yaml)
+ */
 export async function evaluateArchitectDesign(
 	mission: Mission,
 	artifactRoot: string,
@@ -126,21 +149,35 @@ export async function evaluateArchitectDesign(
 ): Promise<GateEvalResult> {
 	if (!mailStore) return { met: false };
 
-	// Corroborating evidence: architecture.md + test-plan.yaml must exist
-	const archPath = `${artifactRoot}/plan/architecture.md`;
-	const testPlanPath = `${artifactRoot}/plan/test-plan.yaml`;
-	const archExists = await Bun.file(archPath).exists();
-	const testPlanExists = await Bun.file(testPlanPath).exists();
+	const tddActive = await isTddActive(artifactRoot);
 
-	if (!archExists || !testPlanExists) {
+	// Required artifact: architecture.md (always)
+	const archPath = `${artifactRoot}/plan/architecture.md`;
+	const archExists = await Bun.file(archPath).exists();
+
+	if (!archExists) {
+		const artifacts = tddActive ? "architecture.md and test-plan.yaml" : "architecture.md";
 		return {
 			met: false,
 			nudgeTarget: `architect-${mission.slug}`,
-			nudgeMessage: "Complete architecture.md and test-plan.yaml, then send architect_ready",
+			nudgeMessage: `Complete ${artifacts}, then send architect_ready`,
 		};
 	}
 
-	// Check for architect_ready mail from architect capability
+	// Conditional artifact: test-plan.yaml (only when TDD active)
+	if (tddActive) {
+		const testPlanPath = `${artifactRoot}/plan/test-plan.yaml`;
+		const testPlanExists = await Bun.file(testPlanPath).exists();
+		if (!testPlanExists) {
+			return {
+				met: false,
+				nudgeTarget: `architect-${mission.slug}`,
+				nudgeMessage: "architecture.md exists but test-plan.yaml is missing. TDD mode is active.",
+			};
+		}
+	}
+
+	// Check for architect_ready mail
 	const coordinatorName = `coordinator-${mission.slug}`;
 	const msgs = mailStore.getAll({ to: coordinatorName });
 	const hasArchitectReady = msgs.some(

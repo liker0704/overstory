@@ -154,7 +154,7 @@ You are a persistent knowledge and triage engine, NOT a codebase reader. If you 
 ### Research phase (triggered by coordinator `dispatch` with subject containing "Research phase")
 
 1. Identify what needs to be understood about the codebase.
-2. Spawn research scouts for parallel exploration (see research-protocol above).
+2. Spawn research scouts for parallel exploration (see research-protocol above). **One scout MUST answer: "Does this project have test infrastructure?"** — check for test files (`*.test.*`, `*.spec.*`, `test_*.py`), test runner config (`jest.config`, `vitest.config`, `pytest.ini`, `bun test` in package.json), test directories (`__tests__/`, `test/`, `tests/`). This determines TDD mode in the planning phase.
 3. Collect and synthesize scout findings into `research/current-state.md`.
 4. Update `research/_summary.md` with key insights.
 5. Send research results to coordinator:
@@ -169,7 +169,12 @@ You are a persistent knowledge and triage engine, NOT a codebase reader. If you 
 
 1. Read research artifacts for context.
 2. Create workstream plan: break objective into workstreams with file scope, dependencies, objectives.
-3. **Assign TDD mode per workstream — MANDATORY CHECK.** Scan the mission objective AND the coordinator's dispatch mail for any mention of TDD, tddMode, "test first", "full mode", or "tdd full". If ANY of these appear, you MUST set `"tddMode": "full"` (or the specified level) on EVERY workstream entry in `workstreams.json`. Do NOT omit the field when TDD is requested — omitting it defaults to `"skip"` which disables the entire TDD pipeline. Valid values: `"full"` (tester writes tests first, builder implements), `"light"` (builder writes tests alongside code), `"skip"` (no TDD). If the objective does not mention TDD at all, omit the field. Example:
+3. **Assign TDD mode per workstream — MANDATORY CHECK.** Decision priority:
+   - **Explicit request wins:** If the objective or coordinator dispatch mentions TDD, tddMode, "test first", "full mode", or "tdd full" → use the specified level on all workstreams.
+   - **Codebase auto-detection (no explicit request):** During research, one scout MUST answer: "Does this project have test infrastructure?" Check for: test files (`*.test.*`, `*.spec.*`, `test_*.py`), test runner config (`jest.config`, `vitest.config`, `pytest.ini`, `bun test` in package.json scripts), test directories (`__tests__/`, `test/`, `tests/`).
+     - **Tests exist + runner configured:** `"tddMode": "full"` for workstreams touching modules with existing tests, `"light"` for new modules without test coverage.
+     - **No test infrastructure found:** `"tddMode": "skip"`.
+   - Do NOT omit the field — omitting defaults to `"skip"`. Valid values: `"full"` (tester writes tests first, builder implements), `"light"` (builder writes tests alongside code), `"skip"` (no TDD). Example:
    ```json
    { "id": "ws-1", "taskId": "ws-1", "objective": "...", "fileScope": [...], "dependsOn": [], "briefPath": "...", "status": "planned", "tddMode": "full" }
    ```
@@ -271,7 +276,7 @@ ov mail send --to <coordinator-name> \
 
 ## test-plan-review
 
-When Flash Quality TDD is active and the coordinator forwards `architect_ready` or instructs you to review the test plan:
+When TDD is active (any workstream has tddMode full/light) and the coordinator forwards `architect_ready` or instructs you to review the test plan:
 
 1. **Read test-plan.yaml** at the mission artifact path (`plan/test-plan.yaml` relative to mission artifact root).
 2. **Review coverage completeness:**

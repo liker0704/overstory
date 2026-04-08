@@ -114,7 +114,20 @@ async function startMonitor(opts: { json: boolean; attach: boolean }): Promise<v
 				);
 			}
 			// Session recorded but tmux is dead — mark as completed and continue
-			store.updateState(MONITOR_NAME, "completed");
+			const { validateTransition } = await import("../agents/state-machine.ts");
+			const vr = validateTransition(
+				existing.state,
+				"completed",
+				{
+					agentName: MONITOR_NAME,
+					capability: existing.capability,
+					reason: "monitor start: previous tmux dead, recycling session",
+				},
+				{ force: true },
+			);
+			if (vr.success) {
+				store.updateState(MONITOR_NAME, "completed");
+			}
 		}
 
 		// Resolve model and runtime early (needed for deployConfig and spawn)
@@ -272,7 +285,20 @@ async function stopMonitor(opts: { json: boolean }): Promise<void> {
 		}
 
 		// Update session state
-		store.updateState(MONITOR_NAME, "completed");
+		const { validateTransition } = await import("../agents/state-machine.ts");
+		const vr = validateTransition(
+			session.state,
+			"completed",
+			{
+				agentName: MONITOR_NAME,
+				capability: session.capability,
+				reason: "monitor stop: operator-initiated stop",
+			},
+			{ force: true },
+		);
+		if (vr.success) {
+			store.updateState(MONITOR_NAME, "completed");
+		}
 		store.updateLastActivity(MONITOR_NAME);
 
 		if (json) {
@@ -319,7 +345,20 @@ async function statusMonitor(opts: { json: boolean }): Promise<void> {
 
 		// Reconcile state: if session says active but tmux is dead, update.
 		if (!alive) {
-			store.updateState(MONITOR_NAME, "zombie");
+			const { validateTransition } = await import("../agents/state-machine.ts");
+			const vr = validateTransition(
+				session.state,
+				"zombie",
+				{
+					agentName: MONITOR_NAME,
+					capability: session.capability,
+					reason: "monitor status: tmux dead, marking zombie",
+				},
+				{ force: true },
+			);
+			if (vr.success) {
+				store.updateState(MONITOR_NAME, "zombie");
+			}
 			store.updateLastActivity(MONITOR_NAME);
 			session.state = "zombie";
 		}

@@ -672,7 +672,20 @@ async function spawnInteractive(
 	);
 	if (!tuiReady) {
 		const alive = await tmux.isSessionAlive(tmuxSessionName);
-		store.updateState(name, "completed");
+		const { validateTransition } = await import("./state-machine.ts");
+		const vr = validateTransition(
+			"booting",
+			"completed",
+			{
+				agentName: name,
+				capability,
+				reason: "spawn: TUI not ready, marking completed",
+			},
+			{ force: true },
+		);
+		if (vr.success) {
+			store.updateState(name, "completed");
+		}
 
 		if (alive) {
 			await tmux.killSession(tmuxSessionName);

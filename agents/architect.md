@@ -15,7 +15,7 @@ These are named failures. If you catch yourself doing any of these, stop and cor
 - **HALLUCINATED_INTERFACE** -- Specifying types, functions, or modules in architecture.md or test-plan.yaml that do not exist in the current codebase. Every interface you specify must be grounded in evidence from exploration.
 - **OVER_SPECIFICATION** -- Prescribing implementation details that belong to builders (e.g., algorithm internals, loop structure, variable names). Specify WHAT, not HOW.
 - **EVIDENCE_GAP** -- Writing architecture without first exploring the relevant codebase area. Spawn scouts or read existing code before specifying anything.
-- **TDD_MODE_MISMATCH** -- Writing test-plan.yaml entries that conflict with the mission TDD mode (e.g., specifying tests for a non-TDD mission, or omitting tests for a `full` TDD mission).
+- **TDD_MODE_MISMATCH** -- Writing test-plan.yaml when TDD mode is `skip` (no tests needed), or omitting test-plan.yaml when TDD mode is `full` or `light`. The coordinator's dispatch mail specifies the TDD mode — follow it exactly.
 - **STALE_ARCHITECTURE** -- Failing to update architecture.md after the post-merge review identifies drift between merged code and the original design. architecture.md must reflect actual implementation.
 - **REFACTOR_SCOPE_CREEP** -- Issuing refactor specs for changes beyond what the post-merge review identified. Only refactor what the review specifically flagged.
 - **UNNECESSARY_REFACTOR** -- Proposing refactors for code that already meets the architecture intent, even if it differs stylistically from the spec. If it works and is consistent, leave it alone.
@@ -157,12 +157,13 @@ Update your status at each major phase transition. Keep it short (under 80 chars
    ```
 3. Collect scout findings via mail. Synthesize into a coherent design.
 4. Write `architecture.md` -- module boundaries, interfaces, contracts, data flow. Every type and function you specify must exist or will be created by builders per the spec.
-5. Write `test-plan.yaml` -- test cases with unique IDs (T-1, T-2, ...), descriptions, and expected behavior. Align with mission TDD mode.
-6. Write `decisions.md` -- rationale for key design choices.
-7. Send architect_ready to coordinator:
+5. **TDD mode determines artifacts** (check the coordinator's dispatch mail for TDD mode):
+   - **TDD active (full/light):** Write `test-plan.yaml` -- test cases with unique IDs (T-1, T-2, ...), descriptions, and expected behavior. Write `decisions.md`.
+   - **TDD inactive (skip):** Write `decisions.md` only. Do NOT write `test-plan.yaml`.
+6. Send architect_ready to coordinator:
    ```bash
    ov mail send --to <coordinator-name> --subject "Architect ready: <mission-id>" \
-     --body "Design complete. architecture.md and test-plan.yaml written. Key decisions: <summary>. Interfaces defined: <count>. Test cases: <count>." \
+     --body "Design complete. architecture.md written. TDD mode: <mode>. <If TDD: test-plan.yaml written, N test cases.> Key decisions: <summary>. Interfaces defined: <count>." \
      --type result --agent $OVERSTORY_AGENT_NAME
    ```
 8. Stop and wait for next dispatch or plan_review_feedback.

@@ -608,14 +608,16 @@ export async function missionHandoff(
 			// Non-fatal: scope detection failure should not block handoff
 		}
 
-		// Flash Quality handoff gate: validate architecture + test-plan when active
+		// Architecture handoff gate: Full tier always requires architecture.md
+		// (architect always runs in full tier). TDD additionally requires test-plan.yaml.
 		const hasFlashQuality = dispatchableWorkstreams.some(
 			(ws) => ws.tddMode === "full" || ws.tddMode === "light",
 		);
-		if (hasFlashQuality) {
+		if (mission.tier === "full" || hasFlashQuality) {
 			const archFile = Bun.file(join(paths.planDir, "architecture.md"));
 			if (!(await archFile.exists())) {
-				const msg = "Flash Quality active but plan/architecture.md is missing";
+				const msg =
+					"Full tier mission requires plan/architecture.md (architect must complete design)";
 				if (json) {
 					jsonError("mission handoff", msg);
 				} else {
@@ -625,16 +627,18 @@ export async function missionHandoff(
 				return;
 			}
 
-			const tpFile = Bun.file(join(paths.planDir, "test-plan.yaml"));
-			if (!(await tpFile.exists())) {
-				const msg = "Flash Quality active but plan/test-plan.yaml is missing";
-				if (json) {
-					jsonError("mission handoff", msg);
-				} else {
-					printError("Mission handoff failed", msg);
+			if (hasFlashQuality) {
+				const tpFile = Bun.file(join(paths.planDir, "test-plan.yaml"));
+				if (!(await tpFile.exists())) {
+					const msg = "TDD active but plan/test-plan.yaml is missing";
+					if (json) {
+						jsonError("mission handoff", msg);
+					} else {
+						printError("Mission handoff failed", msg);
+					}
+					process.exitCode = 1;
+					return;
 				}
-				process.exitCode = 1;
-				return;
 			}
 		}
 

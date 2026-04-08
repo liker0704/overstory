@@ -10,17 +10,7 @@ export interface SpawnGuardPolicy {
 	blockSpawnsOnPause: boolean;
 }
 
-/** Capabilities that are never throttled (priority 0). */
-const PERSISTENT_CAPABILITIES = new Set([
-	"coordinator",
-	"coordinator-mission",
-	"coordinator-mission-assess",
-	"coordinator-mission-direct",
-	"coordinator-mission-planned",
-	"mission-analyst",
-	"execution-director",
-	"monitor",
-]);
+import { PERSISTENT_CAPABILITIES } from "../agents/capabilities.ts";
 
 /** Capabilities that are throttled last (priority 1). */
 const LOW_PRIORITY_CAPABILITIES = new Set(["lead", "upstream-merge-lead"]);

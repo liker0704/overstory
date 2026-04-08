@@ -216,10 +216,23 @@ async function handleClean(
 		}
 
 		// Mark cleaned sessions as zombie in the SessionStore
+		const { validateTransition } = await import("../agents/state-machine.ts");
 		for (const branch of cleaned) {
 			const session = sessions.find((s) => s.branchName === branch);
 			if (session) {
-				store.updateState(session.agentName, "zombie");
+				const vr = validateTransition(
+					session.state,
+					"zombie",
+					{
+						agentName: session.agentName,
+						capability: session.capability,
+						reason: "worktree pruned",
+					},
+					{ force: true },
+				);
+				if (vr.success) {
+					store.updateState(session.agentName, "zombie");
+				}
 			}
 		}
 

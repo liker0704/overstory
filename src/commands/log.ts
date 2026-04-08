@@ -12,6 +12,7 @@
 
 import { join } from "node:path";
 import { Command } from "commander";
+import { PERSISTENT_CAPABILITIES } from "../agents/capabilities.ts";
 import { updateIdentity } from "../agents/identity.ts";
 import { loadConfig } from "../config.ts";
 import { ValidationError } from "../errors.ts";
@@ -25,11 +26,8 @@ import { estimateCost } from "../metrics/pricing.ts";
 import { createMetricsStore } from "../metrics/store.ts";
 import { parseTranscriptUsage } from "../metrics/transcript.ts";
 import { createMulchClient, type MulchClient } from "../mulch/client.ts";
-import { getRuntime } from "../runtimes/registry.ts";
 import { openSessionStore } from "../sessions/compat.ts";
-import { createRunStore } from "../sessions/store.ts";
-import type { AgentSession, OverstoryConfig } from "../types.ts";
-import { capturePaneContent } from "../worktree/tmux.ts";
+import type { AgentSession } from "../types.ts";
 
 /**
  * Get or create a session timestamp directory for the agent.
@@ -86,37 +84,19 @@ function updateLastActivity(projectRoot: string, agentName: string, event?: stri
 }
 
 /**
- * Agent capabilities that run as persistent interactive sessions.
- * The Stop hook fires every turn for these agents (not just at session end),
- * so they must NOT auto-transition to 'completed' on session-end events.
- */
-const PERSISTENT_CAPABILITIES = new Set([
-	"coordinator",
-	"coordinator-mission",
-	"coordinator-mission-assess",
-	"coordinator-mission-direct",
-	"coordinator-mission-planned",
-	"monitor",
-	"mission-analyst",
-	"execution-director",
-	"plan-review-lead",
-	"architecture-review-lead",
-]);
-
-/**
- * Transition agent state to 'completed' in the SessionStore.
- * Called when session-end event fires.
+ * Transition agent state to 'waiting' on session-end.
  *
- * Skips the transition for persistent agent types (coordinator, monitor)
- * whose Stop hook fires every turn, not just at true session end.
+ * The Stop hook fires on every turn boundary for ALL agents (interactive mode).
+ * Instead of trying to determine if the agent is "really done" (which required
+ * 5 escape hatches), we always set waiting. The watchdog daemon is the sole
+ * authority on completion — it checks completion signals, run status, etc.
+ *
+ * Skip booting agents: Stop hook can fire on the first turn before any tool
+ * calls. Leave in booting so tool-start → working transition works.
  *
  * Non-fatal: silently ignores errors to avoid breaking hook execution.
  */
-async function transitionToCompleted(
-	projectRoot: string,
-	agentName: string,
-	config: OverstoryConfig,
-): Promise<void> {
+function handleSessionEnd(projectRoot: string, agentName: string): void {
 	try {
 		const overstoryDir = join(projectRoot, ".overstory");
 		const { store } = openSessionStore(overstoryDir);
@@ -124,80 +104,17 @@ async function transitionToCompleted(
 			const session = store.getByName(agentName);
 			if (!session) return;
 
-			if (PERSISTENT_CAPABILITIES.has(session.capability)) {
-				// Check if coordinator self-exited by verifying the run is already completed.
-				// If `ov run complete` was called before session-end, the run status is 'completed'
-				// and we should transition the coordinator session to completed too.
-				if (session.capability === "coordinator" && session.runId) {
-					const runStore = createRunStore(join(overstoryDir, "sessions.db"));
-					try {
-						const run = runStore.getRun(session.runId);
-						if (run && run.status === "completed") {
-							// Self-exit: coordinator called ov run complete before session ended
-							store.updateState(agentName, "completed");
-							store.updateLastActivity(agentName);
-							return;
-						}
-					} finally {
-						runStore.close();
-					}
-				}
-				// Normal persistent agent: only update activity, don't mark completed
+			// Skip booting — Stop hook can fire on first turn before any tool calls.
+			// Leave in booting so the tool-start hook can transition to working.
+			if (session.state === "booting") {
 				store.updateLastActivity(agentName);
 				return;
 			}
 
-			// Respect explicit waiting state unconditionally.
-			// Agents set waiting to remain available for follow-up work
-			// (e.g., builders waiting for revision feedback, leads waiting for sub-agents).
-			if (session.state === "waiting") {
-				store.updateLastActivity(agentName);
-				return;
+			// Always transition to waiting. The watchdog decides completion.
+			if (session.state !== "completed" && session.state !== "waiting") {
+				store.updateState(agentName, "waiting");
 			}
-
-			// Hard gate: if this agent has active children (builders, scouts, critics, etc.),
-			// force waiting state. Prevents lost mail when sub-agents are still running.
-			{
-				const children = store
-					.getAll()
-					.filter(
-						(s) => s.parentAgent === agentName && s.state !== "completed" && s.state !== "zombie",
-					);
-				if (children.length > 0) {
-					store.updateState(agentName, "waiting");
-					store.updateLastActivity(agentName);
-					return;
-				}
-			}
-
-			// Check if session-end was triggered by rate limit dialog.
-			// Claude Code fires Stop hook when the rate limit dialog appears,
-			// so we must detect this before marking the session as completed.
-			if (session.tmuxSession && session.rateLimitedSince === null) {
-				try {
-					const paneContent = await capturePaneContent(session.tmuxSession, 100);
-					if (paneContent) {
-						const runtime = getRuntime(session.runtime, config, session.capability);
-						if (runtime.detectRateLimit) {
-							// Guard: if agent is at prompt, it's not rate limited
-							const readyState = runtime.detectReady(paneContent);
-							const rlState =
-								readyState.phase === "ready"
-									? { limited: false as const }
-									: runtime.detectRateLimit(paneContent);
-							if (rlState.limited) {
-								store.updateRateLimitedSince(agentName, new Date().toISOString());
-								store.updateLastActivity(agentName);
-								return;
-							}
-						}
-					}
-				} catch {
-					// Pane capture or runtime resolution failure is non-fatal
-				}
-			}
-
-			store.updateState(agentName, "completed");
 			store.updateLastActivity(agentName);
 		} finally {
 			store.close();
@@ -700,8 +617,8 @@ async function runLog(opts: {
 		}
 		case "session-end":
 			logger.info("session.end", { agentName: opts.agent });
-			// Transition agent state to completed (checks for rate limit first)
-			await transitionToCompleted(config.project.root, opts.agent, config);
+			// Transition agent state to waiting — watchdog decides completion
+			handleSessionEnd(config.project.root, opts.agent);
 			// Look up agent session for identity update and metrics recording
 			{
 				const agentSession = getAgentSession(config.project.root, opts.agent);

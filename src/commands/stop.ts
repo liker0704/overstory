@@ -151,8 +151,21 @@ export async function stopCommand(
 			// Clean up agent env file (used by hooks for env var recovery)
 			removeAgentEnvFile(session.worktreePath);
 
-			// Mark session as completed
-			store.updateState(agentName, "completed");
+			// Mark session as completed (operator action — force:true)
+			const { validateTransition } = await import("../agents/state-machine.ts");
+			const result = validateTransition(
+				session.state,
+				"completed",
+				{
+					agentName,
+					capability: session.capability,
+					reason: "explicit ov stop",
+				},
+				{ force: true },
+			);
+			if (result.success) {
+				store.updateState(agentName, "completed");
+			}
 			store.updateLastActivity(agentName);
 
 			// Record successful stop in resilience circuit breaker
@@ -165,7 +178,9 @@ export async function stopCommand(
 				} finally {
 					resStore.close();
 				}
-			} catch { /* resilience recording is non-fatal */ }
+			} catch {
+				/* resilience recording is non-fatal */
+			}
 		}
 
 		// Optionally remove worktree and branch (best-effort, non-fatal)

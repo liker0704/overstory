@@ -318,8 +318,21 @@ export async function loadDashboardData(
 			const check = evaluateHealth(session, tmuxAlive, healthThresholds, rateLimitState);
 			if (check.state !== session.state) {
 				try {
-					stores.sessionStore.updateState(session.agentName, check.state);
-					session.state = check.state;
+					const { validateTransition } = await import("../agents/state-machine.ts");
+					const vr = validateTransition(
+						session.state,
+						check.state,
+						{
+							agentName: session.agentName,
+							capability: session.capability,
+							reason: "dashboard health reconciliation",
+						},
+						{ force: true },
+					);
+					if (vr.success) {
+						stores.sessionStore.updateState(session.agentName, check.state);
+						session.state = check.state;
+					}
 				} catch {
 					// Best effort: don't fail dashboard if update fails
 				}

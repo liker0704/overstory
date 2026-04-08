@@ -718,7 +718,21 @@ async function executeStatusSet(
 					{ field: "state", value: opts.state },
 				);
 			}
-			store.updateState(opts.agent, opts.state as AgentState);
+			// Manual operator override — force:true
+			const { validateTransition } = await import("../agents/state-machine.ts");
+			const vr = validateTransition(
+				session.state,
+				opts.state as AgentState,
+				{
+					agentName: opts.agent,
+					capability: session.capability,
+					reason: "manual ov status set",
+				},
+				{ force: true },
+			);
+			if (vr.success) {
+				store.updateState(opts.agent, opts.state as AgentState);
+			}
 		}
 		if (opts.json) {
 			jsonOutput("status_set", {
@@ -753,7 +767,10 @@ export function createStatusCommand(): Command {
 		.option("--state <state>", "Set session state (waiting, working)")
 		.option("--json", "Output as JSON")
 		.action(
-			async (statusLine: string | undefined, opts: { agent: string; state?: string; json?: boolean }) => {
+			async (
+				statusLine: string | undefined,
+				opts: { agent: string; state?: string; json?: boolean },
+			) => {
 				await executeStatusSet(statusLine ?? "", opts);
 			},
 		);

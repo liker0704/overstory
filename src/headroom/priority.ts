@@ -16,18 +16,4 @@ export function getThrottlePriority(capability: string): number {
 	return 2;
 }
 
-/**
- * Capabilities that are persistent (long-running).
- * Reuse the same concept as src/watchdog/health.ts PERSISTENT_CAPABILITIES.
- * The set includes: coordinator, coordinator-mission, mission-analyst, execution-director, monitor
- */
-export const PERSISTENT_CAPABILITIES: ReadonlySet<string> = new Set([
-	"coordinator",
-	"coordinator-mission",
-	"coordinator-mission-assess",
-	"coordinator-mission-direct",
-	"coordinator-mission-planned",
-	"mission-analyst",
-	"execution-director",
-	"monitor",
-]);
+import { PERSISTENT_CAPABILITIES } from "../agents/capabilities.ts";

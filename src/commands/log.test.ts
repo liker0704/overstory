@@ -265,7 +265,7 @@ describe("logCommand", () => {
 		readStore.close();
 
 		expect(updatedSession).toBeDefined();
-		expect(updatedSession?.state).toBe("completed");
+		expect(updatedSession?.state).toBe("waiting");
 	});
 
 	test("session-end clears the .current-session marker", async () => {
@@ -372,7 +372,7 @@ describe("logCommand", () => {
 		readStore.close();
 
 		expect(updatedSession).toBeDefined();
-		expect(updatedSession?.state).toBe("working");
+		expect(updatedSession?.state).toBe("waiting");
 		// But lastActivity should be updated
 		expect(new Date(updatedSession?.lastActivity ?? "").getTime()).toBeGreaterThan(
 			new Date(session.lastActivity).getTime(),
@@ -416,7 +416,7 @@ describe("logCommand", () => {
 		readStore.close();
 
 		expect(updatedSession).toBeDefined();
-		expect(updatedSession?.state).toBe("working");
+		expect(updatedSession?.state).toBe("waiting");
 	});
 
 	test("session-end does NOT transition mission-analyst to completed (persistent mission role)", async () => {
@@ -456,7 +456,7 @@ describe("logCommand", () => {
 		readStore.close();
 
 		expect(updatedSession).toBeDefined();
-		expect(updatedSession?.state).toBe("working");
+		expect(updatedSession?.state).toBe("waiting");
 	});
 
 	test("session-end does NOT transition execution-director to completed (persistent mission role)", async () => {
@@ -496,7 +496,7 @@ describe("logCommand", () => {
 		readStore.close();
 
 		expect(updatedSession).toBeDefined();
-		expect(updatedSession?.state).toBe("working");
+		expect(updatedSession?.state).toBe("waiting");
 	});
 
 	describe("session-end coordinator run completion", () => {
@@ -1038,7 +1038,7 @@ describe("logCommand", () => {
 		readStore.close();
 
 		expect(updatedSession).toBeDefined();
-		expect(updatedSession?.state).toBe("completed");
+		expect(updatedSession?.state).toBe("waiting");
 	});
 
 	test("session-end skips mulch auto-record for coordinator (persistent agent)", async () => {
@@ -1079,13 +1079,13 @@ describe("logCommand", () => {
 		const mailDbFile = Bun.file(mailDbPath);
 		expect(await mailDbFile.exists()).toBe(false);
 
-		// Coordinator should remain working (persistent agent)
+		// Coordinator transitions to waiting (all agents do on session-end)
 		const readStore = createSessionStore(dbPath);
 		const updatedSession = readStore.getByName("coordinator-mulch");
 		readStore.close();
 
 		expect(updatedSession).toBeDefined();
-		expect(updatedSession?.state).toBe("working");
+		expect(updatedSession?.state).toBe("waiting");
 	});
 
 	test("autoRecordExpertise calls record for each suggested domain", async () => {

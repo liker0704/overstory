@@ -81,22 +81,8 @@ import { triageAgent } from "./triage.ts";
 /** Maximum escalation level (terminate). */
 const MAX_ESCALATION_LEVEL = 3;
 
-/**
- * Persistent agent capabilities that are excluded from run-level completion checks.
- * These agents are long-running and should not count toward "all workers done".
- */
-const PERSISTENT_CAPABILITIES = new Set([
-	"coordinator",
-	"coordinator-mission",
-	"coordinator-mission-assess",
-	"coordinator-mission-direct",
-	"coordinator-mission-planned",
-	"mission-analyst",
-	"execution-director",
-	"monitor",
-	"plan-review-lead",
-	"architecture-review-lead",
-]);
+import { isPersistentCapability, PERSISTENT_CAPABILITIES } from "../agents/capabilities.ts";
+import { createRunStore } from "../sessions/store.ts";
 
 /**
  * Module-level registry of active event tailers for headless agents.
@@ -242,7 +228,17 @@ function hasRecentRateLimitHistory(eventStore: EventStore | null, agentName: str
 	return false;
 }
 
-function hasRecentCompletionSignal(
+/** Auto-complete signals: agent sent final output, safe to kill (when at ready prompt). */
+const AUTO_COMPLETE_SIGNALS = new Set(["result"]);
+
+/** Iteration signals: agent finished an iteration, parent decides lifecycle. */
+const ITERATION_SIGNALS = new Set(["worker_done", "merge_ready"]);
+
+/**
+ * Check if agent SENT an auto-complete signal (result).
+ * Queries events.db for mail_sent events sent BY this agent with type in AUTO_COMPLETE_SIGNALS.
+ */
+function hasAutoCompleteSignal(
 	eventStore: EventStore | null,
 	agentName: string,
 	sessionStartedAt?: string,
@@ -252,27 +248,127 @@ function hasRecentCompletionSignal(
 		const events = eventStore.getByAgent(agentName);
 		for (let i = events.length - 1; i >= 0 && i >= events.length - 20; i--) {
 			const event = events[i];
-			if (!event || event.eventType !== "mail_sent" || !event.data) {
-				continue;
-			}
-			// Skip events from before this session started — old completion
-			// signals from previous sessions must not trigger auto-completion.
-			if (sessionStartedAt && event.createdAt < sessionStartedAt) {
-				continue;
-			}
+			if (!event || event.eventType !== "mail_sent" || !event.data) continue;
+			if (sessionStartedAt && event.createdAt < sessionStartedAt) continue;
 			try {
 				const data = JSON.parse(event.data) as { type?: string };
-				if (data.type === "worker_done" || data.type === "merge_ready") {
-					return true;
-				}
+				if (data.type && AUTO_COMPLETE_SIGNALS.has(data.type)) return true;
 			} catch {
-				// Ignore malformed mail_sent payloads
+				// Ignore malformed payloads
 			}
 		}
 	} catch {
-		// Best-effort reconciliation only
+		// Best-effort
 	}
 	return false;
+}
+
+/**
+ * Check if agent SENT an iteration signal (worker_done, merge_ready).
+ * Queries events.db for mail_sent events sent BY this agent with type in ITERATION_SIGNALS.
+ */
+function hasIterationSignal(
+	eventStore: EventStore | null,
+	agentName: string,
+	sessionStartedAt?: string,
+): boolean {
+	if (!eventStore) return false;
+	try {
+		const events = eventStore.getByAgent(agentName);
+		for (let i = events.length - 1; i >= 0 && i >= events.length - 20; i--) {
+			const event = events[i];
+			if (!event || event.eventType !== "mail_sent" || !event.data) continue;
+			if (sessionStartedAt && event.createdAt < sessionStartedAt) continue;
+			try {
+				const data = JSON.parse(event.data) as { type?: string };
+				if (data.type && ITERATION_SIGNALS.has(data.type)) return true;
+			} catch {
+				// Ignore malformed payloads
+			}
+		}
+	} catch {
+		// Best-effort
+	}
+	return false;
+}
+
+/**
+ * Determine whether a waiting agent should be auto-completed by the watchdog.
+ *
+ * This is the sole completion authority for waiting-state agents.
+ * Agents in working/booting/stalled states use health escalation instead.
+ *
+ * Signal type = lifecycle intent:
+ *   - result → auto-complete (when at ready prompt)
+ *   - worker_done/merge_ready → stay waiting, parent calls ov stop
+ *   - Orphan check: if parent died, auto-complete iteration-signal agents
+ */
+function shouldCompleteAgent(params: {
+	session: AgentSession;
+	tmuxAlive: boolean;
+	atReadyPrompt: boolean;
+	eventStore: EventStore | null;
+	store: { getByName: (name: string) => AgentSession | null; getAll: () => AgentSession[] };
+	overstoryDir: string;
+}): { complete: boolean; reason: string } {
+	const { session, tmuxAlive, atReadyPrompt, eventStore, store, overstoryDir } = params;
+
+	// 1. Persistent agents are NEVER auto-completed by signals.
+	//    They only complete via run.status or explicit ov stop.
+	if (isPersistentCapability(session.capability)) {
+		if (!session.runId) {
+			return { complete: false, reason: "persistent, no run ID" };
+		}
+		try {
+			const runStore = createRunStore(join(overstoryDir, "sessions.db"));
+			try {
+				const run = runStore.getRun(session.runId);
+				if (run?.status === "completed") {
+					return { complete: true, reason: "run completed" };
+				}
+			} finally {
+				runStore.close();
+			}
+		} catch {
+			// Non-fatal: run store access failure
+		}
+		return { complete: false, reason: "persistent, run not completed" };
+	}
+
+	// 2. Auto-complete signal (result) + at ready prompt
+	if (atReadyPrompt && hasAutoCompleteSignal(eventStore, session.agentName, session.startedAt)) {
+		return { complete: true, reason: "auto-complete: result signal + at ready prompt" };
+	}
+
+	// 3. Iteration signal (worker_done / merge_ready) → parent decides
+	if (hasIterationSignal(eventStore, session.agentName, session.startedAt)) {
+		// Orphan check: if parent is already completed/zombie, auto-complete
+		if (session.parentAgent) {
+			const parent = store.getByName(session.parentAgent);
+			if (parent && (parent.state === "completed" || parent.state === "zombie")) {
+				return { complete: true, reason: "orphan: parent completed/zombie + iteration signal" };
+			}
+		}
+		return { complete: false, reason: "iteration signal — waiting for parent decision" };
+	}
+
+	// 4. No signal + tmux dead → agent crashed or exited without signaling
+	if (!tmuxAlive) {
+		const latestEvent = latestNonCustomEventType(eventStore, session.agentName);
+		if (latestEvent === "session_end") {
+			const children = store
+				.getAll()
+				.filter(
+					(s) =>
+						s.parentAgent === session.agentName && s.state !== "completed" && s.state !== "zombie",
+				);
+			if (children.length === 0) {
+				return { complete: true, reason: "tmux dead + session_end + no children" };
+			}
+		}
+	}
+
+	return { complete: false, reason: "no completion conditions met" };
 }
 
 function reconcileSessionToCompleted(params: {
@@ -284,8 +380,7 @@ function reconcileSessionToCompleted(params: {
 	eventType: string;
 	reason?: string;
 }): void {
-	const { session, store, runId, eventStore, resilienceStore: rStore, eventType, reason } =
-		params;
+	const { session, store, runId, eventStore, resilienceStore: rStore, eventType, reason } = params;
 	store.updateState(session.agentName, "completed");
 	if (rStore) {
 		try {
@@ -840,15 +935,15 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 		// Do NOT re-open — the outer handle is shared with runMissionTick later.
 
 		for (const session of sessions) {
-			// Done agents: if the agent sent worker_done but session isn't completed,
-			// mark it completed so the watchdog stops nudging it (fixes crash loop).
-			// Skip zombies — they have their own reconciliation logic below.
+			// Fast-path for non-waiting agents with auto-complete signals (result).
+			// Waiting agents are handled by shouldCompleteAgent() below.
+			// This catches agents that sent result but Stop hook hasn't fired yet.
 			if (
 				session.state !== "completed" &&
 				session.state !== "zombie" &&
 				session.state !== "waiting" &&
-				!PERSISTENT_CAPABILITIES.has(session.capability) &&
-				hasRecentCompletionSignal(eventStore, session.agentName, session.startedAt)
+				!isPersistentCapability(session.capability) &&
+				hasAutoCompleteSignal(eventStore, session.agentName, session.startedAt)
 			) {
 				store.updateState(session.agentName, "completed");
 				session.state = "completed";
@@ -863,11 +958,7 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 
 			// Booting sessions with dead tmux: spawn failed silently.
 			// Mark as zombie and notify parent so it doesn't wait forever.
-			if (
-				session.state === "booting" &&
-				session.tmuxSession &&
-				session.tmuxSession !== ""
-			) {
+			if (session.state === "booting" && session.tmuxSession && session.tmuxSession !== "") {
 				const bootAlive = await tmux.isSessionAlive(session.tmuxSession);
 				if (!bootAlive) {
 					store.updateState(session.agentName, "zombie");
@@ -1163,7 +1254,8 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 					if (
 						rateLimitConfig.behavior === "wait" &&
 						session.state !== "completed" &&
-						!hasRecentCompletionSignal(eventStore, session.agentName, session.startedAt) &&
+						!hasAutoCompleteSignal(eventStore, session.agentName, session.startedAt) &&
+						!hasIterationSignal(eventStore, session.agentName, session.startedAt) &&
 						lastPaneContent
 					) {
 						try {
@@ -1197,8 +1289,10 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 			}
 
 			// TUI reconciliation: unread-mail wakeups and held session-end completion.
-			// Skip if agent already sent a completion signal (worker_done/merge_ready).
-			const agentDone = hasRecentCompletionSignal(eventStore, session.agentName, session.startedAt);
+			// Skip if agent already sent any completion/iteration signal.
+			const agentDone =
+				hasAutoCompleteSignal(eventStore, session.agentName, session.startedAt) ||
+				hasIterationSignal(eventStore, session.agentName, session.startedAt);
 			if (
 				mailStore &&
 				tmuxAlive &&
@@ -1258,16 +1352,44 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 				}
 			}
 
-			// Invariant: waiting agent with unread mail → nudge to wake up.
-			// Catches race conditions where worker_done arrived while agent was
-			// still working (nudgeIfIdle skipped), lost nudges, or any other
-			// edge case where mail was delivered but agent wasn't woken.
-			if (
-				mailStore &&
-				session.state === "waiting" &&
-				tmuxAlive &&
-				session.tmuxSession !== ""
-			) {
+			// Completion authority for waiting agents: check if agent should be completed
+			// BEFORE nudging. This ordering is load-bearing — orphaned builders must be
+			// completed, not nudged to retry work against a dead parent.
+			if (session.state === "waiting") {
+				const completionPaneContent =
+					tmuxAlive && session.tmuxSession !== ""
+						? (lastPaneContent ?? (await capturePane(session.tmuxSession)))
+						: null;
+				const completionReadyPrompt = completionPaneContent
+					? getRuntime(session.runtime, options.config, session.capability).detectReady(
+							completionPaneContent,
+						).phase === "ready"
+					: false;
+				const completion = shouldCompleteAgent({
+					session,
+					tmuxAlive,
+					atReadyPrompt: completionReadyPrompt,
+					eventStore,
+					store,
+					overstoryDir,
+				});
+				if (completion.complete) {
+					reconcileSessionToCompleted({
+						session,
+						store,
+						runId,
+						eventStore,
+						resilienceStore,
+						eventType: "watchdog_completion",
+						reason: completion.reason,
+					});
+					continue;
+				}
+			}
+
+			// Nudge waiting agents with unread mail to wake them up.
+			// Only runs if shouldCompleteAgent returned false (agent still needed).
+			if (mailStore && session.state === "waiting" && tmuxAlive && session.tmuxSession !== "") {
 				try {
 					const unread = mailStore.getUnread(session.agentName);
 					if (unread.length > 0) {
@@ -1302,6 +1424,7 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 				}
 			}
 
+			// Dead tmux + session_end for non-waiting agents (waiting handled by shouldCompleteAgent).
 			if (
 				session.tmuxSession !== "" &&
 				!tmuxAlive &&
@@ -1309,8 +1432,10 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 				session.state !== "waiting" &&
 				latestEventType === "session_end"
 			) {
-				const completionSignal = hasRecentCompletionSignal(eventStore, session.agentName, session.startedAt);
-				if (!recentRateLimitHistory || completionSignal) {
+				const hasAnySignal =
+					hasAutoCompleteSignal(eventStore, session.agentName, session.startedAt) ||
+					hasIterationSignal(eventStore, session.agentName, session.startedAt);
+				if (!recentRateLimitHistory || hasAnySignal) {
 					reconcileSessionToCompleted({
 						session,
 						store,
@@ -1321,7 +1446,7 @@ export async function runDaemonTick(options: DaemonOptions): Promise<void> {
 							? "rate_limit_session_end_dead_reconciled"
 							: "zombie_session_end_dead_reconciled",
 						reason: recentRateLimitHistory
-							? "tmux died after session_end; recent completion signal confirms work finished"
+							? "tmux died after session_end; completion signal confirms work finished"
 							: "tmux died after session_end with no recent rate-limit history",
 					});
 					continue;

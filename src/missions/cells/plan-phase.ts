@@ -1,13 +1,14 @@
 /**
  * Plan-phase subgraph cell.
  *
- * Subgraph: dispatch-planning → await-plan (async) → check-tdd
- *           check-tdd --tdd_required--> architect-design (async) → review
- *           check-tdd --no_tdd--> review
+ * Subgraph: dispatch-planning → await-plan (async) → architect-design (async) → review
  *           review = plan-review cell subgraph (embedded)
  *           review --approved--> await-handoff (async)
  *           review --stuck--> review-stuck (async) → review | await-handoff
  *           await-handoff → terminal
+ *
+ * In Full tier, architect ALWAYS runs. The gate evaluator adapts artifact
+ * requirements based on TDD mode (architecture.md only vs + test-plan.yaml).
  */
 
 import type { MissionGraph } from "../../types.ts";
@@ -33,12 +34,6 @@ function buildSubgraph(_config: PhaseCellConfig): MissionGraph {
 				cellType: CELL_TYPE,
 				gate: "async",
 				gateTimeout: 3600,
-			},
-			{
-				kind: "cell",
-				id: `${CELL_TYPE}:check-tdd`,
-				cellType: CELL_TYPE,
-				handler: "check-tdd",
 			},
 			{
 				kind: "cell",
@@ -83,18 +78,8 @@ function buildSubgraph(_config: PhaseCellConfig): MissionGraph {
 			},
 			{
 				from: `${CELL_TYPE}:await-plan`,
-				to: `${CELL_TYPE}:check-tdd`,
-				trigger: "plan_written",
-			},
-			{
-				from: `${CELL_TYPE}:check-tdd`,
 				to: `${CELL_TYPE}:architect-design`,
-				trigger: "tdd_required",
-			},
-			{
-				from: `${CELL_TYPE}:check-tdd`,
-				to: `${CELL_TYPE}:review`,
-				trigger: "no_tdd",
+				trigger: "plan_written",
 			},
 			{
 				from: `${CELL_TYPE}:architect-design`,
@@ -131,17 +116,7 @@ function buildSubgraph(_config: PhaseCellConfig): MissionGraph {
 }
 
 function buildHandlers(_deps: PhaseCellDeps): HandlerRegistry {
-	return {
-		"check-tdd": async (ctx) => {
-			// Check if any workstream has TDD mode enabled
-			// Mission-tick gate evaluator provides the data via checkpoint
-			const data = ctx.checkpoint as { hasTdd?: boolean } | null;
-			if (data?.hasTdd) {
-				return { trigger: "tdd_required" };
-			}
-			return { trigger: "no_tdd" };
-		},
-	};
+	return {};
 }
 
 export const planPhaseCell: PhaseCellDefinition = {

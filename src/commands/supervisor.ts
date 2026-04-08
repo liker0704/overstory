@@ -134,7 +134,20 @@ async function startSupervisor(opts: {
 				);
 			}
 			// Session recorded but tmux is dead — mark as completed and continue
-			store.updateState(opts.name, "completed");
+			const { validateTransition } = await import("../agents/state-machine.ts");
+			const vr = validateTransition(
+				existing.state,
+				"completed",
+				{
+					agentName: opts.name,
+					capability: existing.capability,
+					reason: "supervisor start: previous tmux dead, recycling session",
+				},
+				{ force: true },
+			);
+			if (vr.success) {
+				store.updateState(opts.name, "completed");
+			}
 		}
 
 		// Resolve model and runtime early (needed for deployConfig and spawn)
@@ -313,7 +326,20 @@ async function stopSupervisor(opts: { name: string; json: boolean }): Promise<vo
 		}
 
 		// Update session state
-		store.updateState(opts.name, "completed");
+		const { validateTransition } = await import("../agents/state-machine.ts");
+		const vr = validateTransition(
+			session.state,
+			"completed",
+			{
+				agentName: opts.name,
+				capability: session.capability,
+				reason: "supervisor stop: operator-initiated stop",
+			},
+			{ force: true },
+		);
+		if (vr.success) {
+			store.updateState(opts.name, "completed");
+		}
 		store.updateLastActivity(opts.name);
 
 		if (opts.json) {
@@ -363,7 +389,20 @@ async function statusSupervisor(opts: { name?: string; json: boolean }): Promise
 			// Reconcile state: we already filtered out completed/zombie above,
 			// so if tmux is dead this session needs to be marked as zombie.
 			if (!alive) {
-				store.updateState(opts.name, "zombie");
+				const { validateTransition } = await import("../agents/state-machine.ts");
+				const vr = validateTransition(
+					session.state,
+					"zombie",
+					{
+						agentName: opts.name,
+						capability: session.capability,
+						reason: "supervisor status: tmux dead, marking zombie",
+					},
+					{ force: true },
+				);
+				if (vr.success) {
+					store.updateState(opts.name, "zombie");
+				}
 				store.updateLastActivity(opts.name);
 				session.state = "zombie";
 			}
@@ -416,7 +455,20 @@ async function statusSupervisor(opts: { name?: string; json: boolean }): Promise
 
 					// Reconcile state
 					if (!alive && session.state !== "completed" && session.state !== "zombie") {
-						store.updateState(session.agentName, "zombie");
+						const { validateTransition } = await import("../agents/state-machine.ts");
+						const vr = validateTransition(
+							session.state,
+							"zombie",
+							{
+								agentName: session.agentName,
+								capability: session.capability,
+								reason: "supervisor status list: tmux dead, marking zombie",
+							},
+							{ force: true },
+						);
+						if (vr.success) {
+							store.updateState(session.agentName, "zombie");
+						}
 						store.updateLastActivity(session.agentName);
 					}
 

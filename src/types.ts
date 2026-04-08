@@ -1,11 +1,12 @@
 // Barrel file — re-exports all domain types for backward compatibility.
 // New code should import directly from domain type files.
 
+export { isPersistentCapability, PERSISTENT_CAPABILITIES } from "./agents/capabilities.ts";
 // === Value re-exports (runtime constants — MUST NOT use `export type`) ===
 export { SUPPORTED_CAPABILITIES } from "./agents/types.ts";
 export { ARTIFACT_STATUSES } from "./artifact-status/types.ts";
 export { EVENT_LEVELS } from "./events/types.ts";
-export { getThrottlePriority, PERSISTENT_CAPABILITIES } from "./headroom/priority.ts";
+export { getThrottlePriority } from "./headroom/priority.ts";
 export {
 	MAIL_DELIVERY_STATES,
 	MAIL_MESSAGE_TYPES,
