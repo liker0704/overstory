@@ -228,8 +228,10 @@ function buildHandlers(deps: PhaseCellDeps): HandlerRegistry {
 			// No leads dispatched yet — wait for dispatch
 			if (leadSessions.length === 0) return { trigger: "waiting" };
 
-			const terminalStates = new Set(["completed", "zombie"]);
-			const activeLeads = leadSessions.filter((s) => !terminalStates.has(s.state));
+			// Leads in waiting/completed/zombie are done (waiting = sent merge_ready,
+			// parent hasn't stopped them yet). Only working/booting/stalled are active.
+			const activeStates = new Set(["working", "booting", "stalled"]);
+			const activeLeads = leadSessions.filter((s) => activeStates.has(s.state));
 
 			if (activeLeads.length === 0) {
 				// All dispatched leads are done.

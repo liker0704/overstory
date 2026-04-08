@@ -158,6 +158,12 @@ ov sling <task-id> \
       --body "All <N> workstreams have completed. Leads: <list>. Branches ready for merge: <list>." \
       --type status --priority high --agent $OVERSTORY_AGENT_NAME
     ```
+14. **Stop all completed leads** after sending batch-complete:
+    ```bash
+    ov stop <lead-name-1>
+    ov stop <lead-name-2>
+    ```
+    Leads in `waiting` state after sending `merge_ready` are waiting for you to terminate them. Stopping them signals the graph engine that all workstreams are done.
 
 ## routing-rules
 

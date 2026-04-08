@@ -396,6 +396,9 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 					earlyEval.trigger,
 					null,
 				);
+				// Reset destination gate state on loop-back to prevent stale
+				// resolved_at from filtering out events (overstory-5fd9).
+				missionStore.resetGateState(mission.id, advanceEdge.to);
 				missionStore.updateCurrentNode(mission.id, advanceEdge.to);
 			} else {
 				await engine.advanceNode(earlyEval.trigger);
@@ -542,6 +545,8 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 					evalResult.trigger,
 					null,
 				);
+				// Reset destination gate state on loop-back (overstory-5fd9).
+				missionStore.resetGateState(mission.id, advanceEdge.to);
 				missionStore.updateCurrentNode(mission.id, advanceEdge.to);
 			} else {
 				// Top-level gate — use engine.advanceNode

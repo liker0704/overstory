@@ -16,8 +16,8 @@ import type {
 	MissionTier,
 	PendingInputKind,
 } from "../types.ts";
-import { MISSION_PHASES, TIER_ORDER } from "./types.ts";
 import { createCheckpointStore } from "./checkpoint.ts";
+import { MISSION_PHASES, TIER_ORDER } from "./types.ts";
 
 /** Safely parse a JSON string from a database column, returning a fallback on failure. */
 function safeJsonParse<T>(value: string | null | undefined, fallback: T): T {
@@ -975,9 +975,7 @@ export function createMissionStore(dbPath: string): MissionStore {
 		})(),
 
 		releaseTickLock: (() => {
-			const stmt = db.prepare(
-				"DELETE FROM mission_tick_lock WHERE mission_id = $id",
-			);
+			const stmt = db.prepare("DELETE FROM mission_tick_lock WHERE mission_id = $id");
 			return (missionId: string): void => {
 				stmt.run({ $id: missionId });
 			};
@@ -1009,12 +1007,7 @@ export function createMissionStore(dbPath: string): MissionStore {
 				 FROM mission_gate_state
 				 WHERE mission_id = $missionId AND node_id = $nodeId`,
 			);
-			return (
-				missionId: string,
-				nodeId: string,
-				graceMs: number,
-				maxTotalWaitMs: number,
-			) => {
+			return (missionId: string, nodeId: string, graceMs: number, maxTotalWaitMs: number) => {
 				insertStmt.run({
 					$missionId: missionId,
 					$nodeId: nodeId,
@@ -1059,6 +1052,15 @@ export function createMissionStore(dbPath: string): MissionStore {
 			};
 		})(),
 
+		resetGateState: (() => {
+			const stmt = db.prepare(
+				"DELETE FROM mission_gate_state WHERE mission_id = $missionId AND node_id = $nodeId",
+			);
+			return (missionId: string, nodeId: string): void => {
+				stmt.run({ $missionId: missionId, $nodeId: nodeId });
+			};
+		})(),
+
 		transaction<T>(fn: () => T): T {
 			return db.transaction(fn)();
 		},
@@ -1079,9 +1081,7 @@ export function createMissionStore(dbPath: string): MissionStore {
 					const currentOrder = TIER_ORDER[currentTier];
 					const newOrder = TIER_ORDER[newTier];
 					if (newOrder <= currentOrder) {
-						throw new Error(
-							`Cannot downgrade mission tier from ${currentTier} to ${newTier}`,
-						);
+						throw new Error(`Cannot downgrade mission tier from ${currentTier} to ${newTier}`);
 					}
 				}
 				const now = new Date().toISOString();
@@ -1104,9 +1104,7 @@ export function createMissionStore(dbPath: string): MissionStore {
 		})(),
 
 		clearCheckpoints: (() => {
-			const stmt = db.prepare(
-				"DELETE FROM mission_node_checkpoints WHERE mission_id = $missionId",
-			);
+			const stmt = db.prepare("DELETE FROM mission_node_checkpoints WHERE mission_id = $missionId");
 			return (missionId: string): void => {
 				stmt.run({ $missionId: missionId });
 			};

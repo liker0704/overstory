@@ -465,6 +465,7 @@ export interface MissionStore {
 	};
 	incrementNudgeCount(missionId: string, nodeId: string): void;
 	resolveGate(missionId: string, nodeId: string, trigger: string): void;
+	resetGateState(missionId: string, nodeId: string): void;
 
 	// === Tier operations ===
 	/** Update tier with direction enforcement. Transaction-unaware — caller wraps in transaction. */
