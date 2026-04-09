@@ -618,10 +618,15 @@ export function createMailStore(dbPath: string): MailStore {
 	});
 
 	// Wrap multiple DLQ replays in a transaction — state guard in stmt skips non-DLQ
-	const replayDlqBatchTransaction = db.transaction((ids: string[]) => {
+	const changesStmt = db.prepare<{ c: number }, []>("SELECT changes() as c");
+	const replayDlqBatchTransaction = db.transaction((ids: string[]): number => {
+		let count = 0;
 		for (const id of ids) {
 			replayDlqStmt.run({ $id: id });
+			const row = changesStmt.get();
+			if (row) count += row.c;
 		}
+		return count;
 	});
 
 	// Wrap claim steps in a transaction for atomicity
@@ -959,8 +964,7 @@ export function createMailStore(dbPath: string): MailStore {
 
 		replayDlqBatch(ids: string[]): number {
 			if (ids.length === 0) return 0;
-			replayDlqBatchTransaction(ids);
-			return ids.length;
+			return replayDlqBatchTransaction(ids);
 		},
 
 		purgeDlq(options): number {
