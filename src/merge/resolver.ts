@@ -435,8 +435,25 @@ async function tryReimagine(
 				`${entry.branchName}:${file}`,
 			]);
 
-			if (catCanonicalCode !== 0 || catBranchCode !== 0) {
-				return { success: false };
+			if (catCanonicalCode !== 0 && catBranchCode !== 0) {
+				// File does not exist on either side — skip
+				continue;
+			} else if (catCanonicalCode === 0 && catBranchCode !== 0) {
+				// Branch deleted the file — run git rm
+				const { exitCode: rmCode } = await runGit(repoRoot, ["rm", "-f", "--", file]);
+				if (rmCode !== 0) {
+					return { success: false };
+				}
+				continue;
+			} else if (catCanonicalCode !== 0 && catBranchCode === 0) {
+				// File is new on branch — write to disk and git add
+				const filePath = `${repoRoot}/${file}`;
+				await writeFile(filePath, branchContent);
+				const { exitCode: addCode } = await runGit(repoRoot, ["add", file]);
+				if (addCode !== 0) {
+					return { success: false };
+				}
+				continue;
 			}
 
 			const prompt = [
@@ -726,6 +743,7 @@ export function createMergeResolver(options: {
 			const warnings: string[] = [];
 			let lastTier: ResolutionTier = "clean-merge";
 			let conflictFiles: string[] = [];
+			let mergeSucceeded = false;
 
 			try {
 				// Delete untracked files overlapping entry.filesModified before merging.
@@ -771,6 +789,7 @@ export function createMergeResolver(options: {
 							// callback failures must not fail the merge
 						}
 					}
+					mergeSucceeded = true;
 					return {
 						entry: { ...entry, status: "merged", resolvedTier: "clean-merge" },
 						success: true,
@@ -820,6 +839,7 @@ export function createMergeResolver(options: {
 								// callback failures must not fail the merge
 							}
 						}
+						mergeSucceeded = true;
 						return {
 							entry: { ...entry, status: "merged", resolvedTier: "auto-resolve" },
 							success: true,
@@ -856,6 +876,7 @@ export function createMergeResolver(options: {
 								// callback failures must not fail the merge
 							}
 						}
+						mergeSucceeded = true;
 						return {
 							entry: { ...entry, status: "merged", resolvedTier: "ai-resolve" },
 							success: true,
@@ -892,6 +913,7 @@ export function createMergeResolver(options: {
 								// callback failures must not fail the merge
 							}
 						}
+						mergeSucceeded = true;
 						return {
 							entry: { ...entry, status: "merged", resolvedTier: "reimagine" },
 							success: true,
@@ -924,7 +946,7 @@ export function createMergeResolver(options: {
 				};
 			} finally {
 				if (didStash) {
-					await runGit(repoRoot, ["stash", "pop"]);
+					await runGit(repoRoot, ["stash", mergeSucceeded ? "pop" : "drop"]);
 				}
 			}
 		},
