@@ -22,6 +22,7 @@ export interface GateEvalResult {
 export function evaluateAwaitResearch(
 	mission: Mission,
 	mailStore: MailStore | null,
+	gateEnteredAt?: string,
 ): GateEvalResult {
 	if (!mailStore) return { met: false };
 
@@ -38,7 +39,12 @@ export function evaluateAwaitResearch(
 	// Check if analyst sent research result — check coordinator's inbox
 	const coordinatorName = `coordinator-${mission.slug}`;
 	const msgs = mailStore.getAll({ to: coordinatorName });
-	const hasResult = msgs.some((m) => m.type === "result" && m.from.includes("analyst"));
+	const hasResult = msgs.some(
+		(m) =>
+			m.type === "result" &&
+			m.from.includes("analyst") &&
+			(!gateEnteredAt || m.createdAt >= gateEnteredAt),
+	);
 	if (hasResult) {
 		return { met: true, trigger: "research_complete" };
 	}
@@ -54,6 +60,7 @@ export function evaluateAwaitResearch(
 export function evaluateUnderstandReady(
 	mission: Mission,
 	mailStore?: MailStore | null,
+	gateEnteredAt?: string,
 ): GateEvalResult {
 	// Coordinator freezes mission → "frozen" trigger
 	if (mission.state === "frozen") {
@@ -69,7 +76,10 @@ export function evaluateUnderstandReady(
 
 		// Auto-resolve if "Plan complete" mail arrived (analyst finished planning)
 		const planComplete = msgs.find(
-			(m) => m.type === "result" && m.subject?.toLowerCase().includes("plan complete"),
+			(m) =>
+				m.type === "result" &&
+				m.subject?.toLowerCase().includes("plan complete") &&
+				(!gateEnteredAt || m.createdAt >= gateEnteredAt),
 		);
 		if (planComplete) {
 			return { met: true, trigger: "ready" };
@@ -80,7 +90,10 @@ export function evaluateUnderstandReady(
 		const analystName = mission.slug ? `mission-analyst-${mission.slug}` : "mission-analyst";
 		const allMsgs = mailStore.getAll({ to: analystName });
 		const planningDispatched = allMsgs.find(
-			(m) => m.type === "dispatch" && m.subject?.toLowerCase().includes("planning phase"),
+			(m) =>
+				m.type === "dispatch" &&
+				m.subject?.toLowerCase().includes("planning phase") &&
+				(!gateEnteredAt || m.createdAt >= gateEnteredAt),
 		);
 		if (planningDispatched) {
 			// Analyst is working on the plan — don't nudge coordinator, just wait
@@ -146,8 +159,14 @@ export async function evaluateArchitectDesign(
 	mission: Mission,
 	artifactRoot: string,
 	mailStore: MailStore | null,
+	gateEnteredAt?: string,
 ): Promise<GateEvalResult> {
 	if (!mailStore) return { met: false };
+
+	// Guard: architect session must exist before nudging
+	if (!mission.architectSessionId) {
+		return { met: false };
+	}
 
 	const tddActive = await isTddActive(artifactRoot);
 
@@ -181,7 +200,10 @@ export async function evaluateArchitectDesign(
 	const coordinatorName = `coordinator-${mission.slug}`;
 	const msgs = mailStore.getAll({ to: coordinatorName });
 	const hasArchitectReady = msgs.some(
-		(m) => m.type === "status" && m.subject.includes("architect_ready"),
+		(m) =>
+			m.type === "status" &&
+			m.subject.includes("architect_ready") &&
+			(!gateEnteredAt || m.createdAt >= gateEnteredAt),
 	);
 	if (hasArchitectReady) {
 		return { met: true, trigger: "architect_ready" };
@@ -206,7 +228,12 @@ export function evaluateAwaitHandoff(mission: Mission): GateEvalResult {
 	};
 }
 
-/** Check if any active workstream has been merged since the gate was entered. */
+/**
+ * Check if any active workstream has been merged since the gate was entered.
+ *
+ * Note: `mailStore.getAll` does not support type filtering — the fetch-all + find pattern
+ * is intentional and bounded by the store's default limit (1000 messages).
+ */
 export function evaluateWsCompletion(
 	mission: Mission,
 	mailStore: MailStore | null,
@@ -233,7 +260,11 @@ export function evaluateWsCompletion(
 }
 
 /** Check if architecture_final mail has been received. */
-export function evaluateArchFinal(mission: Mission, mailStore: MailStore | null): GateEvalResult {
+export function evaluateArchFinal(
+	mission: Mission,
+	mailStore: MailStore | null,
+	gateEnteredAt?: string,
+): GateEvalResult {
 	if (!mailStore) return { met: false };
 
 	const coordinatorName = `coordinator-${mission.slug}`;
@@ -242,7 +273,9 @@ export function evaluateArchFinal(mission: Mission, mailStore: MailStore | null)
 	const hasFinal = msgs.some(
 		(m) =>
 			m.from.includes(architectName) &&
-			(m.subject.includes("architecture_final") || m.subject.includes("Architecture Finalization")),
+			(m.subject.includes("architecture_final") ||
+				m.subject.includes("Architecture Finalization")) &&
+			(!gateEnteredAt || m.createdAt >= gateEnteredAt),
 	);
 
 	if (hasFinal) {
@@ -260,12 +293,15 @@ export function evaluateArchFinal(mission: Mission, mailStore: MailStore | null)
 export function evaluateDispatchPlanning(
 	mission: Mission,
 	mailStore: MailStore | null,
+	gateEnteredAt?: string,
 ): GateEvalResult {
 	if (!mailStore) return { met: false };
 
 	const analystName = `mission-analyst-${mission.slug}`;
 	const msgs = mailStore.getAll({ to: analystName });
-	const hasDispatch = msgs.some((m) => m.type === "dispatch");
+	const hasDispatch = msgs.some(
+		(m) => m.type === "dispatch" && (!gateEnteredAt || m.createdAt >= gateEnteredAt),
+	);
 	if (hasDispatch) {
 		return { met: true, trigger: "planning_started" };
 	}
@@ -280,13 +316,17 @@ export function evaluateDispatchPlanning(
 export function evaluateArchReviewDispatch(
 	mission: Mission,
 	mailStore: MailStore | null,
+	gateEnteredAt?: string,
 ): GateEvalResult {
 	if (!mailStore) return { met: false };
 
 	const architectName = `architect-${mission.slug}`;
 	const msgs = mailStore.getAll({ to: architectName });
 	const hasDispatch = msgs.some(
-		(m) => m.type === "dispatch" && m.subject.toLowerCase().includes("architecture review"),
+		(m) =>
+			m.type === "dispatch" &&
+			m.subject.toLowerCase().includes("architecture review") &&
+			(!gateEnteredAt || m.createdAt >= gateEnteredAt),
 	);
 	if (hasDispatch) {
 		return { met: true, trigger: "review_dispatched" };
@@ -302,12 +342,17 @@ export function evaluateArchReviewDispatch(
 export function evaluateRefactorCompletion(
 	mission: Mission,
 	mailStore: MailStore | null,
+	gateEnteredAt?: string,
 ): GateEvalResult {
 	if (!mailStore) return { met: false };
 
 	const edName = `execution-director-${mission.slug}`;
 	const msgs = mailStore.getAll({ to: edName });
-	const hasDone = msgs.some((m) => m.type === "worker_done" || m.type === "merged");
+	const hasDone = msgs.some(
+		(m) =>
+			(m.type === "worker_done" || m.type === "merged") &&
+			(!gateEnteredAt || m.createdAt >= gateEnteredAt),
+	);
 	if (hasDone) {
 		return { met: true, trigger: "refactor_done" };
 	}
@@ -343,6 +388,7 @@ export async function evaluateSummaryReady(
 export function evaluateArchReviewComplete(
 	mission: Mission,
 	mailStore: MailStore | null,
+	gateEnteredAt?: string,
 ): GateEvalResult {
 	if (!mailStore) return { met: false };
 
@@ -353,7 +399,8 @@ export function evaluateArchReviewComplete(
 	const hasApproved = msgs.some(
 		(m) =>
 			m.subject.toLowerCase().includes("architecture review") &&
-			(m.type === "result" || m.subject.toLowerCase().includes("approved")),
+			(m.type === "result" || m.subject.toLowerCase().includes("approved")) &&
+			(!gateEnteredAt || m.createdAt >= gateEnteredAt),
 	);
 	if (hasApproved) {
 		return { met: true, trigger: "approved" };
@@ -383,37 +430,37 @@ export async function evaluateGate(
 
 	switch (nodeName) {
 		case "await-research":
-			return evaluateAwaitResearch(mission, stores.mailStore);
+			return evaluateAwaitResearch(mission, stores.mailStore, gateEnteredAt);
 		case "evaluate":
-			return evaluateUnderstandReady(mission, stores.mailStore);
+			return evaluateUnderstandReady(mission, stores.mailStore, gateEnteredAt);
 		case "dispatch-planning":
-			return evaluateDispatchPlanning(mission, stores.mailStore);
+			return evaluateDispatchPlanning(mission, stores.mailStore, gateEnteredAt);
 		case "await-plan":
 			return evaluateAwaitPlan(mission, artifactRoot);
 		case "architect-design":
-			return evaluateArchitectDesign(mission, artifactRoot, stores.mailStore);
+			return evaluateArchitectDesign(mission, artifactRoot, stores.mailStore, gateEnteredAt);
 		case "await-handoff":
 			return evaluateAwaitHandoff(mission);
 		case "await-ws-completion":
 			return evaluateWsCompletion(mission, stores.mailStore, gateEnteredAt);
 		case "arch-review-dispatch":
-			return evaluateArchReviewDispatch(mission, stores.mailStore);
+			return evaluateArchReviewDispatch(mission, stores.mailStore, gateEnteredAt);
 		case "arch-review":
-			return evaluateArchReviewComplete(mission, stores.mailStore);
+			return evaluateArchReviewComplete(mission, stores.mailStore, gateEnteredAt);
 		case "await-refactor":
-			return evaluateRefactorCompletion(mission, stores.mailStore);
+			return evaluateRefactorCompletion(mission, stores.mailStore, gateEnteredAt);
 		case "await-arch-final":
-			return evaluateArchFinal(mission, stores.mailStore);
+			return evaluateArchFinal(mission, stores.mailStore, gateEnteredAt);
 		case "summary":
 			return evaluateSummaryReady(mission, artifactRoot);
 		case "await-leads-done":
-			return evaluateAwaitLeadsDone(mission, stores.mailStore);
+			return evaluateAwaitLeadsDone(mission, stores.mailStore, gateEnteredAt);
 		case "review":
-			return evaluatePlanReviewComplete(mission, stores.mailStore);
+			return evaluatePlanReviewComplete(mission, stores.mailStore, gateEnteredAt);
 		case "review-stuck":
 			return evaluateReviewStuck(mission, stores.mailStore);
 		case "collect-verdicts":
-			return evaluateCollectVerdicts(mission, stores.mailStore);
+			return evaluateCollectVerdicts(mission, stores.mailStore, gateEnteredAt);
 		case "frozen":
 			// Human gates are resolved by ov mission answer, not by evaluators.
 			// Return met:false without unknown flag to suppress missing-evaluator warnings.
@@ -424,12 +471,18 @@ export async function evaluateGate(
 }
 
 /** Direct-tier gate: check coordinator inbox for merge_ready from leads. */
-function evaluateAwaitLeadsDone(mission: Mission, mailStore: MailStore | null): GateEvalResult {
+function evaluateAwaitLeadsDone(
+	mission: Mission,
+	mailStore: MailStore | null,
+	gateEnteredAt?: string,
+): GateEvalResult {
 	if (!mailStore) return { met: false };
 	// Coordinator name is slug-scoped or bare
 	const coordName = mission.slug ? `coordinator-${mission.slug}` : "coordinator";
 	const msgs = mailStore.getAll({ to: coordName });
-	const mergeReady = msgs.find((m) => m.type === "merge_ready");
+	const mergeReady = msgs.find(
+		(m) => m.type === "merge_ready" && (!gateEnteredAt || m.createdAt >= gateEnteredAt),
+	);
 	if (mergeReady) {
 		return {
 			met: true,
@@ -444,14 +497,19 @@ function evaluateAwaitLeadsDone(mission: Mission, mailStore: MailStore | null): 
 }
 
 /** Plan-phase review gate: check if plan review converged with APPROVE verdict. */
-function evaluatePlanReviewComplete(mission: Mission, mailStore: MailStore | null): GateEvalResult {
+function evaluatePlanReviewComplete(
+	mission: Mission,
+	mailStore: MailStore | null,
+	gateEnteredAt?: string,
+): GateEvalResult {
 	if (!mailStore) return { met: false };
 	const analystName = mission.slug ? `mission-analyst-${mission.slug}` : "mission-analyst";
 	const msgs = mailStore.getAll({ to: analystName });
 	const approved = msgs.find(
 		(m) =>
 			m.type === "plan_review_consolidated" &&
-			(m.subject?.toLowerCase().includes("approve") ?? false),
+			(m.subject?.toLowerCase().includes("approve") ?? false) &&
+			(!gateEnteredAt || m.createdAt >= gateEnteredAt),
 	);
 	if (approved) {
 		return { met: true, trigger: "approved" };
@@ -459,7 +517,8 @@ function evaluatePlanReviewComplete(mission: Mission, mailStore: MailStore | nul
 	const stuck = msgs.find(
 		(m) =>
 			m.type === "plan_review_consolidated" &&
-			(m.subject?.toLowerCase().includes("stuck") ?? false),
+			(m.subject?.toLowerCase().includes("stuck") ?? false) &&
+			(!gateEnteredAt || m.createdAt >= gateEnteredAt),
 	);
 	if (stuck) {
 		return { met: true, trigger: "stuck" };
@@ -477,10 +536,16 @@ function evaluateReviewStuck(mission: Mission, mailStore: MailStore | null): Gat
 }
 
 /** Review cell collect-verdicts gate: check if any critic verdicts arrived. */
-function evaluateCollectVerdicts(mission: Mission, mailStore: MailStore | null): GateEvalResult {
+function evaluateCollectVerdicts(
+	_mission: Mission,
+	mailStore: MailStore | null,
+	gateEnteredAt?: string,
+): GateEvalResult {
 	if (!mailStore) return { met: false };
 	const reviewLeadMsgs = mailStore.getAll({ to: "plan-review-lead" });
-	const hasVerdicts = reviewLeadMsgs.some((m) => m.type === "plan_critic_verdict");
+	const hasVerdicts = reviewLeadMsgs.some(
+		(m) => m.type === "plan_critic_verdict" && (!gateEnteredAt || m.createdAt >= gateEnteredAt),
+	);
 	if (hasVerdicts) {
 		return { met: true, trigger: "verdicts_collected" };
 	}
