@@ -1713,5 +1713,18 @@
 		"status": "active",
 		"createdAt": "2026-04-05T15:47:56.987Z",
 		"completedAt": null
+	},
+	{
+		"id": "group-62ea0c2b",
+		"name": "fix-issues-batch-1",
+		"memberIssueIds": [
+			"overstory-774a",
+			"overstory-df60",
+			"overstory-eecb",
+			"overstory-e333"
+		],
+		"status": "active",
+		"createdAt": "2026-04-09T09:22:10.918Z",
+		"completedAt": null
 	}
 ]
