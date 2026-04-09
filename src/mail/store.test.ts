@@ -1223,6 +1223,40 @@ CREATE INDEX idx_thread ON messages(thread_id);
 
 			expect(() => store.replayDlq("msg-not-dlq")).toThrow(MailError);
 		});
+
+		test("replayDlqBatch returns actual update count, not ids.length", () => {
+			// Insert 3 messages and move 2 of them to dead_letter via nack
+			for (const id of ["msg-batch-dlq-1", "msg-batch-dlq-2", "msg-batch-queued"]) {
+				store.insert({
+					id,
+					from: "agent-a",
+					to: "orchestrator",
+					subject: "batch test",
+					body: "body",
+					type: "status",
+					priority: "normal",
+					threadId: null,
+				});
+			}
+
+			// Claim and nack 2 to dead_letter
+			store.claim("orchestrator");
+			store.nack("msg-batch-dlq-1", { maxAttempts: 1, reason: "failed" });
+			store.nack("msg-batch-dlq-2", { maxAttempts: 1, reason: "failed" });
+
+			// Third message remains claimed (not dead_letter) — claim grabbed all three
+			expect(store.getById("msg-batch-dlq-1")?.state).toBe("dead_letter");
+			expect(store.getById("msg-batch-dlq-2")?.state).toBe("dead_letter");
+			expect(store.getById("msg-batch-queued")?.state).toBe("claimed");
+
+			// Replay all 3 IDs — only 2 are in dead_letter state
+			const count = store.replayDlqBatch([
+				"msg-batch-dlq-1",
+				"msg-batch-dlq-2",
+				"msg-batch-queued",
+			]);
+			expect(count).toBe(2);
+		});
 	});
 
 	describe("purgeDlq", () => {
