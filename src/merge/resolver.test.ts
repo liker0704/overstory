@@ -366,7 +366,7 @@ describe("createMergeResolver", () => {
 			}
 		});
 
-		test("stash pop happens after failed merge too", async () => {
+		test("stash is dropped (not popped) after failed merge", async () => {
 			const repoDir = await createTempGitRepo();
 			try {
 				const defaultBranch = await getDefaultBranch(repoDir);
@@ -388,9 +388,12 @@ describe("createMergeResolver", () => {
 
 				expect(result.success).toBe(false);
 
-				// After failed merge, the stashed modification should be restored
+				// After failed merge, stash is DROPPED (not popped) — committed version remains
 				const otherContent = await Bun.file(`${repoDir}/src/other.ts`).text();
-				expect(otherContent).toBe("modified but not committed\n");
+				expect(otherContent).toBe("work in progress\n");
+				// Stash list should be empty (dropped, not popped)
+				const stashList = await runGitInDir(repoDir, ["stash", "list"]);
+				expect(stashList.trim()).toBe("");
 			} finally {
 				await cleanupTempDir(repoDir);
 			}
@@ -633,6 +636,77 @@ describe("createMergeResolver", () => {
 				expect(content).toBe("reimagined content\n");
 			} finally {
 				spawnSpy.mockRestore();
+			}
+		});
+
+		test("handles file deleted on branch: git rm is called and reimagine succeeds", async () => {
+			const dir = await createTempGitRepo();
+			try {
+				const baseBranch = await getDefaultBranch(dir);
+
+				// Create a conflict file (causes Tier 1 fail) and a file that will be deleted on branch
+				await commitFile(dir, "src/conflict.ts", "original\n");
+				await commitFile(dir, "src/to-delete.ts", "will be deleted\n");
+				await runGitInDir(dir, ["checkout", "-b", "feature-branch"]);
+				await runGitInDir(dir, ["rm", "src/to-delete.ts"]);
+				await runGitInDir(dir, ["commit", "-m", "delete to-delete.ts"]);
+				await commitFile(dir, "src/conflict.ts", "branch modified\n");
+				await runGitInDir(dir, ["checkout", baseBranch]);
+				await commitFile(dir, "src/conflict.ts", "canonical modified\n");
+
+				const entry = makeTestEntry({
+					branchName: "feature-branch",
+					filesModified: ["src/to-delete.ts"],
+				});
+
+				const resolver = createMergeResolver({
+					aiResolveEnabled: false,
+					reimagineEnabled: true,
+				});
+
+				const result = await resolver.resolve(entry, baseBranch, dir);
+
+				expect(result.success).toBe(true);
+				expect(result.tier).toBe("reimagine");
+				// File should be gone
+				expect(await Bun.file(`${dir}/src/to-delete.ts`).exists()).toBe(false);
+			} finally {
+				await cleanupTempDir(dir);
+			}
+		});
+
+		test("handles file new on branch: file is written to disk and reimagine succeeds", async () => {
+			const dir = await createTempGitRepo();
+			try {
+				const baseBranch = await getDefaultBranch(dir);
+
+				// Create a conflict file (causes Tier 1 fail) and a file only on branch
+				await commitFile(dir, "src/conflict.ts", "original\n");
+				await runGitInDir(dir, ["checkout", "-b", "feature-branch"]);
+				await commitFile(dir, "src/conflict.ts", "branch modified\n");
+				await commitFile(dir, "src/new-file.ts", "brand new file\n");
+				await runGitInDir(dir, ["checkout", baseBranch]);
+				await commitFile(dir, "src/conflict.ts", "canonical modified\n");
+
+				const entry = makeTestEntry({
+					branchName: "feature-branch",
+					filesModified: ["src/new-file.ts"],
+				});
+
+				const resolver = createMergeResolver({
+					aiResolveEnabled: false,
+					reimagineEnabled: true,
+				});
+
+				const result = await resolver.resolve(entry, baseBranch, dir);
+
+				expect(result.success).toBe(true);
+				expect(result.tier).toBe("reimagine");
+				// File should exist with branch content
+				const fileContent = await Bun.file(`${dir}/src/new-file.ts`).text();
+				expect(fileContent).toBe("brand new file\n");
+			} finally {
+				await cleanupTempDir(dir);
 			}
 		});
 	});
