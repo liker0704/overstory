@@ -29,11 +29,9 @@ export function evaluateAwaitResearch(
 	// Check if analyst dispatched (dispatch mail from coordinator to analyst exists)
 	const analystName = mission.analystSessionId ? `mission-analyst-${mission.slug}` : null;
 	if (!analystName) {
-		return {
-			met: false,
-			nudgeTarget: `coordinator-${mission.slug}`,
-			nudgeMessage: "Dispatch analyst for research phase",
-		};
+		// Analyst spawn may be in progress (tierSetCommand spawns after DB transaction).
+		// Suppress nudge — grace period handles timing naturally.
+		return { met: false };
 	}
 
 	// Check if analyst sent research result — check coordinator's inbox
@@ -85,8 +83,8 @@ export function evaluateUnderstandReady(
 			return { met: true, trigger: "ready" };
 		}
 
-		// If analyst has been dispatched for planning, suppress nudge — work is in progress.
-		// Check for "Planning phase" dispatch from coordinator to analyst.
+		// If analyst has been dispatched for planning, understand phase is complete — advance.
+		// The coordinator dispatching planning IS the signal that research has been evaluated.
 		const analystName = mission.slug ? `mission-analyst-${mission.slug}` : "mission-analyst";
 		const allMsgs = mailStore.getAll({ to: analystName });
 		const planningDispatched = allMsgs.find(
@@ -96,8 +94,7 @@ export function evaluateUnderstandReady(
 				(!gateEnteredAt || m.createdAt >= gateEnteredAt),
 		);
 		if (planningDispatched) {
-			// Analyst is working on the plan — don't nudge coordinator, just wait
-			return { met: false };
+			return { met: true, trigger: "ready" };
 		}
 	}
 	return {

@@ -17,7 +17,7 @@ Always check your overlay for dispatch overrides before following the default th
 
 Scouts and reviewers are quality investments, not overhead. Skipping a scout to "save tokens" costs far more when specs are wrong and builders produce incorrect work. The most expensive mistake is spawning builders with bad specs — scouts prevent this.
 
-- **NEVER poll mail in a loop.** When waiting for results from scouts, builders, or reviewers, **set your state to waiting and stop**. You will be woken up via tmux nudge when new mail arrives. Before stopping, run: `ov status set "Waiting for results" --state waiting --agent $OVERSTORY_AGENT_NAME`. When you wake up, clear it: `ov status set "Processing results" --state working --agent $OVERSTORY_AGENT_NAME`.
+- **NEVER poll mail in a loop.** When waiting for a response, **stop processing**. You will be woken up via tmux nudge when new mail arrives. State transitions (waiting/working) are handled automatically.
 
 Reviewers are valuable for complex changes but optional for simple ones. The lead can self-verify simple changes by reading the diff and running quality gates, saving a full agent spawn.
 
@@ -211,11 +211,7 @@ Delegate exploration to scouts so you can focus on decomposition and planning.
      --type dispatch
    ```
 6. **While scouts explore, plan your decomposition.** Use scout time to think about task breakdown: how many builders, file ownership boundaries, dependency graph. You may do lightweight reads (README, directory listing) but must NOT do deep exploration -- that is the scout's job.
-7. **When done planning, set state to waiting and stop.** Once you have finished your decomposition planning:
-   ```bash
-   ov status set "Waiting for scout results" --state waiting --agent $OVERSTORY_AGENT_NAME
-   ```
-   Then stop. You will be woken via tmux nudge when scouts send `result` mail.
+7. **When done planning, stop and wait.** Once you have finished your decomposition planning, stop. You will be woken via tmux nudge when scouts send `result` mail.
 8. **Collect scout results.** Each scout sends a `result` message with findings. If two scouts were spawned, wait for both before writing specs. Synthesize findings into a unified picture of file layout, patterns, types, and dependencies.
 9. **When to skip scouts:** You may skip scouts when you have sufficient context to write accurate specs. Context sources include: (a) mulch expertise records for the relevant files, (b) dispatch mail with concrete file paths and patterns, (c) your own direct reads of the target files. The Task Complexity Assessment determines the default: simple tasks skip scouts, moderate tasks usually skip scouts, complex tasks should use scouts.
 
@@ -241,11 +237,7 @@ Write specs from scout findings and dispatch builders.
    ov mail send --to <builder-name> --subject "Build: <task>" \
      --body "Spec: .overstory/specs/<task-id>.md. Begin immediately." --type dispatch
    ```
-9. **Set state to waiting and STOP.** After dispatching all builders, you MUST:
-   ```bash
-   ov status set "Waiting for builder results" --state waiting --agent $OVERSTORY_AGENT_NAME
-   ```
-   Then stop — do not call any more tools, do not poll mail. You will be woken via tmux nudge when a builder sends `worker_done`. This is mandatory.
+9. **Stop and wait.** After dispatching all builders, stop — do not call any more tools, do not poll mail. You will be woken via tmux nudge when a builder sends `worker_done`. This is mandatory.
 
 ### Phase 3 — Review & Verify
 

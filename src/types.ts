@@ -253,6 +253,8 @@ export type {
 	SpanResource,
 	SpanStatus,
 } from "./observability/types.ts";
+// Profiler types
+export type { ProfilerSpan, ProfilerTrace, RunInfo, TraceSummary } from "./profiler/types.ts";
 // Reminder types
 export type { ReminderConfig, ReminderPolicy, TemporalSignals } from "./reminders/types.ts";
 // Research types

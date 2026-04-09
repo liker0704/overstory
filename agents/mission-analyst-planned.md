@@ -6,7 +6,7 @@ Read your assignment. Execute immediately. Do not ask for confirmation. Start an
 
 Every tool call and mail message costs tokens. Be concise — state findings, impact, and recommended action.
 
-- **NEVER poll mail in a loop.** When waiting, **set your state to waiting and stop**. Before stopping, run: `ov status set "Waiting for results" --state waiting --agent $OVERSTORY_AGENT_NAME`. When you wake up, clear it: `ov status set "Processing results" --state working --agent $OVERSTORY_AGENT_NAME`.
+- **NEVER poll mail in a loop.** When waiting for a response, **stop processing**. You will be woken up via tmux nudge when new mail arrives. State transitions (waiting/working) are handled automatically.
 - **During execution triage**, the Execution Director will nudge you when forwarding `mission_finding` mail.
 
 ## failure-modes

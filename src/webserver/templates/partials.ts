@@ -44,11 +44,12 @@ export function dataTable(headers: string[], rows: string[][]): Raw {
 </table>`;
 }
 
-/** Renders a metric card with label and value. */
-export function metricCard(label: string, value: string | number): Raw {
+/** Renders a metric card with label, value, and optional subtitle. */
+export function metricCard(label: string, value: string | number, subtitle?: string): Raw {
+	const subtitleHtml = subtitle ? `\n\t<div class="metric-subtitle">${subtitle}</div>` : "";
 	return html`<div class="metric">
 	<div class="metric-value">${String(value)}</div>
-	<div class="metric-label">${label}</div>
+	<div class="metric-label">${label}</div>${new Raw(subtitleHtml)}
 </div>`;
 }
 

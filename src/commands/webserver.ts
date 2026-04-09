@@ -15,18 +15,18 @@ import { loadRegistry, refreshRegistry, registerProject } from "../webserver/reg
 
 const REGISTRY_PATH = join(homedir(), ".overstory", "projects.json");
 
-async function startWebserver(opts: { port?: number; background?: boolean }): Promise<void> {
+async function startWebserver(opts: { port?: number; foreground?: boolean }): Promise<void> {
 	const config = await loadWebConfig();
 	if (opts.port !== undefined) {
 		config.port = opts.port;
 	}
 
-	if (opts.background) {
-		const { pid } = await startBackground(config);
-		printSuccess(`Webserver started (PID: ${pid})`);
-	} else {
-		printHint(`Starting webserver at ${config.host}:${config.port}`);
+	if (opts.foreground) {
+		printHint(`Starting webserver at ${config.host}:${config.port}...`);
 		await startForeground(config, REGISTRY_PATH);
+	} else {
+		const { pid, port } = await startBackground(config);
+		printSuccess(`Webserver started at ${config.host}:${port} (PID: ${pid})`);
 	}
 }
 
@@ -89,8 +89,8 @@ export function createWebserverCommand(): Command {
 		.command("start")
 		.description("Start the HTTP webserver")
 		.option("--port <port>", "Port to listen on", Number.parseInt)
-		.option("--background", "Run as a background daemon")
-		.action(async (opts: { port?: number; background?: boolean }) => {
+		.option("--foreground", "Run in foreground (blocking)")
+		.action(async (opts: { port?: number; foreground?: boolean }) => {
 			await startWebserver(opts);
 		});
 

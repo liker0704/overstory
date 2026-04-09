@@ -122,19 +122,30 @@ async function recordNudge(statePath: string, agentName: string): Promise<void> 
  * Send a nudge to an agent's tmux session with retry logic.
  *
  * @param tmuxSession - The tmux session name
- * @param message - The text to send
+ * @param message - The text to send (used for short messages)
+ * @param filePath - If provided, paste file content via tmux load-buffer instead of send-keys
  * @returns true if the nudge was delivered, false if all retries failed
  */
-async function sendNudgeWithRetry(tmuxSession: string, message: string): Promise<boolean> {
+async function sendNudgeWithRetry(
+	tmuxSession: string,
+	message: string,
+	filePath?: string,
+): Promise<boolean> {
 	for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
 		try {
-			await sendKeys(tmuxSession, message);
-			// Follow-up Enter after a short delay to ensure submission.
-			// Claude Code's TUI may consume the first Enter during re-render/focus
-			// events, leaving text visible but unsubmitted (overstory-t62v).
-			// Same workaround as sling.ts and coordinator.ts.
-			await Bun.sleep(500);
-			await sendKeys(tmuxSession, "");
+			if (filePath) {
+				// Large content: paste file via tmux buffer (preserves newlines, instant)
+				const { sendFileContent } = await import("../worktree/tmux.ts");
+				await sendFileContent(tmuxSession, filePath);
+			} else {
+				await sendKeys(tmuxSession, message);
+				// Follow-up Enter after a short delay to ensure submission.
+				// Claude Code's TUI may consume the first Enter during re-render/focus
+				// events, leaving text visible but unsubmitted (overstory-t62v).
+				// Same workaround as sling.ts and coordinator.ts.
+				await Bun.sleep(500);
+				await sendKeys(tmuxSession, "");
+			}
 			return true;
 		} catch {
 			if (attempt < MAX_RETRIES) {
@@ -205,6 +216,7 @@ function recordNudgeEvent(
  * @param agentName - Name of the agent to nudge
  * @param message - Text to send (defaults to mail check prompt)
  * @param force - Skip debounce check
+ * @param filePath - If provided, paste file content instead of message text
  * @returns Object with delivery status
  */
 export async function nudgeAgent(
@@ -212,6 +224,7 @@ export async function nudgeAgent(
 	agentName: string,
 	message: string = DEFAULT_MESSAGE,
 	force = false,
+	filePath?: string,
 ): Promise<{ delivered: boolean; reason?: string }> {
 	const canonicalAgentName = canonicalizeMailAgentName(agentName);
 	let result: { delivered: boolean; reason?: string };
@@ -240,8 +253,8 @@ export async function nudgeAgent(
 					reason: `Tmux session "${tmuxSessionName}" is not alive`,
 				};
 			} else {
-				// Send with retry
-				const delivered = await sendNudgeWithRetry(tmuxSessionName, message);
+				// Send with retry (file paste mode if filePath provided)
+				const delivered = await sendNudgeWithRetry(tmuxSessionName, message, filePath);
 
 				if (delivered) {
 					// Record nudge for debounce tracking

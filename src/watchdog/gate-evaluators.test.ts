@@ -81,12 +81,12 @@ function createTestSessionStore(): SessionStore {
 }
 
 describe("evaluateAwaitResearch", () => {
-	it("no analyst session → met:false with coordinator nudge", () => {
+	it("no analyst session → met:false without nudge (spawn in progress)", () => {
 		const mission = makeMission({ analystSessionId: null });
 		const mailStore = createTestMailStore([]);
 		const result = evaluateAwaitResearch(mission, mailStore);
 		expect(result.met).toBe(false);
-		expect(result.nudgeTarget).toInclude("coordinator");
+		expect(result.nudgeTarget).toBeUndefined();
 	});
 
 	it("result mail present from analyst → met:true with research_complete trigger", () => {
@@ -146,6 +146,37 @@ describe("evaluateUnderstandReady", () => {
 		]);
 		const result = evaluateUnderstandReady(mission, mailStore, "2026-04-01T00:00:00.000Z");
 		expect(result.met).toBe(true);
+	});
+
+	it("planning dispatch resolves gate (coordinator evaluated research)", () => {
+		const mission = makeMission({ state: "active", phase: "understand", slug: "test" });
+		const mailStore = createTestMailStore([
+			{
+				from: "coordinator-test",
+				to: "mission-analyst-test",
+				type: "dispatch",
+				subject: "Planning phase: create workstream plan",
+				createdAt: "2026-04-02T00:00:00.000Z",
+			},
+		]);
+		const result = evaluateUnderstandReady(mission, mailStore, "2026-04-01T00:00:00.000Z");
+		expect(result.met).toBe(true);
+		expect(result.trigger).toBe("ready");
+	});
+
+	it("ignores stale planning dispatch before gateEnteredAt", () => {
+		const mission = makeMission({ state: "active", phase: "understand", slug: "test" });
+		const mailStore = createTestMailStore([
+			{
+				from: "coordinator-test",
+				to: "mission-analyst-test",
+				type: "dispatch",
+				subject: "Planning phase: create workstream plan",
+				createdAt: "2026-01-01T00:00:00.000Z",
+			},
+		]);
+		const result = evaluateUnderstandReady(mission, mailStore, "2026-04-01T00:00:00.000Z");
+		expect(result.met).toBe(false);
 	});
 });
 
@@ -218,9 +249,9 @@ describe("evaluateGate", () => {
 			sessionStore: createTestSessionStore(),
 		};
 		const result = await evaluateGate("understand-phase:await-research", mission, stores, "/tmp");
-		// analystSessionId is null → coordinator nudge
+		// analystSessionId is null → no nudge (spawn in progress)
 		expect(result.met).toBe(false);
-		expect(result.nudgeTarget).toInclude("coordinator");
+		expect(result.nudgeTarget).toBeUndefined();
 	});
 
 	it("unknown node → met:false with unknown:true", async () => {

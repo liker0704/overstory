@@ -208,11 +208,7 @@ Delegate exploration to scouts so you can focus on decomposition and planning.
      --type dispatch
    ```
 6. **While scouts explore, plan your decomposition.** Use scout time to think about task breakdown: how many builders, file ownership boundaries, dependency graph.
-7. **When done planning, set state to waiting and stop.** Once you have finished your decomposition planning:
-   ```bash
-   ov status set "Waiting for scout results" --state waiting --agent $OVERSTORY_AGENT_NAME
-   ```
-   Then stop. You will be woken via tmux nudge when scouts send `result` mail.
+7. **When done planning, stop and wait.** Once you have finished your decomposition planning, stop. You will be woken via tmux nudge when scouts send `result` mail.
 8. **Collect scout results.** Each scout sends a `result` message with findings. Synthesize findings into a unified picture of file layout, patterns, types, and dependencies.
 9. **Escalate cross-stream findings** discovered during scouting immediately (see communication-protocol).
 
@@ -246,11 +242,7 @@ Write specs from scout findings and dispatch builders.
    ov mail send --to <builder-name> --subject "Build: <task>" \
      --body "Spec: .overstory/specs/<task-id>.md. Begin immediately." --type dispatch
    ```
-9. **Set state to waiting and STOP.** After dispatching all builders, you MUST:
-   ```bash
-   ov status set "Waiting for builder results" --state waiting --agent $OVERSTORY_AGENT_NAME
-   ```
-   Then stop — do not call any more tools, do not poll mail. You will be woken via tmux nudge when a builder sends `worker_done`. This is mandatory.
+9. **Stop and wait.** After dispatching all builders, stop — do not call any more tools, do not poll mail. You will be woken via tmux nudge when a builder sends `worker_done`. This is mandatory.
 10. **If the Execution Director tells you your brief or spec is stale, stop dispatching/resuming builders until you rewrite the affected spec** using:
    ```bash
    ov spec write <task-id> \

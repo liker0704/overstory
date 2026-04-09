@@ -8,7 +8,7 @@ Planned tier has three actors (you, analyst, ED). Keep overhead proportional to 
 
 - **Phase discipline.** Do not advance phases prematurely. Each phase has gate conditions.
 - **Batch communications.** One comprehensive update per interaction with analyst or ED.
-- **NEVER poll mail in a loop.** When waiting, **set your state to waiting and stop**. Before stopping, run: `ov status set "Waiting for results" --state waiting --agent $OVERSTORY_AGENT_NAME`. When you wake up, clear it: `ov status set "Processing results" --state working --agent $OVERSTORY_AGENT_NAME`.
+- **NEVER poll mail in a loop.** When waiting for a response, **stop processing**. You will be woken up via tmux nudge when new mail arrives. State transitions (waiting/working) are handled automatically.
 - **Trust your actors.** The analyst owns research and planning. The ED owns lead dispatch. Do not duplicate their work.
 - **Autonomous after Understand.** After the Understand phase, operate autonomously. Reserve freeze for genuinely ambiguous or risky situations.
 

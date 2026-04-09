@@ -46,8 +46,8 @@ html, body {
 a { color: var(--blue); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-/* ===== Header ===== */
-.header {
+/* ===== Layout ===== */
+header, .header {
 	padding: 16px 24px;
 	border-bottom: 1px solid var(--border);
 	display: flex;
@@ -55,8 +55,21 @@ a:hover { text-decoration: underline; }
 	gap: 24px;
 }
 
+header h1 {
+	font-size: 16px;
+	font-weight: 600;
+	color: var(--text);
+	white-space: nowrap;
+}
+
+main {
+	padding: 24px;
+	max-width: 1200px;
+	margin: 0 auto;
+}
+
 /* ===== Nav ===== */
-.nav {
+nav, .nav {
 	display: flex;
 	flex-direction: row;
 	gap: 4px;
@@ -256,6 +269,12 @@ a:hover { text-decoration: underline; }
 	color: var(--text-secondary);
 }
 
+.metric-subtitle {
+	font-size: 10px;
+	color: var(--text-muted);
+	margin-top: 2px;
+}
+
 /* ===== Code ===== */
 .code {
 	font-family: var(--font);
@@ -299,6 +318,91 @@ a:hover { text-decoration: underline; }
 .copy-btn:hover {
 	background: var(--bg-card-hover);
 	color: var(--text);
+}
+
+/* ===== Sections & Headings ===== */
+section {
+	margin-top: 24px;
+}
+
+section h2 {
+	font-size: 14px;
+	font-weight: 600;
+	color: var(--text);
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	margin-bottom: 12px;
+	padding-bottom: 8px;
+	border-bottom: 1px solid var(--border);
+}
+
+/* ===== Metrics Row ===== */
+.metrics-row {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+	gap: 16px;
+}
+
+.metrics-row .metric {
+	background: var(--bg-card);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	padding: 16px;
+}
+
+/* ===== Project Cards (Home) ===== */
+.project-list {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+	gap: 16px;
+}
+
+.project-card {
+	background: var(--bg-card);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	padding: 20px;
+	transition: border-color 0.15s, background 0.15s;
+}
+
+.project-card:hover {
+	border-color: var(--border-bright);
+	background: var(--bg-card-hover);
+}
+
+.project-card h2 {
+	font-size: 15px;
+	font-weight: 600;
+	margin-bottom: 12px;
+}
+
+.project-card h2 a {
+	color: var(--blue);
+}
+
+.project-card h2 a:hover {
+	text-decoration: underline;
+}
+
+.project-card dl {
+	display: grid;
+	grid-template-columns: 80px 1fr;
+	gap: 4px 12px;
+	font-size: 12px;
+}
+
+.project-card dt {
+	color: var(--text-muted);
+	text-transform: uppercase;
+	font-size: 10px;
+	letter-spacing: 0.05em;
+}
+
+.project-card dd {
+	color: var(--text-secondary);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 `;
 

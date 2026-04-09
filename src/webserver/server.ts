@@ -9,10 +9,12 @@ import { handleHomePage } from "./pages/home.ts";
 import { handleMailPage } from "./pages/mail.ts";
 import { handleMergePage } from "./pages/merge.ts";
 import { handleMissionsPage } from "./pages/missions.ts";
+import { handleProfilerPage, handleSpanDetail } from "./pages/profiler.ts";
+import { handleProfilerSSE } from "./pages/profiler-sse.ts";
 import { handleProjectPage } from "./pages/project.ts";
 import { loadRegistry } from "./registry.ts";
 import { createRouter } from "./router.ts";
-import { SSEManager, type PanelRenderers } from "./sse.ts";
+import { type PanelRenderers, SSEManager } from "./sse.ts";
 import { CSS } from "./static/css.ts";
 import { HTMX_JS } from "./static/htmx.ts";
 import { CLIENT_JS } from "./static/js.ts";
@@ -123,6 +125,21 @@ export function createServer(
 			method: "GET",
 			pattern: new URLPattern({ pathname: "/project/:slug/events" }),
 			handler: handleEventsPage,
+		},
+		{
+			method: "GET",
+			pattern: new URLPattern({ pathname: "/project/:slug/profiler" }),
+			handler: handleProfilerPage,
+		},
+		{
+			method: "GET",
+			pattern: new URLPattern({ pathname: "/project/:slug/profiler/span/:spanId" }),
+			handler: handleSpanDetail,
+		},
+		{
+			method: "GET",
+			pattern: new URLPattern({ pathname: "/project/:slug/profiler/sse" }),
+			handler: handleProfilerSSE,
 		},
 		{
 			method: "GET",
@@ -284,7 +301,7 @@ export function createServer(
 		});
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
-		if (message.includes("EADDRINUSE")) {
+		if (message.includes("EADDRINUSE") || message.includes("Is port")) {
 			throw new OverstoryError(`Port ${config.port} is already in use`, "WEBSERVER_PORT_IN_USE", {
 				cause: err instanceof Error ? err : new Error(message),
 			});

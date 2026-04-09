@@ -47,8 +47,19 @@ export interface SessionStore {
 	remove(agentName: string): void;
 	/** Purge sessions matching criteria. Returns count of deleted rows. */
 	purge(opts: { all?: boolean; state?: AgentState; agent?: string }): number;
+	/** Get state transition log for agents in a run. */
+	getStateLog(runId: string): StateLogEntry[];
 	/** Close the database connection. */
 	close(): void;
+}
+
+/** A recorded agent state transition. */
+export interface StateLogEntry {
+	agentName: string;
+	fromState: string;
+	toState: string;
+	changedAt: string;
+	runId: string | null;
 }
 
 /** Row shape as stored in SQLite (snake_case columns). */
@@ -340,6 +351,52 @@ const SESSION_MIGRATIONS: Migration[] = [
 	},
 ];
 
+/**
+ * Migration: agent_state_log table + trigger.
+ * Automatically logs every state change via SQL trigger — zero code changes at call sites.
+ * Used by the profiler to render state transition segments in the agent timeline.
+ */
+const STATE_LOG_MIGRATION: Migration = {
+	version: 10,
+	description: "add agent_state_log table with trigger on sessions.state UPDATE",
+	up: (db) => {
+		db.exec(`
+			CREATE TABLE IF NOT EXISTS agent_state_log (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				agent_name TEXT NOT NULL,
+				from_state TEXT NOT NULL,
+				to_state TEXT NOT NULL,
+				changed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now')),
+				run_id TEXT
+			)
+		`);
+		db.exec(
+			"CREATE INDEX IF NOT EXISTS idx_asl_agent ON agent_state_log(agent_name)",
+		);
+		db.exec(
+			"CREATE INDEX IF NOT EXISTS idx_asl_run ON agent_state_log(run_id)",
+		);
+		// Trigger: log state changes automatically
+		db.exec(`
+			CREATE TRIGGER IF NOT EXISTS trg_session_state_change
+			AFTER UPDATE OF state ON sessions
+			WHEN OLD.state != NEW.state
+			BEGIN
+				INSERT INTO agent_state_log (agent_name, from_state, to_state, run_id)
+				VALUES (NEW.agent_name, OLD.state, NEW.state, NEW.run_id);
+			END
+		`);
+	},
+	detect: (db) => {
+		const result = db
+			.prepare<{ name: string }, []>(
+				"SELECT name FROM sqlite_master WHERE type='table' AND name='agent_state_log'",
+			)
+			.get();
+		return result !== null;
+	},
+};
+
 /** Migrations for the runs table (v8-v9). Separate for independent use by RunStore. */
 const RUNS_MIGRATIONS: Migration[] = [
 	{
@@ -398,7 +455,11 @@ const RUNS_MIGRATIONS: Migration[] = [
 ];
 
 /** Combined sessions + runs migrations for createSessionStore (both tables present). */
-const ALL_SESSION_DB_MIGRATIONS: Migration[] = [...SESSION_MIGRATIONS, ...RUNS_MIGRATIONS];
+const ALL_SESSION_DB_MIGRATIONS: Migration[] = [
+	...SESSION_MIGRATIONS,
+	...RUNS_MIGRATIONS,
+	STATE_LOG_MIGRATION,
+];
 
 /**
  * Create a new SessionStore backed by a SQLite database at the given path.
@@ -742,6 +803,33 @@ export function createSessionStore(dbPath: string): SessionStore {
 			db.prepare<void, Record<string, string>>(deleteQuery).run(params);
 
 			return count;
+		},
+
+		getStateLog(runId: string): StateLogEntry[] {
+			try {
+				const stmt = db.prepare<
+					{
+						agent_name: string;
+						from_state: string;
+						to_state: string;
+						changed_at: string;
+						run_id: string | null;
+					},
+					{ $run_id: string }
+				>(
+					"SELECT agent_name, from_state, to_state, changed_at, run_id FROM agent_state_log WHERE run_id = $run_id ORDER BY changed_at ASC",
+				);
+				return stmt.all({ $run_id: runId }).map((r) => ({
+					agentName: r.agent_name,
+					fromState: r.from_state,
+					toState: r.to_state,
+					changedAt: r.changed_at,
+					runId: r.run_id,
+				}));
+			} catch {
+				// Table may not exist yet (pre-migration)
+				return [];
+			}
 		},
 
 		close(): void {

@@ -8,7 +8,7 @@ Direct tier exists because this task is simple. Keep it simple:
 
 - **Right-size the lead count.** Most direct-tier missions need 1 lead. Rarely 2-3. If you think you need 4+, you probably need `planned` tier instead — escalate.
 - **Batch communications.** One comprehensive dispatch mail per lead.
-- **NEVER poll mail in a loop.** When waiting for results, **set your state to waiting and stop**. You will be woken up via tmux nudge when new mail arrives. Before stopping, run: `ov status set "Waiting for results" --state waiting --agent $OVERSTORY_AGENT_NAME`. When you wake up, clear it: `ov status set "Processing results" --state working --agent $OVERSTORY_AGENT_NAME`.
+- **NEVER poll mail in a loop.** When waiting for a response, **stop processing**. You will be woken up via tmux nudge when new mail arrives. State transitions (waiting/working) are handled automatically.
 - **Trust your leads.** Give clear objectives, let them decompose internally. Only intervene on escalations.
 
 ## failure-modes

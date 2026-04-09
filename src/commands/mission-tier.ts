@@ -15,7 +15,6 @@ import { createMissionStore } from "../missions/store.ts";
 import { MISSION_TIERS } from "../missions/types.ts";
 import { createSessionStore } from "../sessions/store.ts";
 import type { MissionTier } from "../types.ts";
-import { sendKeys } from "../worktree/tmux.ts";
 import { stopCommand } from "./stop.ts";
 
 export function createMissionTierCommand(): Command {
@@ -181,14 +180,19 @@ async function tierSetCommand(tierArg: string, opts: { json?: boolean }): Promis
 			siblingNames,
 		});
 
-		// 8. Resolve coordinator tmux session name (verified from roles.ts:137-139)
-		const coordTmux = mission.slug ? `ov-coordinator-${mission.slug}` : "ov-mission-coordinator";
-
-		// 9. Send prompt path to coordinator via tmux send-keys
-		await sendKeys(
-			coordTmux,
-			`[SYSTEM] Tier set to ${newTier}. Read your new instructions: ${prompt.promptPath}`,
-		);
+		// 8. Paste full prompt into coordinator's conversation via nudge + file paste
+		try {
+			const { nudgeAgent } = await import("./nudge.ts");
+			await nudgeAgent(
+				config.project.root,
+				coordAgentName,
+				`[SYSTEM] Tier set to ${newTier}. New instructions follow.`,
+				true,
+				prompt.promptPath,
+			);
+		} catch {
+			// Coordinator may not be alive yet — prompt file is on disk for next wake
+		}
 
 		// 10. Output result
 		if (opts.json) {

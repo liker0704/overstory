@@ -66,14 +66,13 @@ function updateLastActivity(projectRoot: string, agentName: string, event?: stri
 			const session = store.getByName(agentName);
 			if (session) {
 				store.updateLastActivity(agentName);
-				if (session.state === "booting" || session.state === "zombie") {
+				if (
+					session.state === "booting" ||
+					session.state === "zombie" ||
+					session.state === "waiting"
+				) {
 					store.updateState(agentName, "working");
 				}
-				// Don't auto-transition waiting→working here. Agents explicitly
-				// set working via `ov status set --state working` when they wake up.
-				// Auto-transitioning on tool-start/end breaks the waiting state
-				// because agents do tool calls after setting waiting (e.g. sending
-				// worker_done mail).
 			}
 		} finally {
 			store.close();

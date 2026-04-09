@@ -150,6 +150,7 @@ function makeMockSessionStore(tracker?: ReturnType<typeof createCallTracker>): S
 		getResumable: mock(() => []),
 		remove: mock(() => {}),
 		purge: mock(() => 0),
+		getStateLog: mock(() => []),
 		close: mock(() => {}),
 	};
 }

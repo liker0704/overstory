@@ -852,6 +852,61 @@ export async function sendKeys(name: string, keys: string, maxRetries = 3): Prom
 	}
 }
 
+/**
+ * Paste a file's content into a tmux pane via load-buffer + paste-buffer, then submit with Enter.
+ * Unlike sendKeys, this handles large multiline content without flattening newlines,
+ * because paste-buffer inserts as a paste (no intermediate Enter keystrokes).
+ */
+export async function sendFileContent(
+	sessionName: string,
+	filePath: string,
+	maxRetries = 3,
+): Promise<void> {
+	const target = primaryPaneTarget(sessionName);
+	const bufferName = `ov-paste-${Date.now()}`;
+
+	for (let attempt = 0; attempt <= maxRetries; attempt++) {
+		// Load file into a named tmux buffer
+		const load = await runCommand(["tmux", "load-buffer", "-b", bufferName, filePath]);
+		if (load.exitCode !== 0) {
+			if (attempt < maxRetries) {
+				await Bun.sleep(250 * (attempt + 1));
+				continue;
+			}
+			throw new AgentError(`Failed to load buffer from "${filePath}": ${load.stderr.trim()}`, {
+				agentName: sessionName,
+			});
+		}
+
+		// Paste buffer into the target pane
+		const paste = await runCommand(["tmux", "paste-buffer", "-b", bufferName, "-t", target]);
+
+		// Clean up the named buffer regardless of paste result
+		await runCommand(["tmux", "delete-buffer", "-b", bufferName]);
+
+		if (paste.exitCode !== 0) {
+			const errMsg = paste.stderr.trim();
+			if (errMsg.includes("session not found") || errMsg.includes("no server running")) {
+				throw new AgentError(`Tmux session "${sessionName}" not reachable: ${errMsg}`, {
+					agentName: sessionName,
+				});
+			}
+			if (attempt < maxRetries) {
+				await Bun.sleep(250 * (attempt + 1));
+				continue;
+			}
+			throw new AgentError(`Failed to paste buffer to "${sessionName}": ${errMsg}`, {
+				agentName: sessionName,
+			});
+		}
+
+		// Submit the pasted content with Enter
+		await Bun.sleep(100);
+		await runCommand(["tmux", "send-keys", "-t", target, "Enter"]);
+		return;
+	}
+}
+
 async function sendRawKeys(name: string, keys: string): Promise<void> {
 	const flatKeys = keys.replace(/\n/g, " ");
 	const { exitCode, stderr } = await runCommand([

@@ -8,7 +8,7 @@ Every spawned agent costs a full Claude Code session. The research-lead must be 
 
 - **Batch researcher spawning in waves** respecting `config.research.researcherConcurrency` (default 3). Do not spawn all researchers at once.
 - **Right-size research questions** — each question should require ~10-15 MCP calls. Too broad wastes budget; too narrow multiplies agents without value.
-- **NEVER poll mail in a loop.** When waiting for researcher results, set your state to waiting and stop. You will be woken up via tmux nudge when new mail arrives. Before stopping, run: `ov status set "Waiting for results" --state waiting --agent $OVERSTORY_AGENT_NAME`. When you wake up, clear it: `ov status set "Processing results" --state working --agent $OVERSTORY_AGENT_NAME`.
+- **NEVER poll mail in a loop.** When waiting for a response, **stop processing**. You will be woken up via tmux nudge when new mail arrives. State transitions (waiting/working) are handled automatically.
 - **Synthesize efficiently.** Do not re-research what researchers already found. Read their results once and build on them.
 - **Prefer fewer, well-scoped researchers** (3-5) over many narrow ones. A focused question answered well beats five overlapping queries.
 

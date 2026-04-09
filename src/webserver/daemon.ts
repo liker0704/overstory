@@ -7,6 +7,7 @@ import { createServer } from "./server.ts";
 import type { WebConfig } from "./types.ts";
 
 const PID_FILE_PATH = join(homedir(), ".overstory", "webserver.pid");
+const PORT_FILE_PATH = join(homedir(), ".overstory", "webserver.port");
 const CONFIG_PATH = join(homedir(), ".overstory", "webserver.yaml");
 
 async function readPidFile(pidFilePath: string): Promise<number | null> {
@@ -38,6 +39,18 @@ async function removePidFile(pidFilePath: string): Promise<void> {
 		await unlink(pidFilePath);
 	} catch {
 		// File may already be gone — not an error
+	}
+}
+
+async function readPortFile(): Promise<number | null> {
+	const file = Bun.file(PORT_FILE_PATH);
+	if (!(await file.exists())) return null;
+	try {
+		const text = await file.text();
+		const port = Number.parseInt(text.trim(), 10);
+		return Number.isNaN(port) || port <= 0 ? null : port;
+	} catch {
+		return null;
 	}
 }
 
@@ -99,7 +112,7 @@ export async function loadWebConfig(): Promise<WebConfig> {
 	}
 }
 
-export async function startBackground(config: WebConfig): Promise<{ pid: number }> {
+export async function startBackground(config: WebConfig): Promise<{ pid: number; port: number }> {
 	const existingPid = await readPidFile(PID_FILE_PATH);
 	if (existingPid !== null && isProcessRunning(existingPid)) {
 		throw new OverstoryError(
@@ -115,7 +128,16 @@ export async function startBackground(config: WebConfig): Promise<{ pid: number 
 	const overstoryBin = await resolveOverstoryBin();
 
 	const child = Bun.spawn(
-		["bun", "run", overstoryBin, "webserver", "start", "--port", String(config.port)],
+		[
+			"bun",
+			"run",
+			overstoryBin,
+			"webserver",
+			"start",
+			"--foreground",
+			"--port",
+			String(config.port),
+		],
 		{
 			detached: true,
 			stdout: "pipe",
@@ -137,22 +159,62 @@ export async function startBackground(config: WebConfig): Promise<{ pid: number 
 
 	await writePidFile(PID_FILE_PATH, child.pid);
 
-	return { pid: child.pid };
+	// Wait for child to write port file (written after successful bind)
+	let actualPort: number | null = null;
+	const portDeadline = Date.now() + 2000;
+	while (Date.now() < portDeadline) {
+		actualPort = await readPortFile();
+		if (actualPort !== null) break;
+		await new Promise<void>((r) => setTimeout(r, 100));
+	}
+
+	return { pid: child.pid, port: actualPort ?? config.port };
 }
 
+const MAX_PORT_ATTEMPTS = 10;
+
 export async function startForeground(config: WebConfig, registryPath: string): Promise<void> {
-	const server = createServer(config, registryPath);
+	const server = tryCreateServer(config, registryPath);
+	const actualPort = server.port;
 	await writePidFile(PID_FILE_PATH, process.pid);
+	await Bun.write(PORT_FILE_PATH, `${actualPort}\n`);
 
 	await new Promise<void>((resolve) => {
 		const shutdown = () => {
 			server.stop();
 			removePidFile(PID_FILE_PATH).catch(() => {});
+			removePidFile(PORT_FILE_PATH).catch(() => {});
 			resolve();
 		};
 		process.on("SIGINT", shutdown);
 		process.on("SIGTERM", shutdown);
 	});
+}
+
+/**
+ * Try to create the server, falling back to successive ports on EADDRINUSE.
+ */
+function tryCreateServer(config: WebConfig, registryPath: string): ReturnType<typeof createServer> {
+	const basePort = config.port;
+	for (let attempt = 0; attempt < MAX_PORT_ATTEMPTS; attempt++) {
+		const port = basePort + attempt;
+		try {
+			const server = createServer({ ...config, port }, registryPath);
+			if (attempt > 0) {
+				process.stderr.write(`  Port ${basePort} in use, using ${port} instead\n`);
+			}
+			return server;
+		} catch (err) {
+			if (err instanceof OverstoryError && err.code === "WEBSERVER_PORT_IN_USE") {
+				continue;
+			}
+			throw err;
+		}
+	}
+	throw new OverstoryError(
+		`All ports ${basePort}-${basePort + MAX_PORT_ATTEMPTS - 1} are in use`,
+		"WEBSERVER_PORT_IN_USE",
+	);
 }
 
 export async function stopDaemon(): Promise<boolean> {
@@ -179,6 +241,7 @@ export async function getDaemonStatus(): Promise<{
 
 	if (!isProcessRunning(pid)) return { running: false };
 
+	const actualPort = await readPortFile();
 	const config = await loadWebConfig();
-	return { running: true, pid, port: config.port };
+	return { running: true, pid, port: actualPort ?? config.port };
 }

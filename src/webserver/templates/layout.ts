@@ -2,6 +2,8 @@
  * HTML template primitives: escaping, tagged template literal, and layout.
  */
 
+import { CSS_URL, HTMX_URL, JS_URL } from "../static/fingerprint.ts";
+
 /** HTML entity escaper — encodes & < > " ' */
 export function esc(value: string): string {
 	return value
@@ -58,12 +60,14 @@ export function layout(title: string, body: Raw, options: LayoutOptions = {}): s
 
 	const navLinks = slug
 		? [
+				{ label: "Home", href: "/" },
 				{ label: "Overview", href: `/project/${slug}` },
 				{ label: "Agents", href: `/project/${slug}/agents` },
 				{ label: "Missions", href: `/project/${slug}/missions` },
 				{ label: "Mail", href: `/project/${slug}/mail` },
 				{ label: "Merge", href: `/project/${slug}/merge` },
 				{ label: "Events", href: `/project/${slug}/events` },
+				{ label: "Profiler", href: `/project/${slug}/profiler` },
 			]
 		: [{ label: "Home", href: "/" }];
 
@@ -81,7 +85,7 @@ export function layout(title: string, body: Raw, options: LayoutOptions = {}): s
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>${title}</title>
-	<link rel="stylesheet" href="/static/css">
+	<link rel="stylesheet" href="${CSS_URL}">
 </head>
 <body>
 	<header>
@@ -93,8 +97,8 @@ export function layout(title: string, body: Raw, options: LayoutOptions = {}): s
 	${slug ? html`<main hx-ext="sse" sse-connect="/project/${slug}/sse">` : new Raw("<main>")}
 		${body}
 	</main>
-	<script src="/static/htmx"></script>
-	<script src="/static/js"></script>
+	<script src="${HTMX_URL}"></script>
+	<script src="${JS_URL}"></script>
 </body>
 </html>`.value;
 }
