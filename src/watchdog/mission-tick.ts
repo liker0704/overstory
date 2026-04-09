@@ -8,7 +8,11 @@
  * agents are alive but stuck, and respawns when agents are dead.
  */
 
+import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { validateTransition } from "../agents/state-machine.ts";
+import { resumeAgent } from "../commands/resume.ts";
+import { loadConfig } from "../config.ts";
 import type { OverstoryConfig } from "../config-types.ts";
 import type { EventStore } from "../events/types.ts";
 import type { MailStore } from "../mail/store.ts";
@@ -115,7 +119,7 @@ function findGraphNode(
 		const reviewCell = CELL_REGISTRY[prefix];
 		if (reviewCell) {
 			const subgraph = reviewCell.buildSubgraph({
-				tier: "full",
+				tier: mission.tier === "direct" ? "simple" : "full",
 				maxRounds: 3,
 				artifactRoot: mission.artifactRoot ?? "",
 			});
@@ -186,7 +190,6 @@ async function checkAndRecoverDeadAgents(mission: Mission, opts: MissionTickOpts
 
 		if (check.state === "zombie") {
 			// Mark zombie and attempt resume for mission role agents
-			const { validateTransition } = await import("../agents/state-machine.ts");
 			const vr = validateTransition(
 				session.state,
 				"zombie",
@@ -204,11 +207,8 @@ async function checkAndRecoverDeadAgents(mission: Mission, opts: MissionTickOpts
 			// Try to resume the dead agent via ov resume
 			let resumed = false;
 			try {
-				const { existsSync } = await import("node:fs");
 				if (existsSync(session.worktreePath)) {
-					const { loadConfig } = await import("../config.ts");
 					const config = await loadConfig(opts.projectRoot);
-					const { resumeAgent } = await import("../commands/resume.ts");
 					await resumeAgent(session, config, opts.projectRoot);
 					resumed = true;
 				}
@@ -500,15 +500,8 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 			return; // Within grace, agent is working
 		}
 
-		// Evaluate gate condition for nudge path (use freshMission for up-to-date phase/state)
-		// Note: artifactRoot already declared above in the early-eval block
-		const evalResult = await evaluateGate(
-			currentNodeId,
-			freshMission ?? mission,
-			{ mailStore: opts.mailStore, sessionStore: opts.sessionStore },
-			artifactRoot,
-			gateFilterTime,
-		);
+		// Reuse early-eval result — same params, no need to evaluate twice (overstory-df60).
+		const evalResult = earlyEval;
 
 		if (evalResult.unknown) {
 			if (opts.eventStore) {
