@@ -27,6 +27,7 @@ describe("createMergeQueue", () => {
 			taskId: string;
 			agentName: string;
 			filesModified: string[];
+			workstreamId: string | null;
 		}>,
 	) {
 		return {
@@ -34,6 +35,7 @@ describe("createMergeQueue", () => {
 			taskId: overrides?.taskId ?? "bead-123",
 			agentName: overrides?.agentName ?? "test-agent",
 			filesModified: overrides?.filesModified ?? ["src/test.ts"],
+			workstreamId: overrides?.workstreamId,
 		};
 	}
 
@@ -77,6 +79,24 @@ describe("createMergeQueue", () => {
 			expect(entry.taskId).toBe("bead-xyz");
 			expect(entry.agentName).toBe("builder-1");
 			expect(entry.filesModified).toEqual(["src/a.ts", "src/b.ts"]);
+		});
+
+		test("persists workstreamId round-trip", () => {
+			const queue = createMergeQueue(queuePath);
+			const input = makeInput({
+				branchName: "overstory/ws1/task-1",
+				workstreamId: "ws-1-foundation",
+			});
+
+			const entry = queue.enqueue(input);
+
+			expect(entry.workstreamId).toBe("ws-1-foundation");
+		});
+
+		test("workstreamId defaults to null when not provided", () => {
+			const queue = createMergeQueue(queuePath);
+			const entry = queue.enqueue(makeInput({ branchName: "legacy/branch" }));
+			expect(entry.workstreamId).toBe(null);
 		});
 	});
 

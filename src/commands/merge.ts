@@ -164,7 +164,7 @@ export async function mergeCommand(opts: MergeOptions): Promise<void> {
 	}
 	const targetBranch = into ?? sessionBranch ?? config.project.canonicalBranch;
 	const queuePath = join(config.project.root, ".overstory", "merge-queue.db");
-	const queue = createMergeQueue(queuePath);
+	const queue = createMergeQueue(queuePath, config.project.root);
 	const mulchClient = createMulchClient(config.project.root);
 	const resolver = createMergeResolver({
 		aiResolveEnabled: config.merge.aiResolveEnabled,
@@ -260,11 +260,23 @@ async function handleBranch(
 		const taskId = parseTaskId(branchName);
 		const filesModified = await detectModifiedFiles(repoRoot, canonicalBranch, branchName);
 
+		// Best-effort workstreamId lookup from spec-meta written at dispatch time.
+		// Absent meta is fine — non-mission branches exist and skip SSOT update.
+		let workstreamId: string | null = null;
+		try {
+			const { readSpecMeta } = await import("../missions/spec-meta.ts");
+			const meta = await readSpecMeta(config.project.root, taskId);
+			if (meta?.workstreamId) workstreamId = meta.workstreamId;
+		} catch {
+			// Non-fatal; recordWorkstreamMerge will warn later if workstreamId absent.
+		}
+
 		entry = queue.enqueue({
 			branchName,
 			taskId,
 			agentName,
 			filesModified,
+			workstreamId,
 		});
 	}
 
