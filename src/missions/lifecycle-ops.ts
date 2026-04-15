@@ -54,6 +54,61 @@ interface UpdateOpts {
 	json?: boolean;
 }
 
+interface RoleRename {
+	oldName: string;
+	newName: string;
+	oldTmux: string | null;
+	newTmux: string | null;
+}
+
+/**
+ * Derive rename plans for each mission-scoped role bound on the mission row.
+ * Only includes roles whose current agent name actually differs from the
+ * slug-derived target — a role spawned under the new slug already needs no
+ * change even if its session id is bound.
+ */
+function planRoleRenames(
+	current: {
+		slug: string;
+		coordinatorSessionId: string | null;
+		analystSessionId: string | null;
+		executionDirectorSessionId: string | null;
+		architectSessionId: string | null;
+	},
+	newSlug: string,
+	sessionAgentNames: (sessionId: string) => string | null,
+): RoleRename[] {
+	const plans: RoleRename[] = [];
+	const roles: Array<{ sessionId: string | null; prefix: string; tmuxPrefix: string }> = [
+		{
+			sessionId: current.coordinatorSessionId,
+			prefix: "coordinator",
+			tmuxPrefix: "ov-coordinator",
+		},
+		{ sessionId: current.analystSessionId, prefix: "mission-analyst", tmuxPrefix: "ov-analyst" },
+		{
+			sessionId: current.executionDirectorSessionId,
+			prefix: "execution-director",
+			tmuxPrefix: "ov-ed",
+		},
+		{ sessionId: current.architectSessionId, prefix: "architect", tmuxPrefix: "ov-architect" },
+	];
+	for (const role of roles) {
+		if (!role.sessionId) continue;
+		const actualName = sessionAgentNames(role.sessionId);
+		if (!actualName) continue;
+		const newName = `${role.prefix}-${newSlug}`;
+		if (actualName === newName) continue;
+		plans.push({
+			oldName: actualName,
+			newName,
+			oldTmux: `${role.tmuxPrefix}-${current.slug}`,
+			newTmux: `${role.tmuxPrefix}-${newSlug}`,
+		});
+	}
+	return plans;
+}
+
 export async function missionUpdate(
 	overstoryDir: string,
 	opts: UpdateOpts & { missionId?: string },
@@ -83,9 +138,45 @@ export async function missionUpdate(
 
 	const dbPath = join(overstoryDir, "sessions.db");
 	const missionStore = createMissionStore(dbPath);
+	const renameResults: Array<{ plan: RoleRename; applied: boolean }> = [];
 	try {
 		if (opts.slug) {
+			const current = missionStore.getById(missionId);
+			let plans: RoleRename[] = [];
+			if (current && current.slug !== opts.slug) {
+				const { createSessionStore } = await import("../sessions/store.ts");
+				const sessionStore = createSessionStore(dbPath);
+				try {
+					plans = planRoleRenames(current, opts.slug, (id) => {
+						const session = sessionStore.getById(id);
+						return session?.agentName ?? null;
+					});
+				} finally {
+					sessionStore.close();
+				}
+			}
 			missionStore.updateSlug(missionId, opts.slug);
+
+			if (plans.length > 0) {
+				const { renameAgent, patchContextReferences } = await import("../agents/rename.ts");
+				for (const plan of plans) {
+					await renameAgent({
+						oldName: plan.oldName,
+						newName: plan.newName,
+						oldTmuxSession: plan.oldTmux,
+						newTmuxSession: plan.newTmux,
+						overstoryDir,
+					});
+					renameResults.push({ plan, applied: true });
+				}
+				// Rewrite sibling references inside each agent's mission-context.md
+				// so analyst's context points to the new coordinator name, etc.
+				const allRenames = plans.map((p) => ({ oldName: p.oldName, newName: p.newName }));
+				for (const plan of plans) {
+					const agentDir = join(overstoryDir, "agents", plan.newName);
+					await patchContextReferences(agentDir, allRenames);
+				}
+			}
 		}
 		if (opts.objective) {
 			missionStore.updateObjective(missionId, opts.objective);
@@ -102,6 +193,9 @@ export async function missionUpdate(
 			printSuccess("Mission updated");
 			if (opts.slug) console.log(`  Slug: ${accent(opts.slug)}`);
 			if (opts.objective) console.log(`  Objective: ${opts.objective}`);
+			for (const { plan } of renameResults) {
+				console.log(`  Renamed: ${plan.oldName} → ${accent(plan.newName)}`);
+			}
 		}
 	} finally {
 		missionStore.close();

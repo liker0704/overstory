@@ -45,6 +45,9 @@ export interface EngineDeps {
 	missionStore: MissionStore;
 	sendMail?: (to: string, subject: string, body: string, type: string) => Promise<void>;
 	sessionStore?: SessionStore;
+	/** Optional mail store for handlers that need inbox/outbox inspection
+	 * (e.g. execute-phase check-remaining disambiguates lead waiting state). */
+	mailStore?: import("../mail/store.ts").MailStore;
 }
 
 export interface EngineStatus {
@@ -248,6 +251,7 @@ export function buildLifecycleHandlers(
 		checkpointStore: deps.checkpointStore,
 		missionStore: deps.missionStore,
 		sessionStore: deps.sessionStore,
+		mailStore: deps.mailStore,
 	};
 	const phaseHandlers: HandlerRegistry = {};
 	for (const [key, cell] of Object.entries(PHASE_CELL_REGISTRY)) {

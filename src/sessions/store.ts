@@ -15,6 +15,8 @@ export interface SessionStore {
 	upsert(session: AgentSession): void;
 	/** Get a session by agent name, or null if not found. */
 	getByName(agentName: string): AgentSession | null;
+	/** Get a session by session id, or null if not found. */
+	getById(id: string): AgentSession | null;
 	/** Get all active sessions (state IN ('booting', 'working', 'stalled')). */
 	getActive(): AgentSession[];
 	/** Get all sessions regardless of state. */
@@ -556,6 +558,10 @@ export function createSessionStore(dbPath: string): SessionStore {
 		SELECT * FROM sessions WHERE agent_name = $agent_name
 	`);
 
+	const getByIdStmt = db.prepare<SessionRow, { $id: string }>(`
+		SELECT * FROM sessions WHERE id = $id
+	`);
+
 	const getActiveStmt = db.prepare<SessionRow, Record<string, never>>(`
 		SELECT * FROM sessions WHERE state IN ('booting', 'working', 'waiting', 'stalled')
 		ORDER BY started_at ASC
@@ -676,6 +682,11 @@ export function createSessionStore(dbPath: string): SessionStore {
 
 		getByName(agentName: string): AgentSession | null {
 			const row = getByNameStmt.get({ $agent_name: agentName });
+			return row ? rowToSession(row) : null;
+		},
+
+		getById(id: string): AgentSession | null {
+			const row = getByIdStmt.get({ $id: id });
 			return row ? rowToSession(row) : null;
 		},
 

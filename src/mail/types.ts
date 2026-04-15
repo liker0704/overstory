@@ -224,7 +224,7 @@ export interface ExecutionHandoffItemPayload {
 	fileScope: string[];
 	briefPath: string | null;
 	dependsOn: string[];
-	status: "planned" | "active" | "paused" | "completed";
+	status: "planned" | "active" | "paused" | "completed" | "merged" | "failed";
 }
 
 export interface ExecutionHandoffPayload {

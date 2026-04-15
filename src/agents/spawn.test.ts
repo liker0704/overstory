@@ -134,6 +134,7 @@ function makeMockSessionStore(tracker?: ReturnType<typeof createCallTracker>): S
 			tracker?.record("store.upsert");
 		}),
 		getByName: mock(() => null),
+		getById: mock(() => null),
 		getActive: mock(() => []),
 		getAll: mock(() => []),
 		count: mock(() => 0),

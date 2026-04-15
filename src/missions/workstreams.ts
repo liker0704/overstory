@@ -6,21 +6,28 @@
  * by the Execution Director to dispatch leads via ov sling.
  */
 
+import type { Database } from "bun:sqlite";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Database } from "bun:sqlite";
 import type { TrackerClient } from "../tracker/types.ts";
 import { TDD_MODES, type TddMode } from "./types.ts";
 
 // === Status ===
 
-export type WorkstreamStatus = "planned" | "active" | "paused" | "completed";
+export type WorkstreamStatus = "planned" | "active" | "paused" | "completed" | "merged" | "failed";
 export const WORKSTREAM_STATUSES: readonly WorkstreamStatus[] = [
 	"planned",
 	"active",
 	"paused",
 	"completed",
+	"merged",
+	"failed",
 ] as const;
+
+/** Workstream is considered done (terminal success) if status is completed or merged. */
+export function isWorkstreamDone(status: WorkstreamStatus | undefined): boolean {
+	return status === "completed" || status === "merged";
+}
 
 // === Core types ===
 
@@ -400,6 +407,24 @@ export function updateWorkstreamStatus(
 		$now: new Date().toISOString(),
 		$by: updatedBy,
 	});
+}
+
+/**
+ * Single predicate for "all workstreams complete" used by both the gate evaluator
+ * and the check-remaining handler. Prevents the two decision sites from drifting.
+ *
+ * Returns true when every planned workstream id has a status-table entry of
+ * `merged` or `completed`. Returns false if any planned id is missing or has
+ * a non-terminal status.
+ */
+export function areAllWorkstreamsDone(
+	db: Database,
+	missionId: string,
+	plannedIds: readonly string[],
+): boolean {
+	if (plannedIds.length === 0) return false;
+	const statuses = getWorkstreamStatuses(db, missionId);
+	return plannedIds.every((id) => isWorkstreamDone(statuses.get(id)));
 }
 
 /**

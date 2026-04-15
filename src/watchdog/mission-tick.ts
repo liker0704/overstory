@@ -310,6 +310,7 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 		missionStore,
 		sendMail,
 		sessionStore: opts.sessionStore,
+		mailStore: opts.mailStore ?? undefined,
 	};
 	const tickGraph = buildLifecycleGraph(mission);
 	const tickHandlers = buildLifecycleHandlers(engineDeps, tier);
@@ -378,7 +379,11 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 		const earlyEval = await evaluateGate(
 			currentNodeId,
 			freshMission ?? mission,
-			{ mailStore: opts.mailStore, sessionStore: opts.sessionStore },
+			{
+				mailStore: opts.mailStore,
+				sessionStore: opts.sessionStore,
+				missionStore,
+			},
 			artifactRoot,
 			gateFilterTime,
 		);
@@ -472,6 +477,30 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 			} else {
 				// Original behavior: suspend mission
 				missionStore.updateState(mission.id, "suspended");
+
+				// Terminate descendant agents so they don't keep spawning builders post-suspend.
+				// Minimum BUG-C fix — full async stopper + spawn guard + pane_pid signaling
+				// deferred to follow-up PR. Non-blocking: fire-and-forget, errors logged only.
+				if (mission.runId) {
+					const runIdForStop = mission.runId;
+					void (async () => {
+						try {
+							const { stopMissionRunDescendants } = await import("../missions/roles.ts");
+							const { stopCommand } = await import("../commands/stop.ts");
+							await stopMissionRunDescendants({
+								overstoryDir: opts.overstoryDir,
+								projectRoot: opts.projectRoot,
+								runId: runIdForStop,
+								excludedAgentNames: new Set<string>(),
+								stopAgentCommand: (name, o) => stopCommand(name, { force: o.force }),
+							});
+						} catch (err) {
+							process.stderr.write(
+								`[mission-tick] stopMissionRunDescendants failed: ${String(err)}\n`,
+							);
+						}
+					})();
+				}
 
 				if (opts.eventStore) {
 					opts.eventStore.insert({
@@ -603,6 +632,66 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 								target: evalResult.nudgeTarget,
 								message: evalResult.nudgeMessage,
 								nudgeCount: gateState.nudge_count + 1,
+							}),
+						});
+					}
+				} else if (!gateState.ceiling_emitted_at) {
+					// Nudge ceiling reached — one-shot escalation to coordinator.
+					// Without this branch, the mission would sit silent until the 1h
+					// max_total_wait_ms timeout with no operator-visible signal.
+					missionStore.markCeilingEmitted(mission.id, currentNodeId);
+
+					// Resolve the real coordinator agent name via session id, not slug.
+					// Slug may be stale if the mission was renamed post-spawn.
+					const coordSession = mission.coordinatorSessionId
+						? (opts.sessionStore?.getById(mission.coordinatorSessionId) ?? null)
+						: null;
+					const coordName =
+						coordSession?.agentName ??
+						(mission.slug ? `coordinator-${mission.slug}` : "coordinator");
+					const escalationBody = [
+						`Gate "${currentNodeId}" has not progressed after ${gateState.max_nudges} nudges to "${evalResult.nudgeTarget}".`,
+						"",
+						`Last nudge message: ${evalResult.nudgeMessage}`,
+						"",
+						"The engine has stopped auto-nudging. Please intervene:",
+						"- Verify the expected result mail has been sent",
+						"- Check whether the target agent is stuck or confused",
+						"- Advance the phase manually if the work is actually complete",
+					].join("\n");
+
+					try {
+						opts.mailStore?.insert({
+							id: "",
+							from: "engine",
+							to: coordName,
+							subject: `Gate ceiling reached: ${currentNodeId}`,
+							body: escalationBody,
+							type: "question",
+							priority: "urgent",
+							threadId: null,
+						});
+					} catch {
+						// Non-fatal: escalation mail delivery failure
+					}
+
+					if (opts.eventStore) {
+						opts.eventStore.insert({
+							runId: mission.runId,
+							agentName: "engine",
+							sessionId: null,
+							eventType: "engine_nudge_ceiling_reached",
+							toolName: null,
+							toolArgs: null,
+							toolDurationMs: null,
+							level: "warn",
+							data: JSON.stringify({
+								kind: "nudge_ceiling_reached",
+								missionId: mission.id,
+								nodeId: currentNodeId,
+								target: evalResult.nudgeTarget,
+								escalatedTo: coordName,
+								nudgeCount: gateState.nudge_count,
 							}),
 						});
 					}

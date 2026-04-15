@@ -6,6 +6,8 @@
  */
 
 import { Database } from "bun:sqlite";
+import { existsSync, readFileSync } from "node:fs";
+import { join as pathJoin } from "node:path";
 import { ensureMigrations, hasColumn, type Migration, rebuildTable } from "../db/migrate.ts";
 import type {
 	InsertMission,
@@ -18,6 +20,7 @@ import type {
 } from "../types.ts";
 import { createCheckpointStore } from "./checkpoint.ts";
 import { MISSION_PHASES, TIER_ORDER } from "./types.ts";
+import { areAllWorkstreamsDone as areAllWorkstreamsDoneImpl } from "./workstreams.ts";
 
 /** Safely parse a JSON string from a database column, returning a fallback on failure. */
 function safeJsonParse<T>(value: string | null | undefined, fallback: T): T {
@@ -58,6 +61,7 @@ interface MissionRow {
 	updated_at: string;
 	learnings_extracted: number;
 	tier: string | null;
+	has_emitted_ws_producer_write: number;
 }
 
 const CREATE_TABLE = `
@@ -124,6 +128,7 @@ const REQUIRED_MISSION_COLUMNS = [
 	"created_at",
 	"updated_at",
 	"learnings_extracted",
+	"has_emitted_ws_producer_write",
 ] as const;
 
 function getMissionColumns(db: Database): Set<string> {
@@ -467,6 +472,101 @@ const MISSION_MIGRATIONS: Migration[] = [
 		},
 		detect: (_db, columns) => columns.has("tier"),
 	},
+	{
+		version: 7,
+		description: "Add ceiling_emitted_at to mission_gate_state for one-shot escalation",
+		up: (db) => {
+			if (!hasColumn(db, "mission_gate_state", "ceiling_emitted_at")) {
+				db.exec("ALTER TABLE mission_gate_state ADD COLUMN ceiling_emitted_at TEXT");
+			}
+		},
+		detect: (db) => hasColumn(db, "mission_gate_state", "ceiling_emitted_at"),
+	},
+	{
+		version: 8,
+		description:
+			"Extend workstream_status CHECK to allow merged|failed; add has_emitted_ws_producer_write to missions",
+		up: (db) => {
+			// 1. Extend workstream_status CHECK constraint (via table rebuild — CHECK cannot
+			//    be altered in place). Guard: skip if already extended (idempotent re-run
+			//    safety — rebuildTable itself is not idempotent).
+			const wsSchemaRow = db
+				.prepare<{ sql: string }, []>(
+					"SELECT sql FROM sqlite_master WHERE type='table' AND name='workstream_status'",
+				)
+				.get();
+			if (wsSchemaRow && !wsSchemaRow.sql.includes("'merged'")) {
+				rebuildTable({
+					db,
+					table: "workstream_status",
+					createSql: `
+						CREATE TABLE workstream_status (
+							mission_id TEXT NOT NULL,
+							workstream_id TEXT NOT NULL,
+							status TEXT NOT NULL
+								CHECK(status IN ('planned', 'active', 'paused', 'completed', 'merged', 'failed')),
+							updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+							updated_by TEXT NOT NULL DEFAULT 'agent',
+							PRIMARY KEY(mission_id, workstream_id)
+						)
+					`,
+					columns: ["mission_id", "workstream_id", "status", "updated_at", "updated_by"],
+				});
+			}
+
+			// 2. Add has_emitted_ws_producer_write column to missions table.
+			if (!hasColumn(db, "missions", "has_emitted_ws_producer_write")) {
+				db.exec(
+					"ALTER TABLE missions ADD COLUMN has_emitted_ws_producer_write INTEGER NOT NULL DEFAULT 0",
+				);
+			}
+
+			// 3. Data backfill for in-flight missions. Each mission wrapped in try/catch —
+			//    malformed/missing workstreams.json must not abort the whole migration.
+			const activeMissions = db
+				.prepare<{ id: string; artifact_root: string | null }, []>(
+					"SELECT id, artifact_root FROM missions WHERE state IN ('active','suspended','frozen')",
+				)
+				.all();
+			for (const mission of activeMissions) {
+				try {
+					if (!mission.artifact_root) continue;
+					const wsPath = pathJoin(mission.artifact_root, "plan", "workstreams.json");
+					if (!existsSync(wsPath)) continue;
+					const parsed = JSON.parse(readFileSync(wsPath, "utf-8")) as {
+						workstreams?: Array<{ id: string }>;
+					};
+					const workstreams = parsed.workstreams ?? [];
+					const insertStmt = db.prepare(
+						`INSERT OR IGNORE INTO workstream_status (mission_id, workstream_id, status, updated_at, updated_by)
+						 VALUES ($missionId, $wsId, 'planned', $now, 'engine')`,
+					);
+					const now = new Date().toISOString();
+					for (const ws of workstreams) {
+						if (!ws.id) continue;
+						insertStmt.run({ $missionId: mission.id, $wsId: ws.id, $now: now });
+					}
+				} catch (err) {
+					// Log via stderr — migration framework captures startup errors.
+					// Intentionally do not rethrow; partial backfill is acceptable.
+					process.stderr.write(
+						`[migrate v8] backfill_skipped: mission=${mission.id} error=${String(err)}\n`,
+					);
+				}
+			}
+		},
+		detect: (db) => {
+			// Detect v8 by presence of both: the 'merged' literal in workstream_status CHECK
+			// AND the has_emitted_ws_producer_write column.
+			const wsRow = db
+				.prepare<{ sql: string }, []>(
+					"SELECT sql FROM sqlite_master WHERE type='table' AND name='workstream_status'",
+				)
+				.get();
+			const checkExtended = wsRow ? wsRow.sql.includes("'merged'") : false;
+			return checkExtended && hasColumn(db, "missions", "has_emitted_ws_producer_write");
+		},
+	},
 ];
 
 /** Convert a database row (snake_case) to a Mission object (camelCase). */
@@ -498,6 +598,7 @@ function rowToMission(row: MissionRow): Mission {
 		updatedAt: row.updated_at,
 		learningsExtracted: row.learnings_extracted === 1,
 		tier: (row.tier as MissionTier | null) ?? null,
+		hasEmittedWsProducerWrite: (row.has_emitted_ws_producer_write ?? 0) === 1,
 	};
 }
 
@@ -718,6 +819,10 @@ export function createMissionStore(dbPath: string): MissionStore {
 		UPDATE missions SET learnings_extracted = 1, updated_at = $updated_at WHERE id = $id
 	`);
 
+	const markProducerWrittenStmt = db.prepare<void, { $id: string; $updated_at: string }>(`
+		UPDATE missions SET has_emitted_ws_producer_write = 1, updated_at = $updated_at WHERE id = $id
+	`);
+
 	return {
 		create(mission: InsertMission): Mission {
 			const now = new Date().toISOString();
@@ -919,6 +1024,18 @@ export function createMissionStore(dbPath: string): MissionStore {
 			updateCurrentNodeStmt.run({ $id: id, $current_node: nodeId, $updated_at: now });
 		},
 
+		markProducerWritten(id: string): void {
+			markProducerWrittenStmt.run({
+				$id: id,
+				$updated_at: new Date().toISOString(),
+			});
+		},
+
+		areAllWorkstreamsDone(missionId: string, plannedIds: readonly string[]): boolean {
+			// Delegates to workstreams.ts helper; keeps the decision in one place.
+			return areAllWorkstreamsDoneImpl(db, missionId, plannedIds);
+		},
+
 		markLearningsExtracted(id: string): void {
 			markLearningsExtractedStmt.run({
 				$id: id,
@@ -998,12 +1115,13 @@ export function createMissionStore(dbPath: string): MissionStore {
 					max_nudges: number;
 					max_total_wait_ms: number;
 					resolved_at: string | null;
+					ceiling_emitted_at: string | null;
 				},
 				{ $missionId: string; $nodeId: string }
 			>(
 				`SELECT entered_at, nudge_count, last_nudge_at, respawn_count,
 				        grace_ms, nudge_interval_ms, max_nudges, max_total_wait_ms,
-				        resolved_at
+				        resolved_at, ceiling_emitted_at
 				 FROM mission_gate_state
 				 WHERE mission_id = $missionId AND node_id = $nodeId`,
 			);
@@ -1025,6 +1143,21 @@ export function createMissionStore(dbPath: string): MissionStore {
 			const stmt = db.prepare(
 				`UPDATE mission_gate_state
 				 SET nudge_count = nudge_count + 1, last_nudge_at = $now
+				 WHERE mission_id = $missionId AND node_id = $nodeId`,
+			);
+			return (missionId: string, nodeId: string): void => {
+				stmt.run({
+					$missionId: missionId,
+					$nodeId: nodeId,
+					$now: new Date().toISOString(),
+				});
+			};
+		})(),
+
+		markCeilingEmitted: (() => {
+			const stmt = db.prepare(
+				`UPDATE mission_gate_state
+				 SET ceiling_emitted_at = $now
 				 WHERE mission_id = $missionId AND node_id = $nodeId`,
 			);
 			return (missionId: string, nodeId: string): void => {
