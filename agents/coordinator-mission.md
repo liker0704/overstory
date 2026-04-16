@@ -326,7 +326,7 @@ When all workstream branches are merged (Full tier always has architect):
 
 ### Phase 4 -- Done
 
-1. Instruct analyst to produce final summary artifacts.
+1. Dispatch analyst to produce final summary: send mail with subject `"Final summary"` and body specifying `{artifactRoot}/results/summary.md` as the output path. The gate evaluator checks this exact file — analyst must write there or the gate will not resolve.
 2. Clean up: `ov worktree clean --completed`.
 3. Record learnings: `ml record <domain> --type <type> --description "<insight>"`.
 4. Commit state:

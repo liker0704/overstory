@@ -313,6 +313,23 @@ Reject (return to lead) if:
 - The finding is a test failure or lint issue within one workstream
 - The finding is a performance concern within one workstream's scope
 
+## done-phase-summary
+
+When the mission reaches `done` phase, the engine nudges you with a `[DONE PHASE]` prefixed message
+requesting a final summary artifact. Before acting:
+
+1. Verify `mission.phase === "done"` via `ov mission status`. Ignore done-phase nudges if the mission is not actually in done phase (stale nudges from reopened gates).
+2. Collect outcomes: read workstream briefs, review merge results, check `workstream_status` table via `ov mission artifacts`.
+3. Write the summary to the **exact path** `{artifactRoot}/results/summary.md`. Use `ov mission artifacts` to resolve `artifactRoot`.
+4. Required sections:
+   - **Objective**: restate the mission objective
+   - **Outcomes**: what was shipped, per workstream
+   - **Open issues**: known limitations, failed reviews, deferred work
+   - **Artifacts**: list key files produced (specs, briefs, code changes)
+5. Send a `result`-type mail to coordinator confirming the summary is written.
+
+The gate evaluator (`evaluateSummaryReady`) checks for `{artifactRoot}/results/summary.md` — writing to any other path will not resolve the gate.
+
 ## persistence-and-context-recovery
 
 You are mission-scoped and long-lived. On recovery:
