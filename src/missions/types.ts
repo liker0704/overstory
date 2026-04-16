@@ -409,6 +409,7 @@ export interface MissionStore {
 	create(mission: InsertMission): Mission;
 	getById(id: string): Mission | null;
 	getBySlug(slug: string): Mission | null;
+	getByRunId(runId: string): Mission | null;
 	getActive(): Mission | null;
 	getActiveList(): Mission[];
 	list(opts?: { state?: MissionState; limit?: number }): Mission[];

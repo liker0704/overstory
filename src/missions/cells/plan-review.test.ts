@@ -153,6 +153,7 @@ function createMockMissionStore(): MissionStore {
 			tier: null,
 		}),
 		getBySlug: () => null,
+		getByRunId: () => null,
 		getActive: () => null,
 		getActiveList: () => [],
 		create: (m) => ({

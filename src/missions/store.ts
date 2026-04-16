@@ -651,6 +651,10 @@ export function createMissionStore(dbPath: string): MissionStore {
 		SELECT * FROM missions WHERE slug = $slug
 	`);
 
+	const getByRunIdStmt = db.prepare<MissionRow, { $run_id: string }>(`
+		SELECT * FROM missions WHERE run_id = $run_id LIMIT 1
+	`);
+
 	const getActiveStmt = db.prepare<MissionRow, Record<string, never>>(`
 		SELECT * FROM missions WHERE state = 'active' OR state = 'frozen'
 		ORDER BY created_at DESC
@@ -851,6 +855,11 @@ export function createMissionStore(dbPath: string): MissionStore {
 
 		getBySlug(slug: string): Mission | null {
 			const row = getBySlugStmt.get({ $slug: slug });
+			return row ? rowToMission(row) : null;
+		},
+
+		getByRunId(runId: string): Mission | null {
+			const row = getByRunIdStmt.get({ $run_id: runId });
 			return row ? rowToMission(row) : null;
 		},
 

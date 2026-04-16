@@ -33,9 +33,10 @@ import {
 } from "../commands/sling.ts";
 import type { OverstoryConfig } from "../config-types.ts";
 import type { ProjectContext } from "../context/types.ts";
-import { AgentError } from "../errors.ts";
+import { AgentError, LifecycleError } from "../errors.ts";
 import type { MailClient } from "../mail/client.ts";
 import type { MailStore } from "../mail/store.ts";
+import type { MissionStore } from "../missions/types.ts";
 import { capabilityToAudience } from "../mulch/audience.ts";
 import type { MulchClient } from "../mulch/client.ts";
 import type { AgentRuntime } from "../runtimes/types.ts";
@@ -164,6 +165,8 @@ export interface SpawnDeps {
 	mulch: () => MulchClient;
 	/** Lazy runtime factory. */
 	runtime: () => AgentRuntime;
+	/** Lazy mission store — used by spawn guard to reject spawns for suspended missions. */
+	missionStore?: () => MissionStore;
 
 	// Tmux operations (mockable)
 	tmux: TmuxOps;
@@ -230,6 +233,21 @@ export function createSpawnService(deps: SpawnDeps): SpawnService {
 					`Spawning paused by health policy (rule: ${ruleId}). Run \`ov health policy enable\` or remove .overstory/spawn-paused to resume.`,
 					{ agentName: opts.name },
 				);
+			}
+
+			// Reject spawns for suspended/stopped/failed/completed missions.
+			// Prevents agents from being created between tick suspend and stop completion.
+			if (opts.runId && deps.missionStore) {
+				const mission = deps.missionStore().getByRunId(opts.runId);
+				if (mission) {
+					const terminal = new Set(["suspended", "stopped", "failed", "completed"]);
+					if (terminal.has(mission.state)) {
+						throw new LifecycleError(
+							`Cannot spawn agent: mission ${mission.id} is ${mission.state}`,
+							{ agentName: opts.name },
+						);
+					}
+				}
 			}
 
 			// 7. Create worktree
