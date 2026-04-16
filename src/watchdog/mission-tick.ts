@@ -478,28 +478,34 @@ async function processMission(mission: Mission, opts: MissionTickOpts): Promise<
 				// Original behavior: suspend mission
 				missionStore.updateState(mission.id, "suspended");
 
-				// Terminate descendant agents so they don't keep spawning builders post-suspend.
-				// Minimum BUG-C fix — full async stopper + spawn guard + pane_pid signaling
-				// deferred to follow-up PR. Non-blocking: fire-and-forget, errors logged only.
+				// Terminate descendant agents. Awaited with a 10s budget so the next
+				// tick sees agents actually stopped. Spawn guard in spawn.ts prevents
+				// new agents from being created while this runs.
 				if (mission.runId) {
-					const runIdForStop = mission.runId;
-					void (async () => {
-						try {
-							const { stopMissionRunDescendants } = await import("../missions/roles.ts");
-							const { stopCommand } = await import("../commands/stop.ts");
-							await stopMissionRunDescendants({
+					let stopTimer: ReturnType<typeof setTimeout> | undefined;
+					try {
+						const { stopMissionRunDescendants } = await import("../missions/roles.ts");
+						const { stopCommand } = await import("../commands/stop.ts");
+						await Promise.race([
+							stopMissionRunDescendants({
 								overstoryDir: opts.overstoryDir,
 								projectRoot: opts.projectRoot,
-								runId: runIdForStop,
+								runId: mission.runId,
 								excludedAgentNames: new Set<string>(),
 								stopAgentCommand: (name, o) => stopCommand(name, { force: o.force }),
-							});
-						} catch (err) {
-							process.stderr.write(
-								`[mission-tick] stopMissionRunDescendants failed: ${String(err)}\n`,
-							);
-						}
-					})();
+							}),
+							new Promise<never>((_, reject) => {
+								stopTimer = setTimeout(
+									() => reject(new Error("stop-descendants timed out after 10s")),
+									10_000,
+								);
+							}),
+						]);
+					} catch (err) {
+						process.stderr.write(`[mission-tick] stop-descendants: ${String(err)}\n`);
+					} finally {
+						if (stopTimer) clearTimeout(stopTimer);
+					}
 				}
 
 				if (opts.eventStore) {
