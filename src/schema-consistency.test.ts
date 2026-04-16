@@ -255,6 +255,7 @@ describe("SQL schema consistency", () => {
 				"resolved_tier",
 				"status",
 				"task_id",
+				"workstream_id",
 			].sort();
 
 			expect(actual).toEqual(expected);

@@ -7,6 +7,8 @@
  */
 
 import { Database } from "bun:sqlite";
+import { existsSync, readFileSync } from "node:fs";
+import { join as joinPath } from "node:path";
 import {
 	applyMigrations,
 	bootstrapSchemaVersion,
@@ -61,6 +63,7 @@ interface MergeQueueRow {
 	status: string;
 	resolved_tier: string | null;
 	compat_report_path: string | null;
+	workstream_id: string | null;
 }
 
 const CREATE_TABLE = `
@@ -69,6 +72,7 @@ CREATE TABLE IF NOT EXISTS merge_queue (
   branch_name TEXT NOT NULL,
   task_id TEXT NOT NULL,
   mission_id TEXT,
+  workstream_id TEXT,
   agent_name TEXT NOT NULL,
   files_modified TEXT NOT NULL DEFAULT '[]',
   enqueued_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f','now')),
@@ -78,6 +82,11 @@ CREATE TABLE IF NOT EXISTS merge_queue (
     CHECK(resolved_tier IS NULL OR resolved_tier IN ('clean-merge','auto-resolve','ai-resolve','reimagine')),
   compat_report_path TEXT
 )`;
+
+/** Project root exposed to migration v3 for backfill file reads.
+ * Set immediately before applyMigrations and cleared after. Not thread-safe,
+ * but migration runs synchronously at store creation. */
+let projectRootForMigration: string | null = null;
 
 /** Migrations for merge_queue schema evolution. */
 const MIGRATIONS: Migration[] = [
@@ -108,6 +117,9 @@ const MIGRATIONS: Migration[] = [
 						"compat_report_path",
 					],
 				});
+				// CREATE_TABLE includes mission_id and workstream_id for new installs,
+				// but v1 may run before v2/v3 — those migrations add the columns later
+				// via ALTER TABLE. rebuildTable above preserves only v0 columns.
 			}
 		},
 		detect: (_db, columns) => columns.has("compat_report_path"),
@@ -121,6 +133,47 @@ const MIGRATIONS: Migration[] = [
 			}
 		},
 		detect: (_db, columns) => columns.has("mission_id"),
+	},
+	{
+		version: 3,
+		description: "add workstream_id column; backfill from spec-meta.json for existing rows",
+		up: (db) => {
+			if (!hasColumn(db, "merge_queue", "workstream_id")) {
+				db.exec("ALTER TABLE merge_queue ADD COLUMN workstream_id TEXT");
+			}
+			// Backfill runs only when `projectRoot` was passed to createMergeQueue.
+			// Module-level `projectRootForMigration` is set just before applyMigrations.
+			if (!projectRootForMigration) return;
+			const rows = db
+				.prepare<{ id: number; task_id: string }, []>(
+					"SELECT id, task_id FROM merge_queue WHERE workstream_id IS NULL",
+				)
+				.all();
+			if (rows.length === 0) return;
+			const updateStmt = db.prepare("UPDATE merge_queue SET workstream_id = $wsId WHERE id = $id");
+			for (const row of rows) {
+				try {
+					const metaPath = joinPath(
+						projectRootForMigration,
+						".overstory",
+						"specs",
+						`${row.task_id}.meta.json`,
+					);
+					if (!existsSync(metaPath)) continue; // ENOENT: silent skip (legacy/non-mission)
+					const parsed = JSON.parse(readFileSync(metaPath, "utf-8")) as {
+						workstreamId?: unknown;
+					};
+					if (typeof parsed.workstreamId === "string" && parsed.workstreamId.length > 0) {
+						updateStmt.run({ $id: row.id, $wsId: parsed.workstreamId });
+					}
+				} catch (err) {
+					process.stderr.write(
+						`[merge_queue v3] spec-meta parse failed for ${row.task_id}: ${String(err)}\n`,
+					);
+				}
+			}
+		},
+		detect: (_db, columns) => columns.has("workstream_id"),
 	},
 ];
 
@@ -148,6 +201,7 @@ function rowToEntry(row: MergeQueueRow): MergeEntry {
 		branchName: row.branch_name,
 		taskId: row.task_id,
 		missionId: row.mission_id,
+		workstreamId: row.workstream_id,
 		agentName: row.agent_name,
 		filesModified,
 		enqueuedAt: row.enqueued_at,
@@ -176,8 +230,13 @@ function migrateBeadIdToTaskId(db: Database): void {
  *
  * Initializes the database with WAL mode and a 5-second busy timeout.
  * Creates the merge_queue table and indexes if they do not already exist.
+ *
+ * @param projectRoot Optional. When provided, migration v3 backfills
+ *   `workstream_id` for pre-existing rows by reading
+ *   `.overstory/specs/<taskId>.meta.json`. Callers in snapshot/restore/eval
+ *   contexts should omit this — backfill silently skips; column is nullable.
  */
-export function createMergeQueue(dbPath: string): MergeQueue {
+export function createMergeQueue(dbPath: string, projectRoot?: string): MergeQueue {
 	const db = new Database(dbPath);
 
 	// Configure for concurrent access from multiple agent processes
@@ -194,7 +253,12 @@ export function createMergeQueue(dbPath: string): MergeQueue {
 
 	// Apply versioned migrations (compat_failed status + compat_report_path column + mission_id)
 	bootstrapSchemaVersion(db, "merge_queue", MIGRATIONS);
-	applyMigrations(db, MIGRATIONS);
+	projectRootForMigration = projectRoot ?? null;
+	try {
+		applyMigrations(db, MIGRATIONS);
+	} finally {
+		projectRootForMigration = null;
+	}
 
 	// Create mission index after migration v2 ensures the column exists
 	db.exec(CREATE_MISSION_INDEX);
@@ -206,13 +270,14 @@ export function createMergeQueue(dbPath: string): MergeQueue {
 			$branch_name: string;
 			$task_id: string;
 			$mission_id: string | null;
+			$workstream_id: string | null;
 			$agent_name: string;
 			$files_modified: string;
 			$enqueued_at: string;
 		}
 	>(`
-		INSERT INTO merge_queue (branch_name, task_id, mission_id, agent_name, files_modified, enqueued_at)
-		VALUES ($branch_name, $task_id, $mission_id, $agent_name, $files_modified, $enqueued_at)
+		INSERT INTO merge_queue (branch_name, task_id, mission_id, workstream_id, agent_name, files_modified, enqueued_at)
+		VALUES ($branch_name, $task_id, $mission_id, $workstream_id, $agent_name, $files_modified, $enqueued_at)
 		RETURNING *
 	`);
 
@@ -278,6 +343,7 @@ export function createMergeQueue(dbPath: string): MergeQueue {
 				$branch_name: input.branchName,
 				$task_id: input.taskId,
 				$mission_id: input.missionId ?? null,
+				$workstream_id: input.workstreamId ?? null,
 				$agent_name: input.agentName,
 				$files_modified: filesModifiedJson,
 				$enqueued_at: enqueuedAt,
