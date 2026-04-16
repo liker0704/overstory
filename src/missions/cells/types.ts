@@ -2,13 +2,8 @@
  * Shared cell types for mission subgraph cells.
  */
 
-import type {
-	CheckpointStore,
-	MissionGraph,
-	MissionStore,
-	PlanReviewTier,
-} from "../../types.ts";
 import type { SessionStore } from "../../sessions/store.ts";
+import type { CheckpointStore, MissionGraph, MissionStore, PlanReviewTier } from "../../types.ts";
 import type { HandlerRegistry } from "../types.ts";
 
 // === Review cell types (plan-review, architecture-review) ===
@@ -44,6 +39,8 @@ export interface PhaseCellDeps {
 	checkpointStore: CheckpointStore;
 	missionStore: MissionStore;
 	sessionStore?: SessionStore;
+	/** Optional: needed by check-remaining handler to disambiguate "waiting" lead state. */
+	mailStore?: import("../../mail/store.ts").MailStore;
 }
 
 export interface PhaseCellDefinition {

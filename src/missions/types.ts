@@ -181,6 +181,10 @@ export interface Mission {
 	updatedAt: string;
 	learningsExtracted: boolean;
 	tier: MissionTier | null;
+	/** Set to true once any producer has written a workstream status for this mission.
+	 * Used to permanently disable the "status table not populated" fallback path in
+	 * gate evaluators once real producer wiring has demonstrated it works. */
+	hasEmittedWsProducerWrite: boolean;
 }
 
 export type InsertMission = Pick<Mission, "id" | "slug" | "objective"> & {
@@ -433,6 +437,12 @@ export interface MissionStore {
 	updateObjective(id: string, objective: string): void;
 	updateCurrentNode(id: string, nodeId: string): void;
 	markLearningsExtracted(id: string): void;
+	/** Set hasEmittedWsProducerWrite=true. Called by merge pipeline on first successful
+	 * updateWorkstreamStatus write. Permanently disables the evaluator's fallback path. */
+	markProducerWritten(id: string): void;
+	/** True when every planned workstream id has status `merged` or `completed`.
+	 * Used by both `evaluateWsCompletion` and `check-remaining` handler (SSOT). */
+	areAllWorkstreamsDone(missionId: string, plannedIds: readonly string[]): boolean;
 	updateWorkstreamStatus(
 		missionId: string,
 		workstreamId: string,
@@ -462,8 +472,10 @@ export interface MissionStore {
 		max_nudges: number;
 		max_total_wait_ms: number;
 		resolved_at: string | null;
+		ceiling_emitted_at: string | null;
 	};
 	incrementNudgeCount(missionId: string, nodeId: string): void;
+	markCeilingEmitted(missionId: string, nodeId: string): void;
 	resolveGate(missionId: string, nodeId: string, trigger: string): void;
 	resetGateState(missionId: string, nodeId: string): void;
 

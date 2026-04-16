@@ -7,6 +7,7 @@
  */
 
 import type { MailStore } from "../mail/store.ts";
+import type { MissionStore } from "../missions/types.ts";
 import type { SessionStore } from "../sessions/store.ts";
 import type { Mission } from "../types.ts";
 
@@ -18,7 +19,10 @@ export interface GateEvalResult {
 	unknown?: boolean;
 }
 
-/** Check if research phase has completed: analyst sent result mail to coordinator. */
+/** Check if research phase has completed: analyst sent result mail to coordinator.
+ * If all scouts dispatched by analyst have returned results but analyst hasn't
+ * aggregated yet, escalate with a specific nudge telling analyst exactly what
+ * to do. The scout content lives in analyst's inbox — only analyst can aggregate. */
 export function evaluateAwaitResearch(
 	mission: Mission,
 	mailStore: MailStore | null,
@@ -26,7 +30,6 @@ export function evaluateAwaitResearch(
 ): GateEvalResult {
 	if (!mailStore) return { met: false };
 
-	// Check if analyst dispatched (dispatch mail from coordinator to analyst exists)
 	const analystName = mission.analystSessionId ? `mission-analyst-${mission.slug}` : null;
 	if (!analystName) {
 		// Analyst spawn may be in progress (tierSetCommand spawns after DB transaction).
@@ -34,10 +37,10 @@ export function evaluateAwaitResearch(
 		return { met: false };
 	}
 
-	// Check if analyst sent research result — check coordinator's inbox
+	// Path 1: analyst explicitly sent aggregated result to coordinator.
 	const coordinatorName = `coordinator-${mission.slug}`;
-	const msgs = mailStore.getAll({ to: coordinatorName });
-	const hasResult = msgs.some(
+	const coordInbox = mailStore.getAll({ to: coordinatorName });
+	const hasResult = coordInbox.some(
 		(m) =>
 			m.type === "result" &&
 			m.from.includes("analyst") &&
@@ -45,6 +48,38 @@ export function evaluateAwaitResearch(
 	);
 	if (hasResult) {
 		return { met: true, trigger: "research_complete" };
+	}
+
+	// Path 2: graph-level scout aggregation detection.
+	// If analyst dispatched scouts and all replied but analyst didn't aggregate,
+	// send a specific nudge (not auto-advance — scout content is in analyst's
+	// inbox, only analyst can meaningfully summarize for coordinator).
+	// Scope to scout-prefixed recipients; analyst may also dispatch non-scout
+	// agents (e.g. plan-review-lead) which must not poison this detection.
+	const analystOutbox = mailStore.getAll({ from: analystName });
+	const scoutDispatches = analystOutbox.filter(
+		(m) =>
+			m.type === "dispatch" &&
+			m.to.startsWith("scout-") &&
+			(!gateEnteredAt || m.createdAt >= gateEnteredAt),
+	);
+	if (scoutDispatches.length > 0) {
+		const analystInbox = mailStore.getAll({ to: analystName });
+		const completedCount = scoutDispatches.filter((dispatch) =>
+			analystInbox.some(
+				(reply) =>
+					reply.from === dispatch.to &&
+					reply.type === "result" &&
+					reply.createdAt >= dispatch.createdAt,
+			),
+		).length;
+		if (completedCount === scoutDispatches.length) {
+			return {
+				met: false,
+				nudgeTarget: analystName,
+				nudgeMessage: `All ${scoutDispatches.length} dispatched scouts have returned results. Aggregate their findings and send a result-type mail to ${coordinatorName} now.`,
+			};
+		}
 	}
 
 	return {
@@ -231,26 +266,76 @@ export function evaluateAwaitHandoff(mission: Mission): GateEvalResult {
  * Note: `mailStore.getAll` does not support type filtering — the fetch-all + find pattern
  * is intentional and bounded by the store's default limit (1000 messages).
  */
-export function evaluateWsCompletion(
+export async function evaluateWsCompletion(
 	mission: Mission,
 	mailStore: MailStore | null,
+	artifactRoot: string,
+	missionStore: MissionStore | null,
 	gateEnteredAt?: string,
-): GateEvalResult {
+): Promise<GateEvalResult> {
 	if (!mailStore) return { met: false };
 
-	// Check for 'merged' mail sent to execution director, filtering by gate entry time
-	// to avoid re-triggering on the same mail when the node loops back to itself.
 	const edName = `execution-director-${mission.slug}`;
-	const msgs = mailStore.getAll({ to: edName });
-	const mergedMail = msgs.find(
-		(m) => m.type === "merged" && (!gateEnteredAt || m.createdAt >= gateEnteredAt),
-	);
-	if (mergedMail) {
-		return {
-			met: true,
-			trigger: "ws_merged",
-			nudgeMessage: mergedMail.body,
-		};
+
+	// Legacy path (opt-out via env var) — advance on first `merged` mail to ED.
+	// Default is the new SSOT path below.
+	if (process.env.OVERSTORY_LEGACY_WS_COMPLETION === "true") {
+		const msgs = mailStore.getAll({ to: edName });
+		const mergedMail = msgs.find(
+			(m) => m.type === "merged" && (!gateEnteredAt || m.createdAt >= gateEnteredAt),
+		);
+		if (mergedMail) {
+			return { met: true, trigger: "ws_merged", nudgeMessage: mergedMail.body };
+		}
+		return { met: false };
+	}
+
+	// New SSOT path — consult workstream_status table.
+	// 1. Load planned workstream ids (lenient: only need ids, ignore other fields).
+	const plannedIds: string[] = [];
+	try {
+		const wsPath = `${artifactRoot}/plan/workstreams.json`;
+		const file = Bun.file(wsPath);
+		if (await file.exists()) {
+			const parsed = (await file.json()) as { workstreams?: Array<{ id?: string }> };
+			for (const ws of parsed.workstreams ?? []) {
+				if (typeof ws.id === "string" && ws.id.length > 0) plannedIds.push(ws.id);
+			}
+		}
+	} catch (err) {
+		// Malformed workstreams.json is not pre-handoff — it means plan is corrupted.
+		// Surface to stderr so watchdog/operator notice; still return met:false so the
+		// mission doesn't auto-advance on bad data.
+		process.stderr.write(
+			`[evaluateWsCompletion] malformed workstreams.json at ${artifactRoot}/plan/workstreams.json: ${String(err)}\n`,
+		);
+	}
+
+	// 2. Pre-handoff (no plan yet) → not met.
+	if (plannedIds.length === 0) return { met: false };
+
+	// 3. Query status table.
+	if (missionStore?.areAllWorkstreamsDone(mission.id, plannedIds)) {
+		return { met: true, trigger: "ws_merged" };
+	}
+
+	// 4. Sticky-flag fallback: if producer has never fired AND at least one
+	//    `merged` mail exists, honor the old behavior once — this keeps
+	//    pre-PR-2 in-flight missions from hanging if migration v8 backfill
+	//    missed them. After the first producer write per mission, this
+	//    fallback is permanently disabled.
+	if (!mission.hasEmittedWsProducerWrite) {
+		const msgs = mailStore.getAll({ to: edName });
+		const mergedMail = msgs.find(
+			(m) => m.type === "merged" && (!gateEnteredAt || m.createdAt >= gateEnteredAt),
+		);
+		if (mergedMail) {
+			return {
+				met: true,
+				trigger: "ws_merged",
+				nudgeMessage: `[ws_status_not_populated] ${mergedMail.body}`,
+			};
+		}
 	}
 
 	return { met: false };
@@ -417,6 +502,7 @@ export async function evaluateGate(
 	stores: {
 		mailStore: MailStore | null;
 		sessionStore: SessionStore;
+		missionStore?: MissionStore | null;
 	},
 	artifactRoot: string,
 	gateEnteredAt?: string,
@@ -439,7 +525,13 @@ export async function evaluateGate(
 		case "await-handoff":
 			return evaluateAwaitHandoff(mission);
 		case "await-ws-completion":
-			return evaluateWsCompletion(mission, stores.mailStore, gateEnteredAt);
+			return evaluateWsCompletion(
+				mission,
+				stores.mailStore,
+				artifactRoot,
+				stores.missionStore ?? null,
+				gateEnteredAt,
+			);
 		case "arch-review-dispatch":
 			return evaluateArchReviewDispatch(mission, stores.mailStore, gateEnteredAt);
 		case "arch-review":

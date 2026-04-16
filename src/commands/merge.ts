@@ -68,14 +68,11 @@ async function detectModifiedFiles(
 	canonicalBranch: string,
 	branchName: string,
 ): Promise<string[]> {
-	const proc = Bun.spawn(
-		["git", "diff", "--name-only", `${canonicalBranch}...${branchName}`],
-		{
-			cwd: repoRoot,
-			stdout: "pipe",
-			stderr: "pipe",
-		},
-	);
+	const proc = Bun.spawn(["git", "diff", "--name-only", `${canonicalBranch}...${branchName}`], {
+		cwd: repoRoot,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
 	const exitCode = await proc.exited;
 
 	if (exitCode !== 0) {
@@ -145,12 +142,9 @@ export async function mergeCommand(opts: MergeOptions): Promise<void> {
 	const json = opts.json ?? false;
 
 	if (!branchName && !all) {
-		throw new ValidationError(
-			"Either --branch <name> or --all is required for ov merge",
-			{
-				field: "branch|all",
-			},
-		);
+		throw new ValidationError("Either --branch <name> or --all is required for ov merge", {
+			field: "branch|all",
+		});
 	}
 
 	const cwd = process.cwd();
@@ -159,11 +153,7 @@ export async function mergeCommand(opts: MergeOptions): Promise<void> {
 	// Resolution chain: --into flag > session-start branch > config canonicalBranch
 	let sessionBranch: string | null = null;
 	if (into === undefined) {
-		const sessionBranchPath = join(
-			config.project.root,
-			".overstory",
-			"session-branch.txt",
-		);
+		const sessionBranchPath = join(config.project.root, ".overstory", "session-branch.txt");
 		const sessionBranchFile = Bun.file(sessionBranchPath);
 		if (await sessionBranchFile.exists()) {
 			const content = (await sessionBranchFile.text()).trim();
@@ -253,14 +243,11 @@ async function handleBranch(
 	// If not in queue, create one by detecting info from the branch
 	if (entry === null) {
 		// Validate that the branch exists before attempting any git operations
-		const verifyProc = Bun.spawn(
-			["git", "rev-parse", "--verify", `refs/heads/${branchName}`],
-			{
-				cwd: repoRoot,
-				stdout: "pipe",
-				stderr: "pipe",
-			},
-		);
+		const verifyProc = Bun.spawn(["git", "rev-parse", "--verify", `refs/heads/${branchName}`], {
+			cwd: repoRoot,
+			stdout: "pipe",
+			stderr: "pipe",
+		});
 		const verifyExit = await verifyProc.exited;
 		if (verifyExit !== 0) {
 			throw new ValidationError(`Branch "${branchName}" not found`, {
@@ -271,11 +258,7 @@ async function handleBranch(
 
 		const agentName = parseAgentName(branchName);
 		const taskId = parseTaskId(branchName);
-		const filesModified = await detectModifiedFiles(
-			repoRoot,
-			canonicalBranch,
-			branchName,
-		);
+		const filesModified = await detectModifiedFiles(repoRoot, canonicalBranch, branchName);
 
 		entry = queue.enqueue({
 			branchName,
@@ -295,16 +278,10 @@ async function handleBranch(
 	}
 
 	// Run compat gate before tier-1 merge
-	const gateDecision = await runCompatGate(
-		repoRoot,
-		entry,
-		canonicalBranch,
-		compatConfig,
-		{
-			surfaceCache,
-			eventsDbPath,
-		},
-	);
+	const gateDecision = await runCompatGate(repoRoot, entry, canonicalBranch, compatConfig, {
+		surfaceCache,
+		eventsDbPath,
+	});
 
 	if (gateDecision.action !== "admit") {
 		const sanitizedBranch = entry.branchName.replace(/\//g, "-");
@@ -342,11 +319,14 @@ async function handleBranch(
 	const result = await resolver.resolve(entry, canonicalBranch, repoRoot);
 
 	// Update queue status based on result
-	queue.updateStatus(
-		branchName,
-		result.success ? "merged" : "conflict",
-		result.tier,
-	);
+	queue.updateStatus(branchName, result.success ? "merged" : "conflict", result.tier);
+
+	// SSOT: record workstream completion so gate evaluators advance only when
+	// all planned workstreams have merged. Workstream id must be known at
+	// dispatch time (ov sling) and threaded through MergeEntry.
+	if (result.success) {
+		await recordWorkstreamMerge(entry, join(config.project.root, ".overstory"));
+	}
 
 	if (json) {
 		jsonOutput("merge", { ...result });
@@ -355,13 +335,51 @@ async function handleBranch(
 	}
 
 	if (!result.success) {
-		throw new MergeError(
-			result.errorMessage ?? `Merge failed for branch "${branchName}"`,
-			{
-				branchName,
-				conflictFiles: result.conflictFiles,
-			},
+		throw new MergeError(result.errorMessage ?? `Merge failed for branch "${branchName}"`, {
+			branchName,
+			conflictFiles: result.conflictFiles,
+		});
+	}
+}
+
+/**
+ * Record that a workstream has merged so gate evaluators advance the execute
+ * phase correctly. Silently warns when `workstreamId` is absent (see Round 2
+ * plan §BUG-A) — missed producer wiring surfaces in stderr rather than
+ * silently skipping the SSOT update.
+ */
+async function recordWorkstreamMerge(entry: MergeEntry, overstoryDir: string): Promise<void> {
+	if (!entry.missionId) return;
+	if (!entry.workstreamId) {
+		process.stderr.write(
+			`[merge] warning: workstreamId absent for branch ${entry.branchName} — ` +
+				`workstream_status NOT updated. Fix: ov sling must record workstreamId at dispatch.\n`,
 		);
+		return;
+	}
+	// Single DB handle + single transaction: both writes land atomically, preventing
+	// half-applied state (e.g., sticky flag flipped but status row missing → future
+	// fallback misfires).
+	try {
+		const { Database } = await import("bun:sqlite");
+		const { updateWorkstreamStatus } = await import("../missions/workstreams.ts");
+		const dbPath = `${overstoryDir}/sessions.db`;
+		const db = new Database(dbPath);
+		try {
+			db.exec("PRAGMA journal_mode=WAL");
+			db.exec("PRAGMA busy_timeout=5000");
+			const tx = db.transaction((m: string, ws: string) => {
+				updateWorkstreamStatus(db, m, ws, "merged", "engine");
+				db.prepare(
+					"UPDATE missions SET has_emitted_ws_producer_write = 1, updated_at = ? WHERE id = ?",
+				).run(new Date().toISOString(), m);
+			});
+			tx(entry.missionId, entry.workstreamId);
+		} finally {
+			db.close();
+		}
+	} catch (err) {
+		process.stderr.write(`[merge] workstream_status update failed: ${String(err)}\n`);
 	}
 }
 
@@ -414,16 +432,10 @@ async function handleAll(
 
 	for (const entry of pendingEntries) {
 		// Run compat gate before tier-1 merge (shared surfaceCache across all entries)
-		const gateDecision = await runCompatGate(
-			repoRoot,
-			entry,
-			canonicalBranch,
-			compatConfig,
-			{
-				surfaceCache,
-				eventsDbPath,
-			},
-		);
+		const gateDecision = await runCompatGate(repoRoot, entry, canonicalBranch, compatConfig, {
+			surfaceCache,
+			eventsDbPath,
+		});
 
 		if (gateDecision.action !== "admit") {
 			const sanitizedBranch = entry.branchName.replace(/\//g, "-");
@@ -446,11 +458,11 @@ async function handleAll(
 
 		const result = await resolver.resolve(entry, canonicalBranch, repoRoot);
 
-		queue.updateStatus(
-			entry.branchName,
-			result.success ? "merged" : "conflict",
-			result.tier,
-		);
+		queue.updateStatus(entry.branchName, result.success ? "merged" : "conflict", result.tier);
+
+		if (result.success) {
+			await recordWorkstreamMerge(entry, join(config.project.root, ".overstory"));
+		}
 
 		results.push(result);
 

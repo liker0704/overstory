@@ -125,4 +125,81 @@ describe("missionUpdate", () => {
 
 		process.exitCode = 0;
 	});
+
+	test("renames bound coordinator session when slug changes", async () => {
+		await setupMission("m-007", "original", "objective");
+		const { createSessionStore } = await import("../sessions/store.ts");
+		const sessionStore = createSessionStore(join(overstoryDir, "sessions.db"));
+		sessionStore.upsert({
+			id: "session-coord-original",
+			agentName: "coordinator-original",
+			capability: "coordinator-mission",
+			state: "working",
+			tmuxSession: "ov-coordinator-original",
+			runtime: "claude",
+			pid: null,
+			runId: null,
+			parentAgent: null,
+			depth: 0,
+			worktreePath: "/tmp/wt",
+			branchName: "main",
+			taskId: "t-1",
+			startedAt: new Date().toISOString(),
+			lastActivity: new Date().toISOString(),
+			stalledSince: null,
+			escalationLevel: 0,
+			transcriptPath: null,
+			runtimeSessionId: null,
+			rateLimitedSince: null,
+			rateLimitResumesAt: null,
+			originalRuntime: null,
+			statusLine: null,
+			promptVersion: null,
+		});
+		sessionStore.close();
+		const store = createMissionStore(join(overstoryDir, "sessions.db"));
+		store.bindCoordinatorSession("m-007", "session-coord-original");
+		store.close();
+
+		await missionUpdate(overstoryDir, { slug: "renamed" });
+
+		const verify = createMissionStore(join(overstoryDir, "sessions.db"));
+		const verifySessions = createSessionStore(join(overstoryDir, "sessions.db"));
+		try {
+			expect(verify.getById("m-007")?.slug).toBe("renamed");
+			expect(verifySessions.getByName("coordinator-original")).toBeNull();
+			expect(verifySessions.getByName("coordinator-renamed")).not.toBeNull();
+		} finally {
+			verify.close();
+			verifySessions.close();
+		}
+	});
+
+	test("slug update works when no coordinator bound (assess mode)", async () => {
+		await setupMission("m-009", "original", "objective");
+		await missionUpdate(overstoryDir, { slug: "renamed" });
+
+		const verify = createMissionStore(join(overstoryDir, "sessions.db"));
+		try {
+			expect(verify.getById("m-009")?.slug).toBe("renamed");
+		} finally {
+			verify.close();
+		}
+	});
+
+	test("same-slug update is a no-op (no rename attempted)", async () => {
+		await setupMission("m-010", "same", "objective");
+		const store = createMissionStore(join(overstoryDir, "sessions.db"));
+		store.bindCoordinatorSession("m-010", "session-coord-same");
+		store.close();
+
+		await missionUpdate(overstoryDir, { slug: "same" });
+
+		const verify = createMissionStore(join(overstoryDir, "sessions.db"));
+		try {
+			expect(verify.getById("m-010")?.slug).toBe("same");
+		} finally {
+			verify.close();
+		}
+	});
 });

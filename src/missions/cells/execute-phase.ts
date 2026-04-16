@@ -214,8 +214,6 @@ function buildHandlers(deps: PhaseCellDeps): HandlerRegistry {
 			const mission = ctx.getMission();
 			if (!mission) return { trigger: "waiting" };
 
-			// Determine completion by checking lead session states.
-			// Each workstream has a lead agent parented to the ED.
 			const sessionStore = deps.sessionStore;
 			if (!sessionStore) return { trigger: "waiting" };
 
@@ -228,12 +226,26 @@ function buildHandlers(deps: PhaseCellDeps): HandlerRegistry {
 			// No leads dispatched yet — wait for dispatch
 			if (leadSessions.length === 0) return { trigger: "waiting" };
 
-			// Leads in waiting/completed/zombie are done (waiting = sent merge_ready,
-			// parent hasn't stopped them yet). Only working/booting/stalled are active.
+			// Lead state semantics are ambiguous: `waiting` can mean "dispatched
+			// sub-worker, dormant until they return" OR "sent merge_ready, awaiting
+			// parent stop". Disambiguate using merge_ready mail: a lead with NO
+			// post-dispatch merge_ready mail is still active even if state=waiting.
 			const activeStates = new Set(["working", "booting", "stalled"]);
-			const activeLeads = leadSessions.filter((s) => activeStates.has(s.state));
+			const mailStore = deps.mailStore;
+			const stillActive = leadSessions.filter((lead) => {
+				if (activeStates.has(lead.state)) return true;
+				if (lead.state === "waiting" && mailStore) {
+					// Check if lead has sent a merge_ready signal.
+					const outbox = mailStore.getAll({ from: lead.agentName });
+					const hasMergeReady = outbox.some(
+						(m) => m.type === "merge_ready" && m.createdAt >= lead.startedAt,
+					);
+					if (!hasMergeReady) return true; // truly still working
+				}
+				return false;
+			});
 
-			if (activeLeads.length === 0) {
+			if (stillActive.length === 0) {
 				// All dispatched leads are done.
 				// Full tier always has architect → needs post-merge architecture review.
 				if (mission.tier === "full") {

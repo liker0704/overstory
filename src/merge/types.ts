@@ -6,6 +6,9 @@ export interface MergeEntry {
 	branchName: string;
 	taskId: string;
 	missionId?: string | null;
+	/** Workstream this merge belongs to. When populated, the merge pipeline
+	 * updates `workstream_status` on success — the SSOT for gate evaluators. */
+	workstreamId?: string | null;
 	agentName: string;
 	filesModified: string[];
 	enqueuedAt: string;

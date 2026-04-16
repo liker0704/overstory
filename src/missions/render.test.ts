@@ -52,6 +52,7 @@ function makeMission(overrides: Partial<Mission> = {}): Mission {
 		createdAt: "2026-01-01T00:00:00.000Z",
 		updatedAt: "2026-01-02T00:00:00.000Z",
 		learningsExtracted: false,
+		hasEmittedWsProducerWrite: false,
 		tier: null,
 		...overrides,
 	};

@@ -116,7 +116,12 @@ export function createMissionCommand(): Command {
 		.option("--mission <id-or-slug>", "Target a specific mission")
 		.option("--json", "Output as JSON")
 		.action(
-			async (opts: { slug?: string; objective?: string; mission?: string; json?: boolean }) => {
+			async (opts: {
+				slug?: string;
+				objective?: string;
+				mission?: string;
+				json?: boolean;
+			}) => {
 				const cwd = process.cwd();
 				const config = await loadConfig(cwd);
 				const overstoryDir = join(config.project.root, ".overstory");
@@ -353,9 +358,7 @@ export function createMissionCommand(): Command {
 					mission = missionStore.getActive();
 				}
 				if (!mission) {
-					console.error(
-						opts.mission ? `Mission not found: ${opts.mission}` : "No active mission",
-					);
+					console.error(opts.mission ? `Mission not found: ${opts.mission}` : "No active mission");
 					process.exitCode = 1;
 					return;
 				}
@@ -408,12 +411,17 @@ export function createMissionCommand(): Command {
 		.option("--json", "JSON output")
 		.description("Mark a workstream as completed (operator escape hatch)")
 		.action(async (workstreamId: string, opts: { mission?: string; json?: boolean }) => {
-			const { createWorkstreamCompleteCommand } = await import(
-				"./mission-workstream-complete.ts"
-			);
+			const { createWorkstreamCompleteCommand } = await import("./mission-workstream-complete.ts");
 			// Delegate to the standalone command's action
 			const cmd = createWorkstreamCompleteCommand();
-			await cmd.parseAsync([workstreamId, ...(opts.mission ? ["--mission", opts.mission] : []), ...(opts.json ? ["--json"] : [])], { from: "user" });
+			await cmd.parseAsync(
+				[
+					workstreamId,
+					...(opts.mission ? ["--mission", opts.mission] : []),
+					...(opts.json ? ["--json"] : []),
+				],
+				{ from: "user" },
+			);
 		});
 
 	cmd.addCommand(createMissionTierCommand());
