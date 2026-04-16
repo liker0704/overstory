@@ -462,7 +462,7 @@ export async function evaluateSummaryReady(
 	return {
 		met: false,
 		nudgeTarget: `mission-analyst-${mission.slug}`,
-		nudgeMessage: "Produce final mission summary",
+		nudgeMessage: `[DONE PHASE] Write final mission summary to ${artifactRoot}/results/summary.md. Cover: objective, outcomes, shipped workstreams, known issues. Verify mission.phase === "done" before writing.`,
 	};
 }
 
