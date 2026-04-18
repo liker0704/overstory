@@ -395,11 +395,13 @@ export function evaluateDispatchPlanning(
 	// a plan-complete result. No explicit coordinator dispatch is needed when
 	// the analyst auto-transitions after research. gateEnteredAt filter deliberately
 	// skipped: if these signals exist at all, planning is underway.
+	// Subject match is strict ("plan complete" prefix) to avoid false-positive
+	// advances on noisy subjects like "Plan obsolete" or "Planning canceled".
 	const analystOutbox = mailStore.getAll({ from: analystName });
 	const planningActive = analystOutbox.some(
 		(m) =>
 			m.to === "plan-review-lead" ||
-			(m.type === "result" && (m.subject ?? "").toLowerCase().includes("plan")),
+			(m.type === "result" && (m.subject ?? "").toLowerCase().startsWith("plan complete")),
 	);
 	if (planningActive) {
 		return { met: true, trigger: "planning_started" };
