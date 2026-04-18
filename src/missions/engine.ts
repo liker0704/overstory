@@ -135,6 +135,18 @@ export function createGraphEngine(opts: GraphEngineOpts): GraphEngine {
 		opts.missionStore?.updateCurrentNode(opts.missionId, edge.to);
 		state.currentNodeId = edge.to;
 
+		// Reset gate state on loop-back: if the destination is a gate node other than
+		// the origin, its stale resolved_at would filter out post-entry signals and
+		// cause the evaluator to return met:false indefinitely (BUG-E).
+		const destNode = nodeMap.get(edge.to);
+		if (
+			destNode &&
+			edge.to !== fromNodeId &&
+			(destNode.gate === "async" || destNode.gate === "human")
+		) {
+			opts.missionStore?.resetGateState(opts.missionId, edge.to);
+		}
+
 		return { status: "advanced", fromNodeId, toNodeId: edge.to, trigger };
 	};
 

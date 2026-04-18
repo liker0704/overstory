@@ -228,6 +228,7 @@ export function createMockMissionStore(): MissionStore & { currentNode: string |
 			ceiling_emitted_at: null,
 		}),
 		incrementNudgeCount: noop,
+		resetGateState: noop,
 		markCeilingEmitted: noop,
 		resolveGate: noop,
 		updateTier: noop as unknown as MissionStore["updateTier"],
