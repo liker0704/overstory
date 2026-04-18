@@ -355,12 +355,33 @@ async function handleBranch(
 }
 
 /**
+ * Open a sessions.db handle configured for concurrent writes. Caller owns
+ * close(). Used by the ov-merge producer path — shared by recordWorkstreamMerge
+ * so `ov merge --all` does not open/close a fresh handle per entry.
+ */
+function openSessionsDbForWrite(overstoryDir: string): import("bun:sqlite").Database {
+	// biome-ignore lint/style/useNodejsImportProtocol: bun:sqlite is Bun-specific
+	const { Database } = require("bun:sqlite") as typeof import("bun:sqlite");
+	const db = new Database(`${overstoryDir}/sessions.db`);
+	db.exec("PRAGMA journal_mode=WAL");
+	db.exec("PRAGMA busy_timeout=5000");
+	return db;
+}
+
+/**
  * Record that a workstream has merged so gate evaluators advance the execute
  * phase correctly. Silently warns when `workstreamId` is absent (see Round 2
  * plan §BUG-A) — missed producer wiring surfaces in stderr rather than
  * silently skipping the SSOT update.
+ *
+ * Callers running in a loop (e.g. `ov merge --all`) SHOULD pass a pre-opened
+ * `db` handle to avoid repeated open/close cycles.
  */
-async function recordWorkstreamMerge(entry: MergeEntry, overstoryDir: string): Promise<void> {
+async function recordWorkstreamMerge(
+	entry: MergeEntry,
+	overstoryDir: string,
+	db?: import("bun:sqlite").Database,
+): Promise<void> {
 	if (!entry.missionId) return;
 	if (!entry.workstreamId) {
 		process.stderr.write(
@@ -373,22 +394,21 @@ async function recordWorkstreamMerge(entry: MergeEntry, overstoryDir: string): P
 	// half-applied state (e.g., sticky flag flipped but status row missing → future
 	// fallback misfires).
 	try {
-		const { Database } = await import("bun:sqlite");
 		const { updateWorkstreamStatus } = await import("../missions/workstreams.ts");
-		const dbPath = `${overstoryDir}/sessions.db`;
-		const db = new Database(dbPath);
+		const ownDb = db ?? openSessionsDbForWrite(overstoryDir);
 		try {
-			db.exec("PRAGMA journal_mode=WAL");
-			db.exec("PRAGMA busy_timeout=5000");
-			const tx = db.transaction((m: string, ws: string) => {
-				updateWorkstreamStatus(db, m, ws, "merged", "engine");
-				db.prepare(
-					"UPDATE missions SET has_emitted_ws_producer_write = 1, updated_at = ? WHERE id = ?",
-				).run(new Date().toISOString(), m);
+			const tx = ownDb.transaction((m: string, ws: string) => {
+				updateWorkstreamStatus(ownDb, m, ws, "merged", "engine");
+				ownDb
+					.prepare(
+						"UPDATE missions SET has_emitted_ws_producer_write = 1, updated_at = ? WHERE id = ?",
+					)
+					.run(new Date().toISOString(), m);
 			});
 			tx(entry.missionId, entry.workstreamId);
 		} finally {
-			db.close();
+			// Only close if we opened it ourselves; caller-owned handles stay open.
+			if (!db) ownDb.close();
 		}
 	} catch (err) {
 		process.stderr.write(`[merge] workstream_status update failed: ${String(err)}\n`);
@@ -442,51 +462,60 @@ async function handleAll(
 	let successCount = 0;
 	let failCount = 0;
 
-	for (const entry of pendingEntries) {
-		// Run compat gate before tier-1 merge (shared surfaceCache across all entries)
-		const gateDecision = await runCompatGate(repoRoot, entry, canonicalBranch, compatConfig, {
-			surfaceCache,
-			eventsDbPath,
-		});
+	// Shared sessions.db handle for recordWorkstreamMerge across the loop.
+	// Avoids N open/close cycles per `ov merge --all` invocation.
+	const overstoryDir = join(config.project.root, ".overstory");
+	const sharedDb = openSessionsDbForWrite(overstoryDir);
 
-		if (gateDecision.action !== "admit") {
-			const sanitizedBranch = entry.branchName.replace(/\//g, "-");
-			if (!sanitizedBranch.includes("..")) {
-				const reportDir = join(repoRoot, ".overstory", "compat-reports");
-				await mkdir(reportDir, { recursive: true });
-				const reportPath = join(reportDir, `${sanitizedBranch}.md`);
-				await Bun.write(reportPath, formatCompatReport(gateDecision.result));
-				queue.updateStatus(entry.branchName, "compat_failed");
-				queue.updateCompatReportPath(entry.branchName, reportPath);
+	try {
+		for (const entry of pendingEntries) {
+			// Run compat gate before tier-1 merge (shared surfaceCache across all entries)
+			const gateDecision = await runCompatGate(repoRoot, entry, canonicalBranch, compatConfig, {
+				surfaceCache,
+				eventsDbPath,
+			});
+
+			if (gateDecision.action !== "admit") {
+				const sanitizedBranch = entry.branchName.replace(/\//g, "-");
+				if (!sanitizedBranch.includes("..")) {
+					const reportDir = join(repoRoot, ".overstory", "compat-reports");
+					await mkdir(reportDir, { recursive: true });
+					const reportPath = join(reportDir, `${sanitizedBranch}.md`);
+					await Bun.write(reportPath, formatCompatReport(gateDecision.result));
+					queue.updateStatus(entry.branchName, "compat_failed");
+					queue.updateCompatReportPath(entry.branchName, reportPath);
+				}
+				failCount++;
+				if (!json) {
+					process.stdout.write(
+						`Compat gate: ${gateDecision.action} — ${gateDecision.reason} (${entry.branchName})\n\n`,
+					);
+				}
+				continue;
 			}
-			failCount++;
+
+			const result = await resolver.resolve(entry, canonicalBranch, repoRoot);
+
+			queue.updateStatus(entry.branchName, result.success ? "merged" : "conflict", result.tier);
+
+			if (result.success) {
+				await recordWorkstreamMerge(entry, overstoryDir, sharedDb);
+			}
+
+			results.push(result);
+
+			if (result.success) {
+				successCount++;
+			} else {
+				failCount++;
+			}
+
 			if (!json) {
-				process.stdout.write(
-					`Compat gate: ${gateDecision.action} — ${gateDecision.reason} (${entry.branchName})\n\n`,
-				);
+				process.stdout.write(`${formatResult(result)}\n\n`);
 			}
-			continue;
 		}
-
-		const result = await resolver.resolve(entry, canonicalBranch, repoRoot);
-
-		queue.updateStatus(entry.branchName, result.success ? "merged" : "conflict", result.tier);
-
-		if (result.success) {
-			await recordWorkstreamMerge(entry, join(config.project.root, ".overstory"));
-		}
-
-		results.push(result);
-
-		if (result.success) {
-			successCount++;
-		} else {
-			failCount++;
-		}
-
-		if (!json) {
-			process.stdout.write(`${formatResult(result)}\n\n`);
-		}
+	} finally {
+		sharedDb.close();
 	}
 
 	if (json) {

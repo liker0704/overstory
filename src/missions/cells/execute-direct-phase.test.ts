@@ -23,22 +23,26 @@ describe("execute-direct-phase merge-all handler", () => {
 	const handlers = executeDirectPhaseCell.buildHandlers(makeDeps());
 
 	test("allDone=true → trigger=all_merged", async () => {
-		const result = await handlers["merge-all"](makeCtx({ allDone: true }));
+		// biome-ignore lint/style/noNonNullAssertion: registry known to contain merge-all
+		const result = await handlers["merge-all"]!(makeCtx({ allDone: true }));
 		expect(result.trigger).toBe("all_merged");
 	});
 
 	test("morePending=true → trigger=more_leads", async () => {
-		const result = await handlers["merge-all"](makeCtx({ morePending: true }));
+		// biome-ignore lint/style/noNonNullAssertion: registry known to contain merge-all
+		const result = await handlers["merge-all"]!(makeCtx({ morePending: true }));
 		expect(result.trigger).toBe("more_leads");
 	});
 
 	test("no checkpoint signal → defaults to all_merged (prevents BUG-E loop)", async () => {
-		const result = await handlers["merge-all"](makeCtx(null));
+		// biome-ignore lint/style/noNonNullAssertion: registry known to contain merge-all
+		const result = await handlers["merge-all"]!(makeCtx(null));
 		expect(result.trigger).toBe("all_merged");
 	});
 
 	test("empty checkpoint object → defaults to all_merged", async () => {
-		const result = await handlers["merge-all"](makeCtx({}));
+		// biome-ignore lint/style/noNonNullAssertion: registry known to contain merge-all
+		const result = await handlers["merge-all"]!(makeCtx({}));
 		expect(result.trigger).toBe("all_merged");
 	});
 });
