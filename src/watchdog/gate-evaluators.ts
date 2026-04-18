@@ -371,7 +371,8 @@ export function evaluateArchFinal(
 	};
 }
 
-/** Check if coordinator has dispatched analyst for planning. */
+/** Check if planning has started — either coordinator dispatched analyst, or
+ * analyst self-transitioned (spawned plan-review-lead or delivered the plan). */
 export function evaluateDispatchPlanning(
 	mission: Mission,
 	mailStore: MailStore | null,
@@ -380,13 +381,30 @@ export function evaluateDispatchPlanning(
 	if (!mailStore) return { met: false };
 
 	const analystName = `mission-analyst-${mission.slug}`;
-	const msgs = mailStore.getAll({ to: analystName });
-	const hasDispatch = msgs.some(
+
+	// Path 1: coordinator explicitly dispatched planning to analyst after gate entry.
+	const analystInbox = mailStore.getAll({ to: analystName });
+	const hasDispatch = analystInbox.some(
 		(m) => m.type === "dispatch" && (!gateEnteredAt || m.createdAt >= gateEnteredAt),
 	);
 	if (hasDispatch) {
 		return { met: true, trigger: "planning_started" };
 	}
+
+	// Path 2: analyst already in planning — spawned plan-review-lead or delivered
+	// a plan-complete result. No explicit coordinator dispatch is needed when
+	// the analyst auto-transitions after research. gateEnteredAt filter deliberately
+	// skipped: if these signals exist at all, planning is underway.
+	const analystOutbox = mailStore.getAll({ from: analystName });
+	const planningActive = analystOutbox.some(
+		(m) =>
+			m.to === "plan-review-lead" ||
+			(m.type === "result" && (m.subject ?? "").toLowerCase().includes("plan")),
+	);
+	if (planningActive) {
+		return { met: true, trigger: "planning_started" };
+	}
+
 	return {
 		met: false,
 		nudgeTarget: `coordinator-${mission.slug}`,
