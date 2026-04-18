@@ -93,7 +93,12 @@ function buildHandlers(_deps: PhaseCellDeps): HandlerRegistry {
 
 			if (data?.allDone) return { trigger: "all_merged" };
 			if (data?.morePending) return { trigger: "more_leads" };
-			return { trigger: "more_leads" };
+			// Default to all_merged: without an explicit morePending signal there are no
+			// known outstanding leads. Returning more_leads here caused infinite loops
+			// (back to await-leads-done) because nothing in the pipeline ever sets the
+			// checkpoint. If a multi-lead flow needs to re-dispatch, the coordinator or
+			// a gate evaluator must set morePending=true via a checkpoint write.
+			return { trigger: "all_merged" };
 		},
 	};
 }
