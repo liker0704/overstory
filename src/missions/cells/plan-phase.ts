@@ -26,7 +26,7 @@ function buildSubgraph(_config: PhaseCellConfig): MissionGraph {
 				id: `${CELL_TYPE}:dispatch-planning`,
 				cellType: CELL_TYPE,
 				gate: "async",
-				gateTimeout: 120,
+				gateTimeout: 3600,
 			},
 			{
 				kind: "cell",

@@ -10,6 +10,7 @@ import {
 	evaluateArchitectDesign,
 	evaluateAwaitPlan,
 	evaluateAwaitResearch,
+	evaluateDispatchPlanning,
 	evaluateGate,
 	evaluateUnderstandReady,
 	evaluateWsCompletion,
@@ -401,6 +402,62 @@ describe("evaluateWsCompletion", () => {
 		} finally {
 			await rm(tempDir, { recursive: true, force: true });
 		}
+	});
+});
+
+describe("evaluateDispatchPlanning", () => {
+	it("coordinator dispatch to analyst after gate entry → met:true", () => {
+		const mission = makeMission({ slug: "test" });
+		const mailStore = createTestMailStore([
+			{
+				from: "coordinator-test",
+				to: "mission-analyst-test",
+				type: "dispatch",
+				subject: "Planning phase",
+				createdAt: "2026-04-18T10:05:00.000Z",
+			},
+		]);
+		const result = evaluateDispatchPlanning(mission, mailStore, "2026-04-18T10:00:00.000Z");
+		expect(result.met).toBe(true);
+		expect(result.trigger).toBe("planning_started");
+	});
+
+	it("analyst dispatched plan-review-lead → met:true (self-transition)", () => {
+		const mission = makeMission({ slug: "test" });
+		const mailStore = createTestMailStore([
+			{
+				from: "mission-analyst-test",
+				to: "plan-review-lead",
+				type: "dispatch",
+				subject: "Plan review request: test",
+				createdAt: "2026-04-18T10:01:00.000Z",
+			},
+		]);
+		const result = evaluateDispatchPlanning(mission, mailStore, "2026-04-18T10:03:00.000Z");
+		expect(result.met).toBe(true);
+		expect(result.trigger).toBe("planning_started");
+	});
+
+	it("analyst sent Plan complete result → met:true", () => {
+		const mission = makeMission({ slug: "test" });
+		const mailStore = createTestMailStore([
+			{
+				from: "mission-analyst-test",
+				to: "coordinator-test",
+				type: "result",
+				subject: "Plan complete: 2 workstreams",
+			},
+		]);
+		const result = evaluateDispatchPlanning(mission, mailStore);
+		expect(result.met).toBe(true);
+	});
+
+	it("no signals → met:false, nudge coordinator", () => {
+		const mission = makeMission({ slug: "test" });
+		const mailStore = createTestMailStore([]);
+		const result = evaluateDispatchPlanning(mission, mailStore);
+		expect(result.met).toBe(false);
+		expect(result.nudgeTarget).toBe("coordinator-test");
 	});
 });
 
